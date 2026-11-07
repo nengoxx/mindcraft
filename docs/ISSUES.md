@@ -20,7 +20,7 @@ was performed by the migration worker.
 | Command mentions (C12) | The unrestricted regex matched a backticked command name in prose, causing arity rejection and another inference. Deployed `4fd27e5` shares quote/code-aware matching across detection, parsing, truncation and display offsets. Offline checks and a live quoted owner/model exchange passed without execution or retry inference. Literal commands and inline prefaces remain supported; mentions must be quoted/backticked, since bare prose intent remains ambiguous. |
 | Site discovery (C13) | Autonomous trial repeatedly found no site and guessed rejected origins. Independently reproduced: the nearest-1,000-air cap can hide a valid site within the advertised range. Search now applies complete footprint validation before Mineflayer's result limit, with an early ground check; obstruction/support rules are unchanged. Offline valid/blocked/unloaded checks pass. This does not establish that a valid site existed at the trial's positions. |
 | Generated action feedback (C14) | A five-minute terrain-preparation timeout returned null to the command loop; partial physical work was absent from history. The generated-action wrapper discarded ActionManager's output. It now preserves interrupted observations in history without continuing during defense/stop, and returns available output after timeout. Actual-method interruption/timeout/success regressions pass; model recovery still needs live qualification. |
-| Biome grounding (C15) | The second house trial reported `end_barrens` in the overworld and repeatedly reported `frozen_ocean` amid wooded terrain. The observer indexed chunk biome IDs through static minecraft-data instead of the server registry. A regression using the installed registry decoder reproduces wrong labels for remapped and custom biomes. `world.getBiomeName` now uses `bot.registry.biomes`; unknown IDs/unloaded positions return Unknown. Construction reliability and the effect of correcting these labels remain unqualified. |
+| Biome grounding (C15) | The second house trial reported `end_barrens` in the overworld and repeatedly reported `frozen_ocean` amid wooded terrain. The observer indexed chunk biome IDs through static minecraft-data instead of the server registry. A regression using the installed registry decoder reproduces wrong labels for remapped/custom biomes. Deployed `5459fbe` uses `bot.registry.biomes`; unknown IDs/unloaded positions return Unknown. At identical live coordinates, the old label was frozen_ocean and the corrected label forest. No house trial has yet run with this fix. |
 | Operations | Foreground lifetime is intentional. Remote sessions may lose children when disconnected; no unattended service/keepalive guarantee. A compatible server or LAN world is connection configuration, not a hosting-specific architecture. |
 
 Task `!stop` ends the persistent goal/action and invalidates pending conversational
@@ -44,3 +44,11 @@ to movement/grass-underfoot searches. The supervisor ended it after 18m22s for
 recurrent nonprogress. Physical terrain clearing occurred; no house blocks were
 verified. C13/C14 are narrow harness corrections motivated by that run, not a new
 planner or proof of model competence.
+
+The second trial, with C13/C14 deployed as `924eb2a`, lasted 7m01s and again
+produced no verified house blocks. It repeated grass searches and rejected guessed
+origins, with defense/navigation interruptions and the C15 observation defect.
+Only the initial objective and terminal stop came from the supervisor in either
+trial. The model/profile/backend stayed unchanged. All 33 focused regressions
+pass; the live task is stopped. Next assess construction with corrected biome
+observations before claiming a capability gain or selecting further changes.

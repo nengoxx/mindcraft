@@ -63,3 +63,11 @@ misleading biome observations: the static version table was used for server
 registry IDs (C15). The observer now uses the negotiated registry, with regression
 coverage for remapped/custom/unknown biomes. Runtime receipts own live validation;
 do not infer construction competence from these harness corrections.
+
+Current executable commit is `5459fbe` (including C13/C14 `924eb2a`); deployed by
+agent-only restarts. The second house trial was stopped after 7m01s with no verified
+house blocks. After the final reload, read-only status at identical coordinates
+changed from the incorrect frozen_ocean label to forest. All 33 focused checks pass.
+There has been no house trial with the biome fix. Amaia is connected and the task
+is stopped; do not resume either failed trial from memory. The three code commits
+are local on develop and have not been pushed in this continuation.
