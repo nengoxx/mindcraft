@@ -1,5 +1,62 @@
 # Maintained Mindcraft fork
 
+## Clean-session entry: continue refining this Mindcraft fork
+
+This repository and handoff cover the maintained Mindcraft source fork only.
+The owner requested a clean-session handoff for its remaining improvements.
+Broader framework choices are a separate discussion, not a migration or architecture
+review task for this checkout. No new gameplay is queued by these notes.
+
+Acceptance is a **functional shelter**, unless the owner explicitly asks for
+precision: a usable floor, protective walls/roof, accessible door/entrance and
+standing room. Furniture can wait. Imperfect appearance, mixed materials and
+adaptation to terrain are acceptable. Modest vegetation clearing and terrain
+adjustment are permitted by default within the requested task; preserve existing
+player builds, tower and containers. Exact catalog geometry and a perfectly flat
+7x7 clearing are implementation choices, not owner requirements. The existing
+templates/validators do not yet implement this broader acceptance automatically.
+
+Qwen is the sole gameplay planner/orchestrator. Developer work observes and
+improves the harness between trials; no mid-task plans, coordinates, material
+lists or rescue. Intervene only for a critical problem or terminal stop after
+demonstrated nonprogress. Priorities: coherent useful completion, then efficient
+native batches, using the leanest sufficient solution.
+
+Deployed executable baseline: `e67b290`, including C16 `457dc0a`. Forty focused
+regressions and the operator runtime-method check passed. C17 has no subsequent
+house trial. Four recent house trials failed; the last left partial construction.
+The persistent goal generally survived combat; unreliable working detail, summary
+truncation/semantic errors, design switching, generated-code drift and physical
+execution defects must be assessed separately. Memory is not a proved sole cause.
+
+Next session:
+
+1. Read this file, `ISSUES.md`, `CHANGES.md` and the installed private
+   `runtime/diagnostics/HANDOFF.md`; verify Git/runtime state without launching a
+   duplicate bot or reviving stopped work. The private record owns operator paths,
+   deployment receipts, trial evidence and partial-build coordinates.
+2. Assess the C17 code-repair correction in the next authorized live trial. Do not
+   infer improved model behavior from its offline regression alone.
+3. Investigate loss of current working detail through `history.js` summaries and
+   prompt assembly, and inconsistent generated-design/catalog retries. Consider
+   the smallest native change that preserves chosen site/design, verified changes,
+   rejected sites and remaining work against fresh observations. No new planner
+   or task-state implementation has been selected; Qwen remains the decision maker.
+4. Judge future construction by functional shelter criteria. Investigate why
+   existing site/build behavior demands flat template space and whether small
+   terrain preparation or adaptation can use existing native mechanics. Do not
+   replace observed failures with an untested custom building controller.
+5. Keep tests tied to reproduced causes, then repeat uncoached completion/recovery
+   trials. Record outcomes, partial world changes, time and interventions. Retain
+   the same local model/backend unless the owner changes that constraint.
+
+Suggested new-session opening: “Continue refining this Mindcraft fork. Read
+ docs/HANDOFF.md and runtime/diagnostics/HANDOFF.md, preserve the existing connection
+ and stopped state, then investigate the pending reliability improvements using
+ the functional-shelter criteria. Qwen alone orchestrates any authorized gameplay.”
+
+## Prior implementation and qualification record
+
 This checkout is Mindcraft only. It preserves the upstream repository history,
 layout and default configuration while carrying a reviewed local compatibility
 and behavior patch set. Broader comparisons with other Minecraft frameworks are
