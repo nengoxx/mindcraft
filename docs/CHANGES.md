@@ -90,3 +90,8 @@ Run both focused suites with
 The first uncoached house trial remains incomplete; see C13/C14 and the qualification
 limits in ISSUES. No model, profile, timeout, planner or backend change accompanied
 these fixes.
+
+`library/world.js` also resolves biome IDs through Mineflayer's negotiated server
+registry, rather than static minecraft-data. Loaded registry IDs can be remapped
+or custom; the old lookup supplied misleading environment labels to the model
+and status UI. Tests exercise the installed registry decoder and missing data.

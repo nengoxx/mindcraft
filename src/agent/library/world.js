@@ -426,6 +426,10 @@ export function getBiomeName(bot) {
      * @example
      * let biome = world.getBiomeName(bot);
      **/
-    const biomeId = bot.world.getBiome(bot.entity.position);
-    return mc.getAllBiomes()[biomeId].name;
+    const position = bot.entity.position;
+    if (!bot.blockAt(position)) return 'Unknown';
+    const biomeId = bot.world.getBiome(position);
+    // Chunk biome IDs belong to the server's negotiated registry, which may
+    // differ from minecraft-data's static version table (including datapacks).
+    return bot.registry.biomes[biomeId]?.name ?? 'Unknown';
 }

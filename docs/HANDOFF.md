@@ -57,3 +57,9 @@ fixes: site filtering before the search result limit (C13), and retaining genera
 action partial output on interruption/timeout (C14). Offline regressions pass;
 the runtime handoff records deployment and subsequent trial status. Neither fix
 constitutes a completed-house or general reliability qualification.
+
+A second uncoached trial also failed to establish a site or house. It exposed
+misleading biome observations: the static version table was used for server
+registry IDs (C15). The observer now uses the negotiated registry, with regression
+coverage for remapped/custom/unknown biomes. Runtime receipts own live validation;
+do not infer construction competence from these harness corrections.
