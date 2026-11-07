@@ -73,8 +73,18 @@ export const actionsList = [
                     result = 'Error generating code: ' + e.toString();
                 }
             };
-            await agent.actions.runAction('action:newAction', actionFn, {timeout: settings.code_timeout_mins});
-            return result;
+            const code_return = await agent.actions.runAction('action:newAction', actionFn, {timeout: settings.code_timeout_mins});
+            const output = result || code_return.message;
+            // As with native actions, retain observations during stop/defense
+            // without continuing the command loop while interrupted.
+            if (code_return.interrupted && !code_return.timedout) {
+                if (output) {
+                    await agent.history.add('system', output);
+                    await agent.history.save();
+                }
+                return;
+            }
+            return output;
         }
     },
     {

@@ -38,11 +38,22 @@ separate Git worktrees, not the same working tree. Each worktree has its own
 ignored runtime; do not duplicate a live bot or copy private state into commits.
 No global Codex/provider configuration or repository instruction file is required.
 
-The C09/C12 investigation produced local source candidates and offline regressions
-(see changes/issues). Crafting now supplies explicit observed before/after counts;
-quoted command mentions are excluded from parsing. These changes are not deployed:
-the existing connection was preserved. The next qualification is a separately
-authorized reload and controlled model/game trial, checking the report against
-independent pre/post inventory evidence. Hut construction, semantic memory and
-broader autonomous task coherence remain open; preserve model-versus-executor
-distinctions.
+The C09/C12 changes are committed as `4fd27e5` and deployed by an authorized
+agent-only restart. Crafting supplies observed before/after counts; quoted command
+mentions are excluded from parsing. Offline regressions and one guided live craft
+report/quoted-mention exchange passed. Broader truthfulness remains open.
+
+The owner then authorized a fresh autonomous small-house trial. Qwen is the sole
+in-game orchestrator: one natural-language objective, no supervisor build plan,
+coordinates, material list or mid-task steering. Only critical problems or a
+demonstrated stall justify stopping the trial. Observe and improve the harness
+between trials; do not count supervisor gameplay as model competence. See the
+private runtime handoff for the live trial state and evidence. Hut construction,
+semantic memory and broader task coherence remain open.
+
+The first such trial was stopped incomplete after recurrent movement/search
+following a terrain-preparation timeout. It motivated two reproduced harness
+fixes: site filtering before the search result limit (C13), and retaining generated
+action partial output on interruption/timeout (C14). Offline regressions pass;
+the runtime handoff records deployment and subsequent trial status. Neither fix
+constitutes a completed-house or general reliability qualification.

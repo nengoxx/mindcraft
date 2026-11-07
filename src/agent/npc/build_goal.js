@@ -87,10 +87,18 @@ export function checkStructureSite(bot, goal, position, orientation=0, furnished
 }
 
 export function findStructureSite(bot, goal, furnished=true, orientation=0, distance=16) {
-    const info = getStructureInfo(goal, furnished, orientation);
-    const suggested = world.getNearestFreeSpace(bot, Math.max(info.dimensions.x, info.dimensions.z), distance);
-    const candidates = bot.findBlocks({matching: block => block && block.name === 'air', maxDistance: distance, count: 1000});
-    if (suggested) candidates.unshift(suggested);
+    // Filter complete sites before Mineflayer applies its result count. Limiting
+    // raw air cells lets nearby airborne cells hide valid ground farther away.
+    const candidates = bot.findBlocks({
+        matching: block => block && block.name === 'air',
+        useExtraInfo: block => {
+            const ground = bot.blockAt(block.position.offset(0, -1, 0));
+            return ground?.boundingBox === 'block' &&
+                checkStructureSite(bot, goal, block.position, orientation, furnished).valid;
+        },
+        maxDistance: distance,
+        count: 1,
+    });
     for (const position of candidates) {
         const site = checkStructureSite(bot, goal, position, orientation, furnished);
         if (site.valid) return {position, orientation, ...site};

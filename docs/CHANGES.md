@@ -53,12 +53,15 @@ root defaults remain 5. The reviewed query-extraction candidate was not selected
 or carried. Configuration changes require a full Stop/Start to refresh cached
 MindServer settings unless the runtime setting is explicitly updated too.
 
-Local C09/C12 source candidates (not deployed): `library/skills.js` records
+C09/C12 changes deployed as `4fd27e5`: `library/skills.js` records
 craft input/output inventory immediately before and after the native craft call,
 including failures, instead of reporting final possession as crafting success.
 `commands/index.js` skips quoted/code mentions while retaining bare inline
 commands; `agent.js` uses the matching command's offset for display/translation.
-The source changes do not restart components or change model/profile settings.
+An authorized agent-only restart loaded these changes; main app, proxy and
+model/profile settings were retained. A guided live craft report and quoted
+owner/model command mention passed. These are narrow checks, not a general
+autonomous construction or reliability qualification.
 
 Focused offline regression check, using Node 22 with installed dependencies:
 
@@ -71,3 +74,19 @@ message-handler, crafting and action-manager methods, and makes no game/model
 connection. It covers quote/code mentions, deliberate commands, pre-existing
 stock, limited batches, no observed change and partial changes on failure.
 Model truthfulness and server inventory durability still need separate evidence.
+
+Subsequent autonomous house testing exposed two additional seams:
+
+- `npc/build_goal.js`: qualify complete sites through Mineflayer's
+  `useExtraInfo` filter before applying the result count. Nearby air cells can no
+  longer consume the candidate budget before supported sites are considered.
+  The existing footprint validator still decides validity; no terrain is changed.
+- `commands/actions.js`: preserve generated-action partial output on interruption
+  and timeout, matching native actions' interrupted-history behavior. Qwen still
+  decides how to recover; successful code/result reports remain unchanged.
+
+Run both focused suites with
+`node --experimental-test-module-mocks --test tests/*.test.mjs`.
+The first uncoached house trial remains incomplete; see C13/C14 and the qualification
+limits in ISSUES. No model, profile, timeout, planner or backend change accompanied
+these fixes.

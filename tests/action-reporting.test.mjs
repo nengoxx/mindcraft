@@ -166,3 +166,50 @@ test('failed craft preserves observed partial changes and propagates the error',
     assert.match(agent.bot.output, /dark_oak_log: 13 -> 12 \(net -1\)/);
     assert.doesNotMatch(agent.bot.output, /Craft call returned|Successfully crafted/);
 });
+
+for (const timedout of [false, true]) {
+    test(`generated action retains partial output on ${timedout ? 'timeout' : 'interruption'}`, async () => {
+        setSettings({ language: 'en', allow_insecure_coding: true, code_timeout_mins: -1 });
+        const agent = fixture();
+        const turns = [];
+        agent.history = { async add(role, content) { turns.push({role, content}); }, async save() {} };
+        agent.coder = { async generateCode() {
+            agent.bot.output = 'Broke oak_log at x:10, y:64, z:10.\n';
+            agent.bot.interrupt_code = true;
+            agent.actions.timedout = timedout;
+            return null;
+        } };
+        const output = await commands.executeCommand(agent, '!newAction("Prepare site")');
+        if (timedout) {
+            assert.match(output, /Action interrupted[\s\S]*Broke oak_log/);
+        } else {
+            assert.equal(Boolean(output), false); // No immediate command-loop continuation during defense/stop.
+            assert.equal(turns.length, 1);
+            assert.equal(turns[0].role, 'system');
+            assert.match(turns[0].content, /Action interrupted[\s\S]*Broke oak_log/);
+        }
+    });
+}
+
+test('successful generated action keeps its existing code/result report', async () => {
+    setSettings({ language: 'en', allow_insecure_coding: true, code_timeout_mins: -1 });
+    const agent = fixture();
+    agent.coder = { async generateCode() { return 'Agent wrote this code: fixture. Code Output: verified fixture.'; } };
+    assert.equal(await commands.executeCommand(agent, '!newAction("fixture")'),
+        'Agent wrote this code: fixture. Code Output: verified fixture.');
+});
+
+test('cooperative interruption retains the report already consumed by Coder', async () => {
+    setSettings({ language: 'en', allow_insecure_coding: true, code_timeout_mins: -1 });
+    const agent = fixture();
+    const turns = [];
+    const partial = 'Agent wrote this code: fixture. Code Output: Action interrupted. Broke oak_log.';
+    agent.history = { async add(role, content) { turns.push({role, content}); }, async save() {} };
+    agent.coder = { async generateCode() {
+        agent.bot.interrupt_code = true;
+        agent.bot.output = ''; // Coder has already consumed it into its report.
+        return partial;
+    } };
+    assert.equal(await commands.executeCommand(agent, '!newAction("fixture")'), undefined);
+    assert.deepEqual(turns, [{role: 'system', content: partial}]);
+});
