@@ -20,7 +20,7 @@ was performed by the migration worker.
 | Command mentions (C12) | The unrestricted regex matched a backticked command name in prose, causing arity rejection and another inference. Deployed `4fd27e5` shares quote/code-aware matching across detection, parsing, truncation and display offsets. Offline checks and a live quoted owner/model exchange passed without execution or retry inference. Literal commands and inline prefaces remain supported; mentions must be quoted/backticked, since bare prose intent remains ambiguous. |
 | Site discovery (C13) | Autonomous trial repeatedly found no site and guessed rejected origins. Independently reproduced: the nearest-1,000-air cap can hide a valid site within the advertised range. Search now applies complete footprint validation before Mineflayer's result limit, with an early ground check; obstruction/support rules are unchanged. Offline valid/blocked/unloaded checks pass. This does not establish that a valid site existed at the trial's positions. |
 | Generated action feedback (C14) | A five-minute terrain-preparation timeout returned null to the command loop; partial physical work was absent from history. The generated-action wrapper discarded ActionManager's output. It now preserves interrupted observations in history without continuing during defense/stop, and returns available output after timeout. Actual-method interruption/timeout/success regressions pass; model recovery still needs live qualification. |
-| Biome grounding (C15) | The second house trial reported `end_barrens` in the overworld and repeatedly reported `frozen_ocean` amid wooded terrain. The observer indexed chunk biome IDs through static minecraft-data instead of the server registry. A regression using the installed registry decoder reproduces wrong labels for remapped/custom biomes. Deployed `5459fbe` uses `bot.registry.biomes`; unknown IDs/unloaded positions return Unknown. At identical live coordinates, the old label was frozen_ocean and the corrected label forest. No house trial has yet run with this fix. |
+| Biome grounding (C15) | The second house trial reported `end_barrens` in the overworld and repeatedly reported `frozen_ocean` amid wooded terrain. The observer indexed chunk biome IDs through static minecraft-data instead of the server registry. A regression using the installed registry decoder reproduces wrong labels for remapped/custom biomes. Deployed `5459fbe` uses `bot.registry.biomes`; unknown IDs/unloaded positions return Unknown. At identical live coordinates, the old label was frozen_ocean and the corrected label forest. Subsequent trials with this fix remained incomplete; see the later results below. |
 | Operations | Foreground lifetime is intentional. Remote sessions may lose children when disconnected; no unattended service/keepalive guarantee. A compatible server or LAN world is connection configuration, not a hosting-specific architecture. |
 
 C16: a third trial with C15 fixed stopped incomplete after 6m34s. Three build
@@ -67,3 +67,29 @@ Only the initial objective and terminal stop came from the supervisor in either
 trial. The model/profile/backend stayed unchanged. All 33 focused regressions
 pass; the live task is stopped. Next assess construction with corrected biome
 observations before claiming a capability gain or selecting further changes.
+
+
+The fourth uncoached trial on C16 (`457dc0a`) stopped after 13m30s. Generated site
+preparation drifted through two lint failures into a larger manual design. Real
+partial floor/log placement occurred, then its chosen wood type ran out. Its own
+weak verification reported 61 missing cells/no door; that is not full independent
+geometry verification. Qwen freed inventory space, collected logs and crafted
+40 planks, but resumed the different catalog template. The new result identified
+a grass obstruction at (-2433,90,-149), requiring air. Qwen abandoned the partial
+build and travelled through three remembered locations without fresh site evidence.
+Only initial objective and terminal stop were supplied; same local model/profile.
+
+C17: lint retries omitted the rejected assistant code while passing diagnostic
+excerpts. This is independently reproduced through actual generation/ESLint
+methods and fixed by retaining the candidate, matching runtime-error retries.
+Scope drift remains a model observation, not a proved consequence of this defect.
+The first live C16 rejection also crossed the existing 500-character output limit
+(515 characters), splitting JSON. Shorter wording fixes that observed case, tested
+through the actual command/ActionManager. All 40 focused checks and runtime-method
+checks pass; no subsequent house trial has qualified these final corrections.
+
+Remaining priorities: reconcile actual partial structure versus selected template,
+retain current work/rejections through summary truncation and combat, and validate
+completion truthfully. Do not add a supervisor planner or supply trial coordinates
+as a substitute for Qwen's decisions. The task is stopped; partial world edits
+remain and must not be mistaken for a completed house or automatically resumed.

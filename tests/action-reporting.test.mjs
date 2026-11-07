@@ -213,3 +213,21 @@ test('cooperative interruption retains the report already consumed by Coder', as
     assert.equal(await commands.executeCommand(agent, '!newAction("fixture")'), undefined);
     assert.deepEqual(turns, [{role: 'system', content: partial}]);
 });
+
+test('site rejection reaches the model as intact JSON within the native output budget', async () => {
+    const { BuildGoal } = await import('../src/agent/npc/build_goal.js');
+    const agent = fixture();
+    agent.bot.blockAt = position => ({name: position.y >= 90 ? 'grass_block' : 'dirt', boundingBox: 'block'});
+    agent.npc = {
+        constructions: {small_wood_house: {offset: -1, blocks: [[['planks']], [['air']]]}},
+        build_goal: new BuildGoal(agent),
+    };
+    const output = await commands.executeCommand(agent, '!buildStructure("small_wood_house", -2433, 90, -149, 0, false)');
+    assert.doesNotMatch(output, /shortened|skipping/);
+    const result = JSON.parse(output.split('Structure small_wood_house: ')[1].split('. Retry')[0]);
+    assert.equal(result.acted, false);
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.issue, {
+        kind: 'obstruction', position: {x: -2433, y: 90, z: -149}, observed: 'grass_block', required: 'air',
+    });
+});

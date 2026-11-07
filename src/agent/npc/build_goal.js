@@ -98,7 +98,7 @@ export function checkStructureSite(bot, goal, position, orientation=0, furnished
             if (!block) return reject('Build volume is not fully loaded.', 'unloaded', at, block, required);
             if (matchesBlock('air', block)) continue;
             if (!resume || !matchesBlock(cell.name, block)) return reject(
-                'Build volume is obstructed. First issue shown; other issues may remain. Observation is not permission to remove existing builds.',
+                'Build volume obstructed; first issue only. Preserve existing builds.',
                 'obstruction', at, block, required);
         }
     }

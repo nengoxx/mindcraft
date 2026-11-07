@@ -111,3 +111,18 @@ The third uncoached house trial, with corrected biome observations, stopped afte
 travelling among remembered grass locations. This motivated C16; the padding bug
 was reproduced offline, but is not established as the cause of those live
 rejections. All 38 focused tests and the operator runtime-method check pass.
+
+C17: `coder.js` now preserves the rejected assistant code before lint diagnostics
+in its transient retry conversation, matching the existing runtime-error path.
+Previously only diagnostic excerpts survived, so the model had no full candidate
+to repair. Actual generator/ESLint regression reproduces that missing context
+across successive failures and confirms only the valid candidate executes.
+During trial4, a site-preparation request drifted into manual house construction
+through two lint failures. Missing repair context is confirmed; its causal share
+in that model drift and the behavioral benefit of this fix remain unqualified.
+
+The C16 rejection wording is also shortened: its first live obstruction report
+was 515 characters and the unchanged 500-character action-output limit split the
+JSON. An actual command/ActionManager regression now confirms that this observed
+case arrives intact. This is not a general guarantee for arbitrary long outputs.
+All 40 focused regressions and the runtime-method check pass.

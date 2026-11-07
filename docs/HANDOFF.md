@@ -79,3 +79,19 @@ first-issue coordinates/blocks/requirements through the existing builder. All 38
 focused tests and the runtime-method check pass. See the private runtime handoff
 for deployment and subsequent live trial status; do not infer a completed house
 or resume a failed trial from these notes.
+
+Fourth trial on `457dc0a` lasted 13m30s, stopped incomplete. Qwen's generated
+preparation drifted into a larger manual house after lint retries. It placed a
+partial floor/log supports, exhausted its chosen wood type, reported missing
+blocks/no door, freed inventory space, collected logs and crafted 40 planks.
+It then returned to the catalog builder, received the new exact grass-block
+obstruction, abandoned the partial structure and travelled through three old
+locations without fresh site evidence. Only initial objective and terminal stop
+were supplied. No usable house or consistent task completion is established.
+
+C17 preserves rejected code in lint-retry context; C16's rejection text is now
+short enough to avoid the observed native output truncation. Both defects were
+reproduced before correction; all 40 focused tests and the operator runtime-method
+check pass. No model/profile/backend changes. Runtime handoff owns final deployment
+receipts; no further house run is part of these results. Source commits remain
+local, not pushed.

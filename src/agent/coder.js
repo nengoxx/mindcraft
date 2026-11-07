@@ -77,6 +77,9 @@ export class Coder {
             if (lintResult) {
                 const message = 'Error: Code lint error:'+'\n'+lintResult+'\nPlease try again.';
                 console.warn("Linting error:"+'\n'+lintResult+'\n');
+                // Keep the rejected candidate beside its diagnostics, just as
+                // runtime-error retries do, so the model can repair that code.
+                messages.push({ role: 'assistant', content: res });
                 messages.push({ role: 'system', content: message });
                 continue;
             }
