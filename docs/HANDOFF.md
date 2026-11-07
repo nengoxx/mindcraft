@@ -6,21 +6,28 @@ and behavior patch set. Broader comparisons with other Minecraft frameworks are
 outside this repository; Mindcraft is not declared the final architecture.
 
 Upstream baseline: `e1c1fc3ffa481506c2445fc639e16dba504b5920`. `upstream` tracks
-the official repository; `origin` is this fork. Work is prepared on
-`maintained/amaia`; accepted commits can fast-forward the existing `develop`
-branch. Do not blindly upgrade dependencies or retire a carry just because a
+the official repository; `origin` is this fork. The accepted executable migration
+baseline is `01fa9b08995222b058085ded311c874e0b817761`, published on `develop`;
+the local `develop` tracks `origin/develop`. Do not blindly upgrade dependencies or retire a carry just because a
 version advanced. Verify equivalent upstream behavior first.
 
-Linux deterministic migration checks passed. Real-server migration gameplay is
-not yet verified, and the adapted full Windows lifecycle is not requalified.
-No completed autonomous house or general reliability improvement is claimed
-by this migration.
+Linux migration is live: the prior host was stopped before state transfer, and
+the new foreground session joined survival with the retained position/inventory.
+Negotiated client protocol, a model-selected native crafting action, literal
+movement and task stop passed smoke checks. The model then falsely reported no
+crafting change; a backticked command mention also triggered an unwanted zero-arg
+execution attempt. Truthful reporting and general task reliability did not pass.
+Owner in-game chat was not retested; the smoke used the local UI owner channel.
+Windows native parse/config and isolated proxy Start/Status/Stop passed; the full
+adapted combined desktop lifecycle is not requalified. No completed autonomous
+house or improvement from the higher request budget is claimed.
 
 Start with [operator setup](../operator/README.md), [changes](CHANGES.md) and
 [known issues](ISSUES.md). Private settings/profile/history/tools stay in ignored
 `runtime/`; nothing in these notes authorizes resuming a stopped task. Never launch
-the same game identity on two hosts at once. The previous deployment remains the
-cutover rollback until the new one is accepted.
+the same game identity on two hosts at once. The previous deployment is retained
+as rollback and must remain stopped while this identity is live here. Current
+components remain connected with the task stopped; no old building task is queued.
 
 For Codex, start in this repository, for example `codex -C /path/to/mindcraft`,
 and resume its session from the same checkout. Concurrent editing sessions use
@@ -28,6 +35,7 @@ separate Git worktrees, not the same working tree. Each worktree has its own
 ignored runtime; do not duplicate a live bot or copy private state into commits.
 No global Codex/provider configuration or repository instruction file is required.
 
-The next step is real-world verification with the prior host's bot stopped first.
-Check actual negotiated protocol, owner chat, one simple native action and task
-stop; keep model decision errors distinct from executor failures.
+The next focused work is to investigate action evidence versus possession in
+completion reports, and execution commands versus quoted/prose mentions, before
+choosing a patch. Hut construction, semantic memory and broader autonomous task
+coherence remain open; preserve model-versus-executor distinctions.

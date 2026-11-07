@@ -4,6 +4,12 @@ These helpers run one configured bot and one loopback ViaProxy from this checkou
 The selected Minecraft server/world and inference endpoint must already be available.
 There is no boot service, automatic proxy update or unattended session guarantee.
 
+The Linux cutover smoke verified a survival join, native crafting inventory delta,
+literal movement and task stop. Model reporting was inaccurate, and a backticked
+command mention was parsed as an unwanted execution attempt. This is operational
+migration evidence, not general task-completion qualification. Owner in-game chat
+was not retested; the local UI owner channel was used.
+
 ## Private setup
 
 Install Node 22 into `runtime/tools` (or set `MINDCRAFT_NODE` to its executable),
@@ -65,8 +71,10 @@ Start opens visible component terminals. Separate `Proxy.ps1` and `Mindcraft.ps1
 Start/Status/Stop remain available. `MINDCRAFT_NODE` overrides private Node lookup.
 Proxy Stop verifies the native Java process receipt before signalling it.
 PowerShell transcripts can lag until shutdown; intentional Java termination can
-print a nonzero exit in its Start terminal even when Stop succeeds. Adapted Windows
-scripts still require native validation; Linux fixtures do not establish that.
+print a nonzero exit in its Start terminal even when Stop succeeds. Exact native
+parse/config checks and an isolated proxy Start/Status/Stop with receipt deletion
+passed. The full adapted combined Windows desktop lifecycle remains unqualified;
+Linux fixtures do not establish it.
 
 ## Configuration and updates
 
