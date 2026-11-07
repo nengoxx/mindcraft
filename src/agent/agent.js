@@ -23,6 +23,7 @@ export class Agent {
         this.last_sender = null;
         this.count_id = count_id;
         this._disconnectHandled = false;
+        this.stop_epoch = 0;
 
         // Initialize components
         this.actions = new ActionManager(this);
@@ -211,6 +212,8 @@ export class Agent {
             }
         }
         else if (init_message) {
+            if (save_data && this.self_prompter.isStopped() && init_message === 'Agent process restarted.')
+                return;
             await this.handleMessage('system', init_message, 2);
         }
         else {
@@ -230,12 +233,14 @@ export class Agent {
         }
     }
 
-    requestInterrupt() {
+    async requestInterrupt() {
         this.bot.interrupt_code = true;
+        this.prompter.cancelCoding();
         this.bot.stopDigging();
-        this.bot.collectBlock.cancelTask();
-        this.bot.pathfinder.stop();
+        const cancellation = this.bot.collectBlock.cancelTask();
+        this.bot.pathfinder.setGoal(null);
         this.bot.pvp.stop();
+        await cancellation.catch(err => console.warn('Collect cancellation failed:', err));
     }
 
     clearBotLogs() {
@@ -252,6 +257,7 @@ export class Agent {
     }
 
     async handleMessage(source, message, max_responses=null) {
+        const stop_epoch = this.stop_epoch;
         await this.checkTaskDone();
         if (!source || !message) {
             console.warn('Received empty message from', source);
@@ -283,8 +289,13 @@ export class Agent {
                     this.history.add(source, message);
                 }
                 let execute_res = await executeCommand(this, message);
-                if (execute_res) 
+                if (execute_res) {
+                    if (user_command_name === '!stop') {
+                        await this.history.add('system', execute_res);
+                        await this.history.save();
+                    }
                     this.routeResponse(source, execute_res);
+                }
                 return true;
             }
         }
@@ -296,7 +307,7 @@ export class Agent {
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
-        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
+        const checkInterrupt = () => stop_epoch !== this.stop_epoch || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
         let behavior_log = this.bot.modes.flushBehaviorLog().trim();
         if (behavior_log.length > 0) {
@@ -318,6 +329,7 @@ export class Agent {
             if (checkInterrupt()) break;
             let history = this.history.getHistory();
             let res = await this.prompter.promptConvo(history);
+            if (checkInterrupt()) break;
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
 

@@ -1,4 +1,5 @@
 import { writeFile, readFile, mkdirSync } from 'fs';
+import { botDataPath } from '../utils/runtime_paths.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { makeCompartment, lockdown } from './library/lockdown.js';
@@ -13,7 +14,7 @@ export class Coder {
     constructor(agent) {
         this.agent = agent;
         this.file_counter = 0;
-        this.fp = '/bots/'+agent.name+'/action-code/';
+        this.fp = botDataPath(agent.name, 'action-code');
         this.code_template = '';
         this.code_lint_template = '';
 
@@ -25,7 +26,7 @@ export class Coder {
             if (err) throw err;
             this.code_lint_template = data;
         });
-        mkdirSync('.' + this.fp, { recursive: true });
+        mkdirSync(this.fp, { recursive: true });
     }
 
     async generateCode(agent_history) {
@@ -132,7 +133,13 @@ export class Coder {
             return result;
         }
 
-        const eslint = new ESLint();
+        const eslint = new ESLint({overrideConfig: {rules: {
+            'require-await': 'off',
+            'no-restricted-syntax': ['error', {
+                selector: 'CallExpression[callee.object.name="bot"][callee.computed=false][callee.property.name="chat"], CallExpression[callee.object.name="bot"][callee.computed=true][callee.property.value="chat"]',
+                message: 'Use log(bot, ...) for diagnostic and action output instead of bot.chat(...).'
+            }]
+        }}});
         const results = await eslint.lintText(code);
         const codeLines = code.split('\n');
         const exceptions = results.map(r => r.messages).flat();
@@ -182,7 +189,7 @@ export class Coder {
         // } commented for now, useful to keep files for debugging
         this.file_counter++;
         
-        let write_result = await this._writeFilePromise('.' + this.fp + filename, src);
+        let write_result = await this._writeFilePromise(path.join(this.fp, filename), src);
         // This is where we determine the environment the agent's code should be exposed to.
         // It will only have access to these things, (in addition to basic javascript objects like Array, Object, etc.)
         // Note that the code may be able to modify the exposed objects.

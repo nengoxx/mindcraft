@@ -3,12 +3,13 @@ import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
+import { format } from 'node:util';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
 
-export function log(bot, message) {
-    bot.output += message + '\n';
+export function log(bot, message, ...args) {
+    bot.output += format(message, ...args) + '\n';
 }
 
 async function autoLight(bot) {
@@ -441,6 +442,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     const isLiquid = blockType === 'lava' || blockType === 'water';
 
     let collected = 0;
+    const initialInventory = world.getInventoryCounts(bot);
 
     const movements = new pf.Movements(bot);
     movements.dontMineUnderFallingBlock = false;
@@ -450,6 +452,9 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     const unsafeBlocks = ['obsidian'];
 
     for (let i=0; i<num; i++) {
+        if (bot.interrupt_code) break;
+        const inventory = world.getInventoryCounts(bot);
+        if ((inventory[blockType] || 0) - (initialInventory[blockType] || 0) >= num) break;
         let blocks = world.getNearestBlocksWhere(bot, block => {
             if (!blocktypes.includes(block.name)) {
                 return false;
@@ -478,6 +483,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         }
         const block = blocks[0];
         await bot.tool.equipForBlock(block);
+        if (bot.interrupt_code) break;
         if (isLiquid) {
             const bucket = bot.inventory.findInventoryItem('bucket');
             if (!bucket) {
@@ -508,9 +514,10 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             }
             if (success)
                 collected++;
-            await autoLight(bot);
+            if (!bot.interrupt_code) await autoLight(bot);
         }
         catch (err) {
+            if (bot.interrupt_code) break;
             if (err.name === 'NoChests') {
                 log(bot, `Failed to collect ${blockType}: Inventory full, no place to deposit.`);
                 break;
@@ -524,8 +531,12 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         if (bot.interrupt_code)
             break;  
     }
-    log(bot, `Collected ${collected} ${blockType}.`);
-    return collected > 0;
+    const finalInventory = world.getInventoryCounts(bot);
+    const changes = [...new Set([...Object.keys(initialInventory), ...Object.keys(finalInventory)])]
+        .map(name => [name, (finalInventory[name] || 0) - (initialInventory[name] || 0)])
+        .filter(([, count]) => count !== 0);
+    log(bot, `Completed ${collected} ${blockType} block operations${bot.interrupt_code ? ' before interruption' : ''}. Inventory net change: ${changes.map(([name, count]) => `${count > 0 ? '+' : ''}${count} ${name}`).join(', ') || 'none'}.`);
+    return changes.some(([, count]) => count > 0);
 }
 
 export async function pickupNearbyItems(bot) {

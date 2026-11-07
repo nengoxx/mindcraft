@@ -1,3 +1,10 @@
+# Maintained fork
+
+For this fork's setup, current state and local changes, start at
+[docs/HANDOFF.md](docs/HANDOFF.md) and [operator setup](operator/README.md).
+Private runtime configuration stays ignored;
+the upstream documentation below remains available.
+
 <h1 align="center">🧠mindcraft⛏️</h1>
 <h1 align="center">
   <a href="https://trendshift.io/repositories/14816" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14816" alt="mindcraft-bots%2Fmindcraft | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>

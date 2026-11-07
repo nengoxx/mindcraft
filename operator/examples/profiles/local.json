@@ -1,0 +1,14 @@
+{
+  "name": "localbot",
+  "model": {
+    "api": "openai",
+    "url": "http://127.0.0.1:8080/v1",
+    "model": "YOUR_LOCAL_MODEL",
+    "params": {
+      "reasoning_effort": "medium",
+      "reasoning_budget_tokens": 2048,
+      "max_tokens": 8192
+    }
+  },
+  "embedding": false
+}

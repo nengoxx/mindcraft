@@ -1,0 +1,96 @@
+--- a/node_modules/mineflayer/lib/plugins/digging.js
++++ b/node_modules/mineflayer/lib/plugins/digging.js
+@@ -247,6 +247,9 @@
+       enchantments = enchantments.concat(helmetEnchantments)
+     }
+ 
++    if (block.material === 'incorrect_for_wooden_tool')
++      block.material = 'mineable/pickaxe'
++
+     const creative = bot.game.gameMode === 'creative'
+     return block.digTime(
+       type,
+--- a/node_modules/mineflayer/lib/plugins/inventory.js
++++ b/node_modules/mineflayer/lib/plugins/inventory.js
+@@ -573,6 +573,31 @@
+     return changedSlots
+   }
+ 
++  // Taking a crafting result uses up one of each ingredient in the grid, and the
++  // vanilla client reports those grid slots along with the click. acceptClick
++  // knows nothing about recipes, so without this the click claims the grid is
++  // unchanged. The server then corrects each grid slot, and a correction that
++  // arrives after the next craft has put its ingredients down erases them from
++  // the client's model: the clicks that follow act on items that aren't there.
++  function takeCraftingIngredients (window, click, resultCount) {
++    const gridSize = window.type === 'minecraft:inventory' ? 4 : window.type === 'minecraft:crafting' ? 9 : 0
++    if (!gridSize || click.slot !== window.craftingResultSlot || !resultCount) return []
++    if ((window.slots[click.slot]?.count ?? 0) >= resultCount) return [] // the result wasn't taken
++    const changed = []
++    for (let slot = click.slot + 1; slot <= click.slot + gridSize; slot++) {
++      const item = window.slots[slot]
++      if (!item) continue
++      let left = null
++      if (item.count > 1) {
++        left = Item.fromNotch(Item.toNotch(item))
++        left.count = item.count - 1
++      }
++      window.updateSlot(slot, left)
++      changed.push(slot)
++    }
++    return changed
++  }
++
+   async function clickWindow (slot, mouseButton, mode) {
+     // if you click on the quick bar and have dug recently,
+     // wait a bit
+@@ -611,7 +636,9 @@
+           // 5,
+           // 6
+         ].includes(click.mode)) {
++        const resultCount = click.item?.count ?? 0
+         changedSlots = window.acceptClick(click)
++        if (click.mode === 0) changedSlots.push(...takeCraftingIngredients(window, click, resultCount))
+       } else {
+         // this is used as a fallback
+         const oldSlots = JSON.parse(JSON.stringify(window.slots))
+--- a/node_modules/mineflayer/lib/plugins/craft.js
++++ b/node_modules/mineflayer/lib/plugins/craft.js
+@@ -18,6 +18,7 @@
+     try {
+       for (let i = 0; i < count; i++) {
+         await craftOnce(recipe, craftingTable)
++        if (!craftingTable) await settleInventoryGrid()
+       }
+ 
+       if (windowCraftingTable) {
+@@ -31,11 +32,29 @@
+       if (windowCraftingTable) {
+         bot.closeWindow(windowCraftingTable)
+         windowCraftingTable = undefined
++      } else if (!craftingTable) {
++        await settleInventoryGrid().catch(() => {})
+       }
+       throw new Error(err)
+     }
+   }
+ 
++  // The 2x2 grid lives in the inventory, which is never closed, so nothing makes the
++  // server confirm a craft there the way closing a crafting table does. Sync before
++  // the next craft builds on the client's model. Anything still in the grid or on the
++  // cursor would spoil the next recipe: closing the inventory makes the server put it
++  // back into the inventory. After a desync the server may already be sending a full
++  // state of its own, which ends a sync early with an older picture, so check again.
++  async function settleInventoryGrid () {
++    if (!bot.supportFeature('stateIdUsed')) return
++    const inv = bot.inventory
++    for (let tries = 0; tries < 3; tries++) {
++      await bot._syncWindow(inv)
++      if (!inv.selectedItem && [1, 2, 3, 4].every(slot => !inv.slots[slot])) return
++      bot._client.write('close_window', { windowId: 0 })
++    }
++  }
++
+   async function craftOnce (recipe, craftingTable) {
+     if (craftingTable) {
+       if (!windowCraftingTable) {

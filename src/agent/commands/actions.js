@@ -17,8 +17,13 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
             await actionFn(agent, ...args);
         };
         const code_return = await agent.actions.runAction(`action:${actionLabel}`, actionFnWithAgent, { timeout, resume });
-        if (code_return.interrupted && !code_return.timedout)
+        if (code_return.interrupted && !code_return.timedout) {
+            if (code_return.message) {
+                await agent.history.add('system', code_return.message);
+                await agent.history.save();
+            }
             return;
+        }
         return code_return.message;
     }
 
@@ -26,6 +31,27 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
 }
 
 export const actionsList = [
+    {
+        name: '!buildStructure',
+        description: 'Build or resume an existing catalog template with survival inventory. First use !getStructureInfo. Use the site requested by the owner; avoid unrelated structures. Reuse the SAME origin/rotation/furnished values on retry. Only complete=true verifies selected scope; never claim done from calling it. Read partial progress/missing materials, gather/craft then retry. Unfurnished excludes bed/chest/torches, not walls/floor/roof/door.',
+        params: {
+            'structure_name': {type: 'string', description: 'Catalog template name from !getStructureInfo.'},
+            'x': {type: 'int', description: 'Minimum x corner.'},
+            'y': {type: 'int', description: 'Standing-level y; floor is at y plus template floorOffset.'},
+            'z': {type: 'int', description: 'Minimum z corner.'},
+            'orientation': {type: 'int', domain: [0, 3, '[]'], description: 'Clockwise quarter-turns viewed from above: 0,1,2,3.'},
+            'furnished': {type: 'boolean', description: 'False explicitly builds an unfurnished shelter; true includes all catalog furnishings.'}
+        },
+        perform: runAsAction(async (agent, structure_name, x, y, z, orientation, furnished) => {
+            const catalog = agent.npc.constructions;
+            if (!Object.hasOwn(catalog, structure_name)) {
+                skills.log(agent.bot, `Unknown structure. Catalog: ${Object.keys(catalog).join(', ')}.`);
+                return;
+            }
+            const result = await agent.npc.build_goal.executeNext(catalog[structure_name], {x, y, z}, orientation, {managed: true, furnished});
+            skills.log(agent.bot, `Structure ${structure_name}: ${JSON.stringify(result)}. Retry with the same origin/rotation/furnished scope; complete=true only after world verification.`);
+        }, false, 10)
+    },
     {
         name: '!newAction',
         description: 'Perform new and unknown custom behaviors that are not available as a command.', 
@@ -43,6 +69,7 @@ export const actionsList = [
                 try {
                     result = await agent.coder.generateCode(agent.history);
                 } catch (e) {
+                    if (agent.bot.interrupt_code) return;
                     result = 'Error generating code: ' + e.toString();
                 }
             };
@@ -54,14 +81,13 @@ export const actionsList = [
         name: '!stop',
         description: 'Force stop all actions and commands that are currently executing.',
         perform: async function (agent) {
+            agent.stop_epoch++;
+            await agent.self_prompter.stop(false);
             await agent.actions.stop();
             agent.clearBotLogs();
             agent.actions.cancelResume();
             agent.bot.emit('idle');
-            let msg = 'Agent stopped.';
-            if (agent.self_prompter.isActive())
-                msg += ' Self-prompting still active.';
-            return msg;
+            return 'Agent stopped.';
         }
     },
     {

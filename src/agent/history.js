@@ -1,21 +1,24 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { NPCData } from './npc/data.js';
 import settings from './settings.js';
+import { botDataPath } from '../utils/runtime_paths.js';
 
 
 export class History {
     constructor(agent) {
         this.agent = agent;
         this.name = agent.name;
-        this.memory_fp = `./bots/${this.name}/memory.json`;
+        this.memory_fp = botDataPath(this.name, 'memory.json');
         this.full_history_fp = undefined;
 
-        mkdirSync(`./bots/${this.name}/histories`, { recursive: true });
+        mkdirSync(botDataPath(this.name, 'histories'), { recursive: true });
 
         this.turns = [];
 
         // Natural language memory as a summary of recent messages + previous memory
         this.memory = '';
+        this.summary_pending = null;
+        this.history_revision = 0;
 
         // Maximum number of messages to keep in context before saving chunk to memory
         this.max_messages = settings.max_messages;
@@ -32,20 +35,51 @@ export class History {
 
     async summarizeMemories(turns) {
         console.log("Storing memories...");
-        this.memory = await this.agent.prompter.promptMemSaving(turns);
+        let memory = await this.agent.prompter.promptMemSaving(turns);
 
-        if (this.memory.length > 500) {
-            this.memory = this.memory.slice(0, 500);
-            this.memory += '...(Memory truncated to 500 chars. Compress it more next time)';
-        }
+        if (typeof memory !== 'string' || !memory.trim() ||
+            ['My brain disconnected, try again.', 'Vision is only supported by certain models.'].includes(memory.trim()))
+            throw new Error('Invalid memory summary');
 
-        console.log("Memory updated to: ", this.memory);
+        if (memory.length > 500)
+            memory = memory.slice(0, 500);
+
+        return memory;
     }
 
-    async appendFullHistory(to_store) {
+    startSummary() {
+        if (this.summary_pending || this.turns.length < this.max_messages) return;
+        const revision = this.history_revision;
+        this.summary_pending = this.summarizePending(revision)
+            .catch(err => console.error('Error summarizing history:', err))
+            .finally(() => {
+                this.summary_pending = null;
+                if (revision !== this.history_revision) this.startSummary();
+            });
+    }
+
+    async summarizePending(revision) {
+        while (revision === this.history_revision && this.turns.length >= this.max_messages) {
+            let end = this.summary_chunk_size;
+            while (end < this.turns.length && this.turns[end].role === 'assistant') end++;
+            const chunk = this.turns.slice(0, end);
+            const memory = await this.summarizeMemories(chunk);
+            if (revision !== this.history_revision ||
+                !chunk.every((turn, index) => this.turns[index] === turn)) return;
+
+            // Keep the pending evidence visible until its replacement is ready.
+            this.appendFullHistory(chunk);
+            this.memory = memory;
+            this.turns.splice(0, chunk.length);
+            console.log("Memory updated to: ", this.memory);
+            await this.save();
+        }
+    }
+
+    appendFullHistory(to_store) {
         if (this.full_history_fp === undefined) {
             const string_timestamp = new Date().toLocaleString().replace(/[/:]/g, '-').replace(/ /g, '').replace(/,/g, '_');
-            this.full_history_fp = `./bots/${this.name}/histories/${string_timestamp}.json`;
+            this.full_history_fp = botDataPath(this.name, 'histories', `${string_timestamp}.json`);
             writeFileSync(this.full_history_fp, '[]', 'utf8');
         }
         try {
@@ -55,6 +89,7 @@ export class History {
             writeFileSync(this.full_history_fp, JSON.stringify(full_history, null, 4), 'utf8');
         } catch (err) {
             console.error(`Error reading ${this.name}'s full history file: ${err.message}`);
+            throw err;
         }
     }
 
@@ -69,14 +104,7 @@ export class History {
         }
         this.turns.push({role, content});
 
-        if (this.turns.length >= this.max_messages) {
-            let chunk = this.turns.splice(0, this.summary_chunk_size);
-            while (this.turns.length > 0 && this.turns[0].role === 'assistant')
-                chunk.push(this.turns.shift()); // remove until turns starts with system/user message
-
-            await this.summarizeMemories(chunk);
-            await this.appendFullHistory(chunk);
-        }
+        this.startSummary();
     }
 
     async save() {
@@ -104,6 +132,7 @@ export class History {
                 return null;
             }
             const data = JSON.parse(readFileSync(this.memory_fp, 'utf8'));
+            this.history_revision++;
             this.memory = data.memory || '';
             this.turns = data.turns || [];
             console.log('Loaded memory:', this.memory);
@@ -115,6 +144,7 @@ export class History {
     }
 
     clear() {
+        this.history_revision++;
         this.turns = [];
         this.memory = '';
     }

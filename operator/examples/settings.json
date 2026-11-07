@@ -1,0 +1,12 @@
+{
+  "minecraft_version": "26.1",
+  "host": "127.0.0.1",
+  "port": 25568,
+  "auth": "offline",
+  "mindserver_port": 8091,
+  "auto_open_ui": false,
+  "profiles": [
+    "profiles/local.json"
+  ],
+  "load_memory": false
+}

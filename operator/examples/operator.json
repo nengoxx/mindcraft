@@ -1,0 +1,7 @@
+{
+  "java": "runtime/tools/YOUR_JAVA/bin/java",
+  "target": "server.example:25565",
+  "targetVersion": "26.3",
+  "proxyAuth": "NONE",
+  "localNoAuth": true
+}

@@ -53,6 +53,7 @@ export const WOOL_COLORS = [
 
 
 export function initBot(username) {
+    mc_version = settings.minecraft_version;
     const options = {
         username: username,
         host: settings.host,
@@ -66,36 +67,6 @@ export function initBot(username) {
     }
 
     const bot = createBot(options);
-
-    // Throttle position packets to avoid kicks on Paper/Spigot servers
-    // Paper enforces stricter packet rate limits than vanilla, causing ECONNRESET
-    // when mineflayer sends position updates faster than 50ms apart
-    let lastPositionUpdate = 0;
-    let pendingPositionPacket = null;
-    const POSITION_THROTTLE_MS = 50;
-    const originalWrite = bot._client.write.bind(bot._client);
-    bot._client.write = function(name, data) {
-        if (name === 'position' || name === 'position_look' || name === 'look') {
-            const now = Date.now();
-            if (now - lastPositionUpdate < POSITION_THROTTLE_MS) {
-                // Queue this packet so the last position update is never lost
-                if (!pendingPositionPacket) {
-                    pendingPositionPacket = setTimeout(() => {
-                        pendingPositionPacket = null;
-                        lastPositionUpdate = Date.now();
-                        originalWrite(name, data);
-                    }, POSITION_THROTTLE_MS - (now - lastPositionUpdate));
-                }
-                return;
-            }
-            lastPositionUpdate = now;
-            if (pendingPositionPacket) {
-                clearTimeout(pendingPositionPacket);
-                pendingPositionPacket = null;
-            }
-        }
-        return originalWrite(name, data);
-    };
 
     // Suppress PartialReadError for non-critical packets
     // Paper servers sometimes send packets that node-minecraft-protocol
@@ -124,6 +95,7 @@ export function initBot(username) {
     });
 
     bot.once('login', () => {
+        console.log(`[mcdata] Logged in: version=${bot.version}, protocol=${bot.protocolVersion}`);
         mc_version = bot.version;
         mcdata = minecraftData(mc_version);
         Item = prismarine_items(mc_version);

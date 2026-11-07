@@ -184,7 +184,7 @@ export class NPCContoller {
                         orientation: res.orientation
                     };
                 }
-                if (Object.keys(res.missing).length === 0) {
+                if (res.complete) {
                     this.data.home = goal.name;
                 }
                 for (let block_name in res.missing) {
@@ -195,7 +195,7 @@ export class NPCContoller {
                 }
                 if (res.acted) {
                     acted = true;
-                    this.last_goals[goal.name] = Object.keys(res.missing).length === 0;
+                    this.last_goals[goal.name] = res.complete;
                     break;
                 }
             }

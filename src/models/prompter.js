@@ -1,4 +1,5 @@
 import { readFileSync, mkdirSync, writeFileSync} from 'fs';
+import { botDataPath, botLogPath } from '../utils/runtime_paths.js';
 import { Examples } from '../utils/examples.js';
 import { getCommandDocs } from '../agent/commands/index.js';
 import { SkillLibrary } from "../agent/library/skill_library.js";
@@ -50,6 +51,7 @@ export class Prompter {
         this.cooldown = this.profile.cooldown ? this.profile.cooldown : 0;
         this.last_prompt_time = 0;
         this.awaiting_coding = false;
+        this.coding_abort_controller = null;
 
         // for backwards compatibility, move max_tokens to params
         let max_tokens = null;
@@ -84,7 +86,10 @@ export class Prompter {
                 embedding_model_profile = null;
             }
         }
-        if (embedding_model_profile) {
+        if (this.profile.embedding === false) {
+            this.embedding_model = null;
+        }
+        else if (embedding_model_profile) {
             this.embedding_model = createModel(embedding_model_profile);
         }
         else {
@@ -92,8 +97,8 @@ export class Prompter {
         }
 
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);
-        mkdirSync(`./bots/${name}`, { recursive: true });
-        writeFileSync(`./bots/${name}/last_profile.json`, JSON.stringify(this.profile, null, 4), (err) => {
+        mkdirSync(botDataPath(name), { recursive: true });
+        writeFileSync(botDataPath(name, 'last_profile.json'), JSON.stringify(this.profile, null, 4), (err) => {
             if (err) {
                 throw new Error('Failed to save profile:', err);
             }
@@ -172,7 +177,7 @@ export class Prompter {
             prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
         if (prompt.includes('$SELF_PROMPT')) {
             // if active or paused, show the current goal
-            let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
+            let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : 'You currently have no active persistent goal. Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again. Respond to the owner\'s latest request in the conversation normally, following your usual instructions for new or resumed work.\n';
             prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
         }
         if (prompt.includes('$LAST_GOALS')) {
@@ -261,20 +266,34 @@ export class Prompter {
         return '';
     }
 
+    cancelCoding() {
+        this.coding_abort_controller?.abort();
+    }
+
     async promptCoding(messages) {
         if (this.awaiting_coding) {
             console.warn('Already awaiting coding response, returning no response.');
             return '```//no response```';
         }
         this.awaiting_coding = true;
-        await this.checkCooldown();
-        let prompt = this.profile.coding;
-        prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
+        const controller = new AbortController();
+        this.coding_abort_controller = controller;
+        try {
+            await this.checkCooldown();
+            controller.signal.throwIfAborted();
+            let prompt = this.profile.coding;
+            prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
+            controller.signal.throwIfAborted();
 
-        let resp = await this.code_model.sendRequest(messages, prompt);
-        this.awaiting_coding = false;
-        await this._saveLog(prompt, messages, resp, 'coding');
-        return resp;
+            let resp = await this.code_model.sendRequest(messages, prompt, undefined, {signal: controller.signal});
+            controller.signal.throwIfAborted();
+            await this._saveLog(prompt, messages, resp, 'coding');
+            controller.signal.throwIfAborted();
+            return resp;
+        } finally {
+            this.awaiting_coding = false;
+            this.coding_abort_controller = null;
+        }
     }
 
     async promptMemSaving(to_summarize) {
@@ -353,9 +372,9 @@ export class Prompter {
         let task_id = this.agent.task.task_id;
         let logDir;
         if (task_id == null) {
-            logDir = path.join(__dirname, `../../bots/${this.agent.name}/logs`);
+            logDir = botLogPath(this.agent.name);
         } else {
-            logDir = path.join(__dirname, `../../bots/${this.agent.name}/logs/${task_id}`);
+            logDir = botLogPath(this.agent.name, String(task_id));
         }
 
         await fs.mkdir(logDir, { recursive: true });

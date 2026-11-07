@@ -2,6 +2,7 @@ export class ActionManager {
     constructor(agent) {
         this.agent = agent;
         this.executing = false;
+        this.stopPromise = null;
         this.currentActionLabel = '';
         this.currentActionFn = null;
         this.timedout = false;
@@ -24,16 +25,27 @@ export class ActionManager {
     }
 
     async stop() {
+        if (this.stopPromise) return this.stopPromise;
         if (!this.executing) return;
-        const timeout = setTimeout(() => {
-            this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
-        }, 10000);
-        while (this.executing) {
-            this.agent.requestInterrupt();
-            console.log('waiting for code to finish executing...');
-            await new Promise(resolve => setTimeout(resolve, 300));
+        this.stopPromise = (async () => {
+            const timeout = setTimeout(() => {
+                this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
+            }, 10000);
+            try {
+                await this.agent.requestInterrupt();
+                while (this.executing) {
+                    console.log('waiting for code to finish executing...');
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            } finally {
+                clearTimeout(timeout);
+            }
+        })();
+        try {
+            await this.stopPromise;
+        } finally {
+            this.stopPromise = null;
         }
-        clearTimeout(timeout);
     } 
 
     cancelResume() {
@@ -87,12 +99,13 @@ export class ActionManager {
             if (this.executing) {
                 console.log(`action "${actionLabel}" trying to interrupt current action "${this.currentActionLabel}"`);
             }
-            await this.stop();
+            do { await this.stop(); } while (this.executing);
 
             // clear bot logs and reset interrupt code
             this.agent.clearBotLogs();
 
             this.executing = true;
+            this.timedout = false;
             this.currentActionLabel = actionLabel;
             this.currentActionFn = actionFn;
 
@@ -129,14 +142,14 @@ export class ActionManager {
             this.currentActionFn = null;
             clearTimeout(TIMEOUT);
             this.cancelResume();
-            console.error("Code execution triggered catch:", err);
-            // Log the full stack trace
-            console.error(err.stack);
-            await this.stop();
+            if (!this.agent.bot.interrupt_code) {
+                console.error("Code execution triggered catch:", err);
+                console.error(err.stack);
+            }
             err = err.toString();
 
-            let message = this.getBotOutputSummary() +
-                '!!Code threw exception!!\n' +
+            let message = this.getBotOutputSummary();
+            if (!this.agent.bot.interrupt_code) message += '!!Code threw exception!!\n' +
                 'Error: ' + err + '\n' +
                 'Stack trace:\n' + err.stack+'\n';
 
@@ -151,7 +164,6 @@ export class ActionManager {
 
     getBotOutputSummary() {
         const { bot } = this.agent;
-        if (bot.interrupt_code && !this.timedout) return '';
         let output = bot.output;
         const MAX_OUT = 500;
         if (output.length > MAX_OUT) {
@@ -161,6 +173,7 @@ export class ActionManager {
         else {
             output = 'Action output:\n' + output.toString();
         }
+        if (bot.interrupt_code) output = 'Action interrupted.\n' + output;
         bot.output = '';
         return output;
     }

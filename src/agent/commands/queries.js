@@ -4,6 +4,7 @@ import { getCommandDocs } from './index.js';
 import convoManager from '../conversation.js';
 import { checkLevelBlueprint, checkBlueprint } from '../tasks/construction_tasks.js';
 import { load } from 'cheerio';
+import { getStructureInfo, findStructureSite } from '../npc/build_goal.js';
 
 const pad = (str) => {
     return '\n' + str + '\n';
@@ -11,6 +12,19 @@ const pad = (str) => {
 
 // queries are commands that just return strings and don't affect anything in the world
 export const queryList = [
+    {
+        name: '!getStructureInfo',
+        description: 'Read catalog dimensions, material item counts and placement rules before building. Catalog: dirt_shelter, small_wood_house, small_stone_house, large_house. Generic wood accepts any wood type. Furnished=false selects an unfurnished shelter without bed/chest/torches; door is still required.',
+        params: {
+            'structure_name': {type: 'string', description: 'Exact catalog name.'},
+            'furnished': {type: 'boolean', description: 'Include furniture (true) or explicitly select unfurnished shelter (false).'}
+        },
+        perform: function(agent, structure_name, furnished) {
+            const catalog = agent.npc.constructions;
+            if (!Object.hasOwn(catalog, structure_name)) return `Unknown structure. Catalog: ${Object.keys(catalog).join(', ')}.`;
+            return JSON.stringify({...getStructureInfo(catalog[structure_name], furnished), suggestedSite: findStructureSite(agent.bot, catalog[structure_name], furnished)});
+        }
+    },
     {
         name: "!stats",
         description: "Get your bot's location, health, hunger, and time of day.", 
