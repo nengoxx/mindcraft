@@ -95,3 +95,19 @@ these fixes.
 registry, rather than static minecraft-data. Loaded registry IDs can be remapped
 or custom; the old lookup supplied misleading environment labels to the model
 and status UI. Tests exercise the installed registry decoder and missing data.
+
+C16: the site validator now checks declared template cells rather than the entire
+padded bounding box. The controller's square rotation padding and empty-string
+cells are untouched by construction and must not reject sites or require support
+for wholly unused columns. Required air cells, occupied-column support and resume
+checks remain enforced. Rejections carry the first issue's coordinates, observed
+block (null means unloaded) and required condition through the native build result.
+This is observation, not clearance permission or an automatic terrain planner.
+Regressions cover all rotations, unused cells, explicit air, missing support,
+unloaded blocks, preservation of unrelated obstructions and builder propagation.
+
+The third uncoached house trial, with corrected biome observations, stopped after
+6m34s without construction. Three guessed sites were rejected and Qwen continued
+travelling among remembered grass locations. This motivated C16; the padding bug
+was reproduced offline, but is not established as the cause of those live
+rejections. All 38 focused tests and the operator runtime-method check pass.

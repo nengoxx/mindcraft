@@ -68,6 +68,14 @@ Current executable commit is `5459fbe` (including C13/C14 `924eb2a`); deployed b
 agent-only restarts. The second house trial was stopped after 7m01s with no verified
 house blocks. After the final reload, read-only status at identical coordinates
 changed from the incorrect frozen_ocean label to forest. All 33 focused checks pass.
-There has been no house trial with the biome fix. Amaia is connected and the task
-is stopped; do not resume either failed trial from memory. The three code commits
-are local on develop and have not been pushed in this continuation.
+That snapshot preceded the next authorized retest. All three code commits are
+local on develop and have not been pushed in this continuation.
+
+The third uncoached trial used the biome fix and stopped after 6m34s with no
+verified house construction. Qwen resumed its goal after combat, but travelled
+among remembered grass locations and received three rejected builds. C16 now
+corrects independently reproduced template-padding validation and reports exact
+first-issue coordinates/blocks/requirements through the existing builder. All 38
+focused tests and the runtime-method check pass. See the private runtime handoff
+for deployment and subsequent live trial status; do not infer a completed house
+or resume a failed trial from these notes.

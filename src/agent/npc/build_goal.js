@@ -58,29 +58,48 @@ export function getStructureInfo(goal, furnished=true, orientation=0) {
     return {
         dimensions: {x: orientation % 2 ? depth : width, y: goal.blocks.length, z: orientation % 2 ? width : depth},
         floorOffset: goal.offset, furnished, materials,
-        coordinates: 'Origin is minimum x/z corner at standing-level y; template floor is y+floorOffset. Rotation 0 unchanged, 1/2/3 clockwise quarter-turns viewed from above. Empty-string cells untouched; air cells cleared. Unfurnished replaces bed/chest/torch cells with air; door remains required.'
+        coordinates: 'Origin is minimum x/z corner at standing-level y; template floor is y+floorOffset. Rotation 0 unchanged, 1/2/3 clockwise quarter-turns viewed from above. Dimensions include rotation padding. Empty-string cells untouched and excluded from clearance checks; wholly empty columns need no support. Air cells cleared. Unfurnished replaces bed/chest/torch cells with air; door remains required.'
     };
 }
 
 export function checkStructureSite(bot, goal, position, orientation=0, furnished=true, resume=false) {
-    const info = getStructureInfo(goal, furnished, orientation);
     const cells = cellsOf(goal, orientation, furnished);
+    const columns = new Map();
+    for (const cell of cells) {
+        const key = `${cell.x},${cell.z}`;
+        if (!columns.has(key)) columns.set(key, []);
+        columns.get(key).push(cell);
+    }
+    const reject = (reason, kind, at, block, required) => ({
+        valid: false, reason,
+        issue: {kind, position: {x: at.x, y: at.y, z: at.z}, observed: block?.name ?? null, required},
+    });
     const surface = new Set();
-    for (let x=0; x<info.dimensions.x; x++) {
-        for (let z=0; z<info.dimensions.z; z++) {
-            const support = bot.blockAt(position.offset(x, Math.min(goal.offset, 0)-1, z));
-            const ground = bot.blockAt(position.offset(x, -1, z));
-            const floor = cells.find(c => c.x === x && c.y === -1 && c.z === z && c.name !== 'air');
-            const missingFloor = resume && floor && ground && ['air', 'cave_air', 'void_air'].includes(ground.name);
-            if (!support || support.boundingBox !== 'block' || !ground || (ground.boundingBox !== 'block' && !missingFloor)) return {valid: false, reason: 'Full footprint needs loaded solid ground and floor support.'};
-            surface.add(ground.name);
-            for (let y=0; y<goal.blocks.length+goal.offset; y++) {
-                const block = bot.blockAt(position.offset(x, y, z));
-                if (!block) return {valid: false, reason: 'Build volume is not fully loaded.'};
-                if (block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') continue;
-                const cell = cells.find(c => c.x === x && c.y === y && c.z === z);
-                if (!resume || !cell || !matchesBlock(cell.name, block)) return {valid: false, reason: 'Build volume is obstructed; choose a clear site or clear terrain first.'};
-            }
+    // The controller pads templates to a square for rotation. Only declared
+    // cells belong to the build; empty strings are explicitly left untouched.
+    for (const column of columns.values()) {
+        const {x, z} = column[0];
+        const supportAt = position.offset(x, Math.min(goal.offset, 0)-1, z);
+        const groundAt = position.offset(x, -1, z);
+        const support = bot.blockAt(supportAt);
+        const ground = bot.blockAt(groundAt);
+        const floor = column.find(c => c.y === -1 && c.name !== 'air');
+        const missingFloor = resume && floor && ground && matchesBlock('air', ground);
+        if (!support || support.boundingBox !== 'block') return reject(
+            'Footprint needs loaded solid floor support.', 'support', supportAt, support, 'solid support');
+        if (!ground || (ground.boundingBox !== 'block' && !missingFloor)) return reject(
+            'Footprint needs loaded solid ground.', 'ground', groundAt, ground, 'solid ground');
+        surface.add(ground.name);
+        for (const cell of column) {
+            if (cell.y < 0) continue;
+            const at = position.offset(cell.x, cell.y, cell.z);
+            const block = bot.blockAt(at);
+            const required = resume && cell.name !== 'air' ? `air or ${cell.name}` : 'air';
+            if (!block) return reject('Build volume is not fully loaded.', 'unloaded', at, block, required);
+            if (matchesBlock('air', block)) continue;
+            if (!resume || !matchesBlock(cell.name, block)) return reject(
+                'Build volume is obstructed. First issue shown; other issues may remain. Observation is not permission to remove existing builds.',
+                'obstruction', at, block, required);
         }
     }
     return {valid: true, surface: [...surface]};
@@ -135,7 +154,7 @@ export class BuildGoal {
         if (!position) return {missing: {}, acted: false, position: null, orientation, complete: false, remaining: null, reason: 'No free build origin found.'};
         position = new Vec3(Math.floor(position.x), Math.floor(position.y), Math.floor(position.z));
         const site = checkStructureSite(bot, goal, position, orientation, furnished, true);
-        if (!site.valid) return {missing: {}, acted: false, position, orientation, furnished, complete: false, remaining: null, reason: site.reason};
+        if (!site.valid) return {missing: {}, acted: false, position, orientation, furnished, complete: false, remaining: null, reason: site.reason, issue: site.issue};
         const cells = cellsOf(goal, orientation, furnished);
         const groups = itemGroups(cells);
         const at = cell => position.offset(cell.x, cell.y, cell.z);

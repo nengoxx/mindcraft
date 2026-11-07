@@ -23,6 +23,21 @@ was performed by the migration worker.
 | Biome grounding (C15) | The second house trial reported `end_barrens` in the overworld and repeatedly reported `frozen_ocean` amid wooded terrain. The observer indexed chunk biome IDs through static minecraft-data instead of the server registry. A regression using the installed registry decoder reproduces wrong labels for remapped/custom biomes. Deployed `5459fbe` uses `bot.registry.biomes`; unknown IDs/unloaded positions return Unknown. At identical live coordinates, the old label was frozen_ocean and the corrected label forest. No house trial has yet run with this fix. |
 | Operations | Foreground lifetime is intentional. Remote sessions may lose children when disconnected; no unattended service/keepalive guarantee. A compatible server or LAN world is connection configuration, not a hosting-specific architecture. |
 
+C16: a third trial with C15 fixed stopped incomplete after 6m34s. Three build
+attempts at remembered grass locations returned generic obstruction/support
+rejections; Qwen navigated between them without verifying or preparing a site.
+Goal resumption after combat worked. Memory summaries still mislabeled command
+arguments (closeness became dimension) and truncated recent evidence. No verified
+house blocks. Only the objective and terminal stop were supplied by the supervisor.
+
+Offline reproduction showed square rotation padding wrongly rejecting an
+otherwise valid site. The validator now ignores declared empty-string cells and
+wholly unused columns, and native build results include the first observed issue
+with coordinate/block/required condition. All 38 focused tests pass, including
+rotation, support, explicit-air and unrelated-obstruction guards. This does not
+prove padding caused the live rejections or that Qwen will use better feedback
+consistently. Live qualification of this correction is recorded in the handoff.
+
 Task `!stop` ends the persistent goal/action and invalidates pending conversational
 work; native self-defense may still move, dig or place. Operator Stop disconnects
 both components. Generated-code cancellation is strongest while awaiting the
