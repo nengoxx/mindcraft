@@ -23,7 +23,10 @@ adapted combined desktop lifecycle is not requalified. No completed autonomous
 house or improvement from the higher request budget is claimed.
 
 Start with [operator setup](../operator/README.md), [changes](CHANGES.md) and
-[known issues](ISSUES.md). Private settings/profile/history/tools stay in ignored
+[known issues](ISSUES.md). An installed local checkout also has an ignored
+`runtime/diagnostics/HANDOFF.md` with its operator/session snapshot and private
+evidence pointers; that file is absent from fresh public clones.
+Private settings/profile/history/tools stay in ignored
 `runtime/`; nothing in these notes authorizes resuming a stopped task. Never launch
 the same game identity on two hosts at once. The previous deployment is retained
 as rollback and must remain stopped while this identity is live here. Current
