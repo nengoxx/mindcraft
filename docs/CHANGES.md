@@ -52,3 +52,22 @@ All-doc coding context can be selected with native `relevant_docs_count:-1`;
 root defaults remain 5. The reviewed query-extraction candidate was not selected
 or carried. Configuration changes require a full Stop/Start to refresh cached
 MindServer settings unless the runtime setting is explicitly updated too.
+
+Local C09/C12 source candidates (not deployed): `library/skills.js` records
+craft input/output inventory immediately before and after the native craft call,
+including failures, instead of reporting final possession as crafting success.
+`commands/index.js` skips quoted/code mentions while retaining bare inline
+commands; `agent.js` uses the matching command's offset for display/translation.
+The source changes do not restart components or change model/profile settings.
+
+Focused offline regression check, using Node 22 with installed dependencies:
+
+```sh
+node --experimental-test-module-mocks --test tests/action-reporting.test.mjs
+```
+
+The suite substitutes game data and a fixture bot, runs the actual command,
+message-handler, crafting and action-manager methods, and makes no game/model
+connection. It covers quote/code mentions, deliberate commands, pre-existing
+stock, limited batches, no observed change and partial changes on failure.
+Model truthfulness and server inventory durability still need separate evidence.

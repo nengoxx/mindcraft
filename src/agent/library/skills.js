@@ -101,9 +101,23 @@ export async function craftRecipe(bot, itemName, num=1) {
     const requiredIngredients = mc.ingredientsFromPrismarineRecipe(recipe); //Items required to use the recipe once.
     const craftLimit = mc.calculateLimitingResource(inventory, requiredIngredients);
     
-    await bot.craft(recipe, Math.min(craftLimit.num, num), craftingTable);
-    if(craftLimit.num<num) log(bot, `Not enough ${craftLimit.limitingResource} to craft ${num}, crafted ${craftLimit.num}. You now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
-    else log(bot, `Successfully crafted ${itemName}, you now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
+    const attempts = Math.min(craftLimit.num, num);
+    try {
+        await bot.craft(recipe, attempts, craftingTable);
+        log(bot, `Craft call returned for ${itemName} (requested ${num} recipe runs; attempted ${attempts}).`);
+    } finally {
+        // Capture immediately around the craft call, before table recovery or
+        // equipping armor. Keep partial changes visible even when craft throws.
+        const after = world.getInventoryCounts(bot);
+        const items = new Set([itemName, ...Object.keys(requiredIngredients)]);
+        log(bot, 'Observed inventory before -> after craft call (net change):');
+        for (const item of items) {
+            const start = inventory[item] || 0;
+            const end = after[item] || 0;
+            const delta = end - start;
+            log(bot, `${item}: ${start} -> ${end} (net ${delta > 0 ? '+' : ''}${delta})`);
+        }
+    }
     if (placedTable) {
         await collectBlock(bot, 'crafting_table', 1);
     }

@@ -4,7 +4,7 @@ import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
 import { initBot } from '../utils/mcdata.js';
-import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
+import { containsCommand, commandStart, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
 import { MemoryBank } from './memory_bank.js';
@@ -358,7 +358,7 @@ export class Agent {
                 }
                 else if (settings.show_command_syntax === "shortened") {
                     // show only "used !commandname"
-                    let pre_message = res.substring(0, res.indexOf(command_name)).trim();
+                    let pre_message = res.substring(0, commandStart(res)).trim();
                     let chat_message = `*used ${command_name.substring(1)}*`;
                     if (pre_message.length > 0)
                         chat_message = `${pre_message}  ${chat_message}`;
@@ -366,7 +366,7 @@ export class Agent {
                 }
                 else {
                     // no command at all
-                    let pre_message = res.substring(0, res.indexOf(command_name)).trim();
+                    let pre_message = res.substring(0, commandStart(res)).trim();
                     if (pre_message.trim().length > 0)
                         this.routeResponse(source, pre_message);
                 }
@@ -416,8 +416,7 @@ export class Agent {
     async openChat(message) {
         let to_translate = message;
         let remaining = '';
-        let command_name = containsCommand(message);
-        let translate_up_to = command_name ? message.indexOf(command_name) : -1;
+        let translate_up_to = commandStart(message);
         if (translate_up_to != -1) { // don't translate the command
             to_translate = to_translate.substring(0, translate_up_to);
             remaining = message.substring(translate_up_to);

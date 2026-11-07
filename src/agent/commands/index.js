@@ -29,11 +29,60 @@ export function blacklistCommands(commands) {
 const commandRegex = /!(\w+)(?:\(((?:-?\d+(?:\.\d+)?|true|false|"[^"]*")(?:\s*,\s*(?:-?\d+(?:\.\d+)?|true|false|"[^"]*"))*)\))?/
 const argRegex = /-?\d+(?:\.\d+)?|true|false|"[^"]*"/g;
 
+// Use the same match (including its original offset) for detection, parsing and
+// truncation. Quotes/code are mentions; bare commands retain the inline syntax.
+function matchCommand(message) {
+    for (let i = 0; i < message.length; i++) {
+        const char = message[i];
+        if (char === '\\') { i++; continue; }
+        if (i === 0 || message[i - 1] === '\n') {
+            const blockquote = message.slice(i).match(/^[\t ]*>[^\r\n]*/);
+            if (blockquote) { i += blockquote[0].length - 1; continue; }
+        }
+        if (char === '`' || message.startsWith('~~~', i)) {
+            const delimiter = message.slice(i).match(char === '`' ? /^`+/ : /^~+/)[0];
+            const end = message.indexOf(delimiter, i + delimiter.length);
+            if (end === -1) return null; // An unfinished code span is still quoted.
+            i = end + delimiter.length - 1;
+            continue;
+        }
+        const quoteEnd = { '"': '"', "'": "'", '“': '”', '‘': '’' }[char];
+        // Apostrophes within words (I'll, player's) do not begin quotations.
+        if (quoteEnd && !(char === "'" && /[\p{L}\p{N}]/u.test(message[i - 1] || ''))) {
+            let end = i + 1;
+            for (; end < message.length; end++) {
+                if (message[end] === '\\') { end++; continue; }
+                if (message[end] === quoteEnd) {
+                    if ((quoteEnd === "'" || quoteEnd === '’') &&
+                        /[\p{L}\p{N}]/u.test(message[end - 1] || '') &&
+                        /[\p{L}\p{N}]/u.test(message[end + 1] || '')) continue;
+                    break;
+                }
+            }
+            if (end === message.length) return null;
+            i = end;
+            continue;
+        }
+        if (char === '!') {
+            const match = message.slice(i).match(commandRegex);
+            if (match?.index === 0) {
+                match.index = i;
+                return match;
+            }
+        }
+    }
+    return null;
+}
+
 export function containsCommand(message) {
-    const commandMatch = message.match(commandRegex);
+    const commandMatch = matchCommand(message);
     if (commandMatch)
         return "!" + commandMatch[1];
     return null;
+}
+
+export function commandStart(message) {
+    return matchCommand(message)?.index ?? -1;
 }
 
 export function commandExists(commandName) {
@@ -95,7 +144,7 @@ function checkInInterval(number, lowerBound, upperBound, endpointType) {
  * @returns {string | Object}
  */
 export function parseCommandMessage(message) {
-    const commandMatch = message.match(commandRegex);
+    const commandMatch = matchCommand(message);
     if (!commandMatch) return `Command is incorrectly formatted`;
 
     const commandName = "!"+commandMatch[1];
@@ -174,7 +223,7 @@ export function parseCommandMessage(message) {
 }
 
 export function truncCommandMessage(message) {
-    const commandMatch = message.match(commandRegex);
+    const commandMatch = matchCommand(message);
     if (commandMatch) {
         return message.substring(0, commandMatch.index + commandMatch[0].length);
     }
@@ -242,7 +291,8 @@ export function getCommandDocs(agent) {
     }
     let docs = `\n*COMMAND DOCS\n You can use the following commands to perform actions and get information about the world. 
     Use the commands with the syntax: !commandName or !commandName("arg1", 1.2, ...) if the command takes arguments.\n
-    Do not use codeblocks. Use double quotes for strings. Only use one command in each response, trailing commands and comments will be ignored.\n`;
+    Do not use codeblocks. Use double quotes for strings. Only use one command in each response, trailing commands and comments will be ignored.
+    Write execution commands outside quotes/backticks. Put command mentions in backticks; quoted text and codeblocks are not executed.\n`;
     for (let command of commandList) {
         if (agent.blocked_actions.includes(command.name)) {
             continue;
