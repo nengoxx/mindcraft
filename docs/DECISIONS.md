@@ -106,3 +106,13 @@ see may be cut.
   drop common junk (dirt, cobblestone, gravel and similar stone, seeds, rotten
   flesh), keeping a stack of dirt and cobblestone and anything the task needs. It
   never discards anything else.
+
+## 2026-11-08 — Generated code and friendly mobs in iteration 1
+
+- **Generated code (OQ-20):** `!newAction` is not blocked outright in iteration 1.
+  It is refused only while a task is running, as REQ-RES-9 specifies; the trials
+  show whether Qwen uses it to bypass the task commands.
+- **Friendly mobs:** allays and golems are not hostile. Probe P11 showed the
+  hostile check treating allays and copper golems as hostile; they are added to
+  the existing exclusion beside iron and snow golems (the owner's base has several
+  iron golems).

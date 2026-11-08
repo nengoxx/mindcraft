@@ -96,3 +96,16 @@ retain current work/rejections through summary truncation and combat, and valida
 completion truthfully. Do not add a supervisor planner or supply trial coordinates
 as a substitute for Qwen's decisions. The task is stopped; partial world edits
 remain and must not be mistaken for a completed house or automatically resumed.
+
+## Iteration 1 residuals (task layer)
+
+Recorded by slice review; none occurs on the owner's deployment as configured.
+
+| Slice | Residual |
+|---|---|
+| S0-lite | A `requests.jsonl` line is one provider call: the SDK's own retries and back-off happen inside it and are not visible. |
+| S0-lite | A partial write on a full disk can leave a malformed line; calls still in flight when the process exits are never logged. |
+| S0-lite | `openai_tools` logs only chat completions: a profile without `url` (Responses API) is unlogged; the shorthand model string `openai_tools/x` without `api` resolves to GPT. |
+| S0-lite | Logging parses the response body, so `asResponse()` and the SDK's beta `parse` helpers fail on this client (awaiting `create` and `withResponse()` work). |
+| S0-lite | Probe P11 with `minecraft_version: "auto"` falls back to the newest installed dataset; run it with the settings path of a pinned deployment. |
+| S0-lite | No rotation of `requests.jsonl` (about 0.5 MB per gather task). |

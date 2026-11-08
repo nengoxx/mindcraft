@@ -11,3 +11,9 @@ export function botDataPath(name, ...parts) {
 export function botLogPath(name, ...parts) {
     return path.join(process.env.MINDCRAFT_RUNTIME_DIR || sourceRoot, 'bots', name, 'logs', ...parts);
 }
+
+// Runtime output shared by all bots (e.g. diagnostics). Unset, the root is the
+// operator's default runtime directory (operator/config.mjs), which git ignores.
+export function runtimePath(...parts) {
+    return path.join(process.env.MINDCRAFT_RUNTIME_DIR || path.join(sourceRoot, 'runtime'), ...parts);
+}

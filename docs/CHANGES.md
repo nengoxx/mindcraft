@@ -10,13 +10,13 @@ are deliberately absent from tracked source.
 | `agent/action_manager.js`, `agent.js`, commands/actions | Settled serial action cancellation, definitive task stop, pending-response epoch invalidation and factual stop history. Stop must not revive a late command. A true uncancellable action still hits the existing 10-second watchdog. |
 | `agent/history.js` | One in-flight summary; pending evidence remains visible until valid publication, ordered prefix removal/archive, invalid/error outputs retained, clear/load invalidates late results. Native 15/5/500 limits remain. This fixes ordering, not semantic truth. |
 | `agent.js` restart branch | Suppress only the exact generic restart inference when loaded state is stopped. Active-goal resumption remains native. |
-| `models/prompter.js`, `models/gpt.js` | Embedding-disabled setup, coding AbortController propagation/cleanup and signal preservation through adapter retries. Neutral current stopped-state context; active/paused goal text unchanged. Pending HTTP cancellation is tested; synchronous JS is not preemptible. |
+| `models/prompter.js`, `models/gpt.js` | Embedding-disabled setup, coding AbortController propagation/cleanup and signal preservation through adapter retries. Neutral current stopped-state context; active/paused goal text unchanged. Pending HTTP cancellation is tested; synchronous JS is not preemptible. I1 S0-lite: the request kind passed to `sendRequest` (entry below). |
 | `agent/coder.js` | Generated-only lint permits synchronous code and rejects direct/literal `bot.chat`, directing output through `log`. Existing broader lint remains; this is not a general chat barrier or sandbox. |
 | `commands/queries.js`, `npc/build_goal.js`, `npc/controller.js` | Typed structure info/build commands using native templates with bounded site/material checks, paired blocks, interruption/resume and final world verification. Substantial custom actuator behavior; no additional tiny-hut template. |
 | `library/skills.js`, `world.js`, `skill_library.js` | Net inventory collection feedback, formatted multiargument code output, corrected top-air predicate and intended text docs fallback without embeddings. No new ranking algorithm. |
 | `utils/mcdata.js` | Protocol initialization from loaded settings, logged negotiated protocol and removal of a conflicting movement wrapper. |
 | `package.json`, lockfile, seven patch files | Locked official Mineflayer source and native dependency graph, material/enchantment and inherited dependency patches. See below. |
-| Runtime migration | Optional `MINDCRAFT_RUNTIME_DIR` helper moves bot outputs only. History/coder/prompter/vision use it; source templates remain at root. No-env storage behavior and root `settings.js` stay upstream. Native `SETTINGS_JSON`/`PROFILES` supply ignored local config. |
+| Runtime migration | Optional `MINDCRAFT_RUNTIME_DIR` helper moves bot outputs, and since I1 S0-lite the shared `diagnostics/requests.jsonl` (`runtimePath`; unset, the operator's default `runtime/`). History/coder/prompter/vision and the `openai_tools` provider use it; source templates remain at root. No-env storage behavior and root `settings.js` stay upstream. Native `SETTINGS_JSON`/`PROFILES` supply ignored local config. |
 | `operator/` | Shared config/control/explicit verified ViaProxy update; adapted existing Windows foreground helpers and Linux foreground ownership/cleanup. No boot service or silent updates. |
 
 `self_prompter.js`, `modes.js` and `process/agent_process.js` remain upstream.
@@ -126,3 +126,20 @@ was 515 characters and the unchanged 500-character action-output limit split the
 JSON. An actual command/ActionManager regression now confirms that this observed
 case arrives intact. This is not a general guarantee for arbitrary long outputs.
 All 40 focused regressions and the runtime-method check pass.
+
+I1 S0-lite (REQ-OBS-1): `models/prompter.js` passes the request kind in the
+existing `options` argument of `sendRequest`: `decision` from `promptConvo`,
+`summary` from `promptMemSaving`, `coding` from `promptCoding` (beside its abort
+signal) and `bot_responder` from `promptShouldRespondToBot`. The deprecated
+`promptGoalSetting` and the vision path pass none. Why: the new `openai_tools`
+provider logs one line per provider call to `$MINDCRAFT_RUNTIME_DIR/diagnostics/requests.jsonl`
+and needs the kind to count model calls by kind. A line is one model call as the
+bot sees it: the OpenAI SDK's own retries and back-off happen inside that call and
+its line; GPT's shorter-context retry is a new call and a new line. Providers with
+their own `sendRequest` that takes no options ignore the fourth argument; `gpt.js`,
+and `azure.js` which inherits its `sendRequest`, forward it to the OpenAI client,
+which ignores the unknown `kind` key (openai 4.104.0). The provider itself is a new file, and the
+log root comes from a `runtimePath` addition to the fork's `utils/runtime_paths.js`
+(unset, the operator's default `runtime/`). Reapply check: `tests/work-s0.test.mjs`
+"the request kind reaches the provider from all four prompter paths". Retire when
+upstream passes a request purpose to its providers.

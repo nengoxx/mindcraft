@@ -231,7 +231,7 @@ export class Prompter {
             let generation;
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt);
+                generation = await this.chat_model.sendRequest(messages, prompt, undefined, {kind: 'decision'});
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -285,7 +285,7 @@ export class Prompter {
             prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
             controller.signal.throwIfAborted();
 
-            let resp = await this.code_model.sendRequest(messages, prompt, undefined, {signal: controller.signal});
+            let resp = await this.code_model.sendRequest(messages, prompt, undefined, {signal: controller.signal, kind: 'coding'});
             controller.signal.throwIfAborted();
             await this._saveLog(prompt, messages, resp, 'coding');
             controller.signal.throwIfAborted();
@@ -300,7 +300,7 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
         prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        let resp = await this.chat_model.sendRequest([], prompt);
+        let resp = await this.chat_model.sendRequest([], prompt, undefined, {kind: 'summary'});
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -315,7 +315,7 @@ export class Prompter {
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
         prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt);
+        let res = await this.chat_model.sendRequest([], prompt, undefined, {kind: 'bot_responder'});
         return res.trim().toLowerCase() === 'respond';
     }
 
