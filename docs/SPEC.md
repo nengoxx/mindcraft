@@ -1508,7 +1508,8 @@ About 13 tools in all.
   - Three call sites dig without the pathfinder: the builder's dig,
     `placeBlock`'s break-in-the-way and `air` branch (skills.js:744 and :660),
     and `tillAndSow`'s break of the block above the soil (skills.js:1654); the
-    skills call `breakBlockAt` → `bot.dig`. `placeBlock` and `tillAndSow` (S2) ask the same
+    skills call `breakBlockAt` → `bot.dig`. `breakBlockAt` itself (so also generated
+    code), `placeBlock`'s break-in-the-way and `tillAndSow` (S2) ask the same
     protection predicate the patched `safeToBreak` checks first
     (`isProtectedForBot`), without upstream's hazard flags, and refuses with the
     reason; the builder's dig (S3) calls the patched `safeToBreak` through a

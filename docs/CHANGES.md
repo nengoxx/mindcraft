@@ -175,14 +175,17 @@ with its reapply check (a test in `tests/`) and retirement trigger:
   "pickupNearbyItems skips junk near a drop point, still picks up other items
   there, and junk again after 5 minutes". Retire when upstream's pickup can
   exclude items.
-- `agent/library/skills.js`, `placeBlock` (S2 fix wave 1): the break-in-the-way
-  branch (:744) and the `air` branch (:660) ask the work module's protection
-  predicate (`isProtectedForBot`, work/protect.js) first and refuse with the
-  reason. Without it `!placeHere` on a chest, or code placing `air`, dug an
-  owner's block through `breakBlockAt`, which no `safeToBreak` guards. Reapply
-  check: `work-protect.test.mjs` "placeBlock never breaks a protected block in
-  its way, nor removes one as air (F1)". Retire with the task layer, or when
-  upstream's `placeBlock` consults the pathfinder's `safeToBreak`.
+- `agent/library/skills.js`, `placeBlock` (S2 fix wave 1) and `breakBlockAt`
+  (I1 cube-clearing trial, 2026-11-08): `placeBlock`'s break-in-the-way branch
+  and `breakBlockAt` itself (which `placeBlock`'s `air` branch calls) ask the
+  work module's protection predicate (`isProtectedForBot`, work/protect.js)
+  before digging a non-air block and refuse with the reason; air, cave air,
+  water and lava are skipped as before. Without it `!placeHere` on a chest, code
+  placing `air`, or generated `!newAction` code clearing an area dug an owner's
+  block through `breakBlockAt`, which no `safeToBreak` guards. Reapply check:
+  `work-protect.test.mjs` "placeBlock never breaks a protected block in its way,
+  nor removes one as air (F1)". Retire with the task layer, or when upstream's
+  `breakBlockAt` consults the pathfinder's `safeToBreak`.
 - `agent/library/skills.js`, `tillAndSow` (S2 fix wave 2): before it breaks the
   block above the soil (:1654) it asks the same predicate and refuses a protected
   block. Without it tilling under a slab or carpet broke it through

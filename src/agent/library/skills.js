@@ -610,19 +610,25 @@ export async function pickupNearbyItems(bot) {
 
 export async function breakBlockAt(bot, x, y, z) {
     /**
-     * Break the block at the given position. Will use the bot's equipped item.
+     * Break the block at the given position. Walks within reach and equips the best tool itself.
+     * To clear an area, break it from the top layer down, so sand and gravel never fall onto you.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {number} x, the x coordinate of the block to break.
      * @param {number} y, the y coordinate of the block to break.
      * @param {number} z, the z coordinate of the block to break.
-     * @returns {Promise<boolean>} true if the block was broken, false otherwise.
+     * @returns {Promise<boolean>} true if the block was broken, false if it was protected, not breakable with your tools, or already air.
      * @example
      * let position = world.getPosition(bot);
-     * await skills.breakBlockAt(bot, position.x, position.y - 1, position.x);
+     * await skills.breakBlockAt(bot, position.x, position.y - 1, position.z);
      **/
     if (x == null || y == null || z == null) throw new Error('Invalid position to break block at.');
     let block = bot.blockAt(Vec3(x, y, z));
-    if (block.name !== 'air' && block.name !== 'water' && block.name !== 'lava') {
+    if (!['air', 'cave_air', 'void_air', 'water', 'lava'].includes(block.name)) {
+        // Fork carry: never remove a protected block, also from generated code (REQ-SAFE-1/3).
+        if (isProtectedForBot(bot, block)) {
+            log(bot, `Cannot remove ${block.name} at ${block.position}: it is protected (not natural terrain and not placed by me).`);
+            return false;
+        }
         if (bot.modes.isOn('cheat')) {
             if (useDelay) { await new Promise(resolve => setTimeout(resolve, blockPlaceDelay)); }
             let msg = '/setblock ' + Math.floor(x) + ' ' + Math.floor(y) + ' ' + Math.floor(z) + ' air';
@@ -677,12 +683,7 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
     const target_dest = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z));
 
     if (blockType === 'air') {
-        // Fork carry: never remove a protected block (REQ-SAFE-1/3).
-        const existing = bot.blockAt(target_dest);
-        if (isProtectedForBot(bot, existing)) {
-            log(bot, `Cannot remove ${existing.name} at ${target_dest}: it is protected (not natural terrain and not placed by me).`);
-            return false;
-        }
+        // breakBlockAt refuses a protected block (REQ-SAFE-1/3).
         log(bot, `Placing air (removing block) at ${target_dest}.`);
         return await breakBlockAt(bot, x, y, z);
     }

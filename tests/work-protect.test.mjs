@@ -256,6 +256,10 @@ test('placeBlock never breaks a protected block in its way, nor removes one as a
     assert.equal(await skills.placeBlock(bot, 'air', 3, 64, 0), false);
     assert.equal(world.block(at(3, 64, 0)).name, 'chest');
     assert.match(bot.output, /Cannot remove chest/);
+    assert.equal(await skills.breakBlockAt(bot, 2, 64, 0), false); // generated code calls it directly
+    assert.equal(world.block(at(2, 64, 0)).name, 'furnace');
+    assert.equal(await skills.breakBlockAt(bot, 5, 64, 0), false); // air is skipped, not protected
+    assert.match(bot.output, /Skipping block at x:5\.0, y:64\.0, z:0\.0 because it is air/);
     assert.equal(await skills.placeBlock(bot, 'air', 4, 64, 0), true); // natural terrain still goes
     assert.equal(world.block(at(4, 64, 0)).name, 'air');
 });
