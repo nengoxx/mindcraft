@@ -82,6 +82,7 @@ export default {
         const output = bot.output.slice(before);
         if (/No (more )?\S+ nearby to collect/.test(output))
             return { blocked: `none reachable: no ${node.via} within 64 blocks that is safe to break` };
-        return { failed: `could not collect ${node.via}` };
+        const why = output.trim().split('\n').filter(l => l && !/^Completed /.test(l)).pop(); // the cause, not the summary
+        return { failed: `could not collect ${node.via}${why ? ` (${why.slice(0, 160)})` : ''}` };
     },
 };

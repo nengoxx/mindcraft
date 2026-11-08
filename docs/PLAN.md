@@ -22,6 +22,10 @@ I5  underground, smelt  S6
 Surv survival           SV (when the owner turns damage back on)
 ```
 
+**Status (2026-11-08):** S0-lite and S2 are built, reviewed, deployed and passed their live
+trials (S2: 1–2 model calls per request, resume after fights, crash restarts and stops
+with no call; [RESEARCH.md](RESEARCH.md) §8, [ISSUES.md](ISSUES.md) live findings). Next: S3.
+
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
 

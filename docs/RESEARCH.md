@@ -235,3 +235,17 @@ hostile. It wrongly included allay and copper golem (fixed in S2 with the owner'
 ruling; iron and snow golems were already excluded) and misses hoglin (Nether only,
 left as is). Neutral mobs (enderman, piglin, zombified piglin, spiders) count as
 hostile.
+
+### 8.3 S2 live trials (2026-11-08)
+
+Same protocol as §8.1, on the S2 code.
+
+| Request | Outcome | Model calls | Time |
+|---|---|---|---|
+| "get 40 oak planks" (a fight mid-task) | done; the fight resumed with no call; one blocked collect revised by Qwen | 2 | 150 s |
+| "get 12 oak logs", `!restart` at 3/12 | done; crash restart resumed with no call | 1 | about 2 min |
+| "get 16 cobblestone", operator and MindServer stop/start | loaded paused both times; `!taskResume` resumed | 0 for the stops | — |
+| "make me a stone pickaxe" from an empty inventory | done; the resolver chained wood, a wooden pickaxe and cobblestone | 1 | 42 s |
+
+Earlier runs of trials 1 and 4 failed on two bugs fixed during the trials (a repeated
+request answered "done" from memory; cobblestone mined with a silk-touch pickaxe).

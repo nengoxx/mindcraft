@@ -97,6 +97,20 @@ completion truthfully. Do not add a supervisor planner or supply trial coordinat
 as a substitute for Qwen's decisions. The task is stopped; partial world edits
 remain and must not be mistaken for a completed house or automatically resumed.
 
+## Iteration 1 live findings (S2 trials, 2026-11-08)
+
+Seen on the owner's deployment during the S2 trials; improvement candidates for S3
+and later, not yet scheduled.
+
+| Finding | Effect | Idea |
+|---|---|---|
+| An automatic "your action was interrupted" message arriving while an owner request is answered discards the first reply. | One duplicated model call. | Drop the automatic message while an owner request is in flight. |
+| A collect failure after a fight carried no cause; Qwen invented causes ("the storm", "no placed cobblestone"). | Wrong revisions, extra calls. | Done for collect (the reason is now in the block message); extend to other actuators. |
+| Obtain counts are held totals; Qwen reasons in deltas ("need 1 more log" → `count=1` while holding 9). | No-op plan steps. | A `more=N` form in the DSL. |
+| A stream of self-defence interruptions (phantoms) kept a task at zero progress; the stall rule named only the last interruption; Qwen self-resumed the same stall. | 10-minute stalls, wasted calls. | Report "under attack" with the count; don't self-resume a block with the same cause within minutes. |
+| The resolver counts a silk-touch pickaxe as meeting the tool tier, so with only silk-touch pickaxes it never plans a plain one and blocks. | Cobblestone and stone tools blocked while the owner's enchanted tools are held. | Resolve the tool as missing when only silk-touch tools would change the drop. |
+| A block report for a task that was cancelled since is still delivered and outranks a newer owner request. | The owner's request was ignored. | Drop reports whose task is no longer current. |
+
 ## Iteration 1 residuals (task layer)
 
 Recorded by slice review; none occurs on the owner's deployment as configured.
