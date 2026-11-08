@@ -1,5 +1,8 @@
 # Known qualification limits
 
+> **Mapping to the new design ([SPEC.md](SPEC.md), 2026-11-08).** C03 semantic memory, C06 restart and C11 goal state → task record and resume (SPEC §6–7); C01/C05 grounding and C13/C16 site discovery → plan validation and the terrain-fitting functional builder (§8, §11); C02 action choice, C09 reporting and C12 command mentions → tools, `obtain` and fact-based reports (§9, §12).
+> C04 history ordering, C07 crafting sync and C15 biomes remain as carries or residuals (§16); C08/C10/C14/C17 concern generated code, which stays outside the task layer. The body below is the pre-design record.
+
 The integration can join, follow, batch gather and craft. Small uncoached physical
 crafting outputs and goal ending were observed, but repeated autonomous hut trials
 did not complete a usable house. Migration is not an autonomy fix. No new gameplay
