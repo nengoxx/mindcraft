@@ -110,6 +110,119 @@ and later, not yet scheduled.
 | A stream of self-defence interruptions (phantoms) kept a task at zero progress; the stall rule named only the last interruption; Qwen self-resumed the same stall. | 10-minute stalls, wasted calls. | Report "under attack" with the count; don't self-resume a block with the same cause within minutes. |
 | The resolver counts a silk-touch pickaxe as meeting the tool tier, so with only silk-touch pickaxes it never plans a plain one and blocks. | Cobblestone and stone tools blocked while the owner's enchanted tools are held. | Resolve the tool as missing when only silk-touch tools would change the drop. |
 | A block report for a task that was cancelled since is still delivered and outranks a newer owner request. | The owner's request was ignored. | Drop reports whose task is no longer current. |
+| Cube-clearing trial (2026-11-08): no task step covers clearing, so the model used `!goal` and `!newAction` code. That code dug bottom-up under gravel; self-preservation moved the bot away and killed the action each time, and each restart cost a new code generation (50–80 s). | 11 min and 16 calls with little cleared. | A `clear` step (PLAN §8), or a library helper that clears a box top-down. Profile guidance to dig top-down was ignored by Qwen in the next run. |
+| The model widened "stone" to "every non-wood block" and changed the box between attempts (inside only vs. including the outer layer) without telling the owner. | Unclear scope. | State the bounds before clearing (profile asks it; not followed yet). |
+| With fresh memory and "the 8 wood blocks" in the request, the model guessed `oak_log`, took the bounding box of every oak log within 64 blocks (trees) and cleared inside it. | The wrong area dug for 5 minutes until `!stop` (natural terrain and trees only; protection held). | Ask the owner for the marker block when it is neither named nor next to the bot; refuse a box far larger than the markers suggest. |
+| `!searchForBlock` walks to the nearest block and returned the same marker three times. | Three wasted calls. | A command listing positions of a block type. |
+| A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
+| `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
+
+### Cube-clearing trials, 2026-11-08 evening: analysis
+
+The owner asked the bot to clear everything inside a box marked by 8 stripped
+spruce wood blocks (x −104..−93, y 62..69, z 472..486; the inside is 10 × 6 × 13
+= 780 cells). Five runs: the first with the S2 profile; the later ones after the
+`breakBlockAt` protection fix and profile guidance (see the table above); the
+last two with an unbreakable diamond pickaxe from the owner and the bot standing
+inside the box. No run finished the whole box. Logs: `runtime/logs/mindcraft-2026-11-08T20-17-29-212Z.log`
+(run 1), `…T21-32-54…`, `…T21-38-35…`, `…T21-52-24…`, `…T21-59-01…` (runs 2–5).
+
+What worked: understanding the request; finding the markers with generated code;
+the `!taskStart` pickaxe (one call, after the profile change); in run 4, once it
+stood next to named markers, it told the owner the bounds, set a goal and planned
+the inside top-down, as the profile now asks.
+
+Root causes, by layer, with the fix each needs:
+
+1. **No deterministic clearing (engine).** Clearing exists only as model-written
+   code inside `!newAction`, so every attempt costs a code generation (50–80 s) and
+   may pick a different box; nothing records progress, and there is no truthful
+   final report. Fix: the `clear` step (PLAN §8: box from markers or coordinates,
+   top-down, the protection predicate, progress = cells left, resume with no model
+   call, a volume cap in config). A smaller interim: a library helper
+   (`skills.clearBox`) so the generated code shrinks to one call.
+2. **Interruptions end code actions (engine).** `self_preservation` (falling
+   gravel) and `self_defense` (phantoms) interrupt all actions; `!newAction` is not
+   resumable, so each interruption becomes a fresh model call and new code. Fix:
+   the `clear` step (task layer resume), or re-run the last code after a mode
+   interruption when it is marked idempotent.
+3. **Bottom-up digging (model).** Upstream's loop order is the model's choice; it
+   dug under gravel. Partly fixed: `breakBlockAt`'s doc and the profile now say
+   top-down. Run 3 ignored it; run 4 planned it. The `clear` step removes the choice.
+4. **Silent tool failure (engine).** When the pickaxe wears out, `breakBlockAt`
+   returns false ("Don't have right tools") and generated code counts on; the
+   action output keeps only its first and last 250 characters
+   (`action_manager.js:170`), so the model never sees how much failed. Fix: in the
+   `clear` step, obtain a tool through `obtain` when none can harvest the next
+   cell, and report counts.
+5. **Marker discovery (engine).** `!searchForBlock` walks to the nearest match and
+   reports one block; three calls returned the same marker. Fix: a listing
+   command (positions of a block type within a range), or marker lookup inside
+   the `clear` step.
+6. **Guessed context (model).** With fresh memory and "wood blocks", Qwen guessed
+   `oak_log`, boxed every tree within 64 blocks and dug that box (run 3).
+   Run 1 widened "stone" to "everything" and changed the box between attempts.
+   Fix: profile — ask the owner when the marker block is neither named nor next
+   to the bot; engine — the `clear` step refuses a box over the configured volume
+   and states the box before digging.
+7. **Goal and task interplay (prompt).** Run 2 started the pickaxe task without a
+   goal, so the bot went idle after it. Profile fixed (goal first); run 4 followed
+   it.
+8. **Backend outage mid-run (engine and ops).** At 21:56 UTC the model host stopped
+   resolving (`EAI_AGAIN`). The coder counts each connection error as "no code
+   block" and gives up after 3 ("agent would not write code"); the self-prompter
+   stops after 3 replies without a command; the bot answers "My brain
+   disconnected" and the goal stalls without telling the owner. Fix: treat
+   transport errors separately: retry with back-off, keep the goal paused, tell
+   the owner once that the model is unreachable.
+9. **Codegen slips (model).** A duplicate `let block` (SyntaxError, one retry
+   lost), an assumed diamond pickaxe it did not have, `"pickaxe".includes("axe")`
+   re-equipping before every block (`breakBlockAt` already equips the best tool;
+   its doc now says so), relative-coordinate API misuse. These shrink as the
+   generated code shrinks (items 1 and 5).
+10. **Stale memory summary (engine).** The summary said "one marker found" long
+    after all were found. Low impact; the task record would replace it.
+11. **Latency.** Decisions took 16–45 s and code generations 50–80 s on the local
+    model; run 1 spent 11 minutes and 16 calls with little cleared.
+12. **Run 5 (the box named by coordinates, the backend reached by LAN address):**
+    one goal, one clean top-down loop (about 3 minutes, no interruption), then a
+    check. About 18 of 780 cells remained, mostly cobblestone refused as
+    protected. That cobblestone is in no placement ledger: most likely the bot's
+    own pathfinder pillars from runs 1–3, placed while no task ran (SPEC: such
+    placements are not exempt). The owner wants the whole inside gone. Fix to
+    design: an explicit owner clear request should cover non-natural blocks
+    inside its box (except containers and stations), or the ledger should record
+    pathfinder placements made outside a task.
+13. **The coder ignored "do not mine, just report"** in the check action and wrote
+    a second mining pass with inconsistent counters ("3 broken, 18 failed, 18
+    total"). A read-only scan belongs in a command or the `clear` step's report.
+14. **False final report.** The bot ended with "Cleared all natural and
+    own-placed blocks … 18 remaining are protected, they belong to an existing
+    build"; the owner still saw natural stone and dirt, and the cobblestone was
+    mostly its own. Why the natural cells failed is not visible: the action
+    output keeps only 250 characters at each end (item 4). It first passed the
+    report as an argument to `!endGoal`, which takes none (profile wording fixed).
+    The owner's ruling (2026-11-08): blocks the bot placed itself (defence
+    pillars, scaffolding) should not be protected unless they are part of a
+    building. Today only stations placed outside a task, and placements made
+    during a task, are exempt (REQ-BLD-22, `work/index.js` `onBlockPlaced`), and
+    a new task keeps only stations (`carryStations`); blocks placed before any
+    record existed cannot be told apart afterwards. Design both halves with the
+    `clear` step: recording non-building placements outside tasks, and an
+    owner-scoped clear permission for unrecorded leftovers.
+15. **Ops: the host machine's VPN login lapsed** (21:56:28 UTC), so the model
+    host's name stopped resolving; the private profile pointed at the host's LAN
+    address for one run and was switched back after the re-login.
+16. **Found by the design council's adversary (probes, 2026-11-08):**
+    `findBlocks` misses blocks inside its radius (the 8th marker, 13.7 blocks
+    away, was missed at radius 16; 4–26 % misses by radius), which also affects
+    `!searchForBlock` and `collectBlock`; `goToGoal` discards the caller's
+    movement settings (skills.js `goToGoal`), so `breakBlockAt`'s "no
+    scaffolding" never applies and it pillars with dirt or cobblestone; the
+    pathfinder's entity-above check is empty outside path searches, so a
+    dig-time check does not protect a player standing on the cell (SPEC
+    REQ-BLD-15 and REQ-SAFE-3 overclaim it); the OpenAI client runs with SDK
+    defaults (10-minute timeout, 2 retries). Designs: `runtime/diagnostics/i1-build/clear-council/`.
 
 ## Iteration 1 residuals (task layer)
 

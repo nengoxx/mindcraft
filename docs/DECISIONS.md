@@ -116,3 +116,21 @@ see may be cut.
   hostile check treating allays and copper golems as hostile; they are added to
   the existing exclusion beside iron and snow golems (the owner's base has several
   iron golems).
+
+## 2026-11-08 — Clearing an area and the bot's own blocks
+
+After the cube-clearing trials and a design council (working files in the
+private diagnostics folder; summary in [ISSUES.md](ISSUES.md), cube analysis):
+
+- Clearing an area is its own capability, not part of building a shelter; the
+  owner usually clears an area to build something there later.
+- A box given by marker blocks is stated to the owner and cleared at once (he
+  can stop it); a box given by coordinates is stated and waits for his yes.
+- Blocks the bot placed to move or fight (pathfinder pillars, bridges, blocks
+  for getting up to fight) are not protected, and should not be left behind as
+  clutter. Blocks it placed with code or commands may be a building it made and
+  stay protected outside a box the owner asked to clear.
+- Containers stay, also inside a box being cleared, unless the owner says
+  otherwise.
+- The size limit for one clear is 32 × 32 × 32 cells (32 768), as configuration;
+  the owner wants no tight limit.

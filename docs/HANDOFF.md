@@ -1,5 +1,34 @@
 # Handoff
 
+## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
+
+- Owner trial: clear the inside of a box marked by 8 stripped spruce wood blocks.
+  Analysis and fix ideas: ISSUES.md "Cube-clearing trials, 2026-11-08 evening".
+- Committed (quick review closed: one Opus reviewer, SHIP after one fix): protection check moved into `breakBlockAt` (generated code could dig
+  the owner's builds), its doc tells the coder it equips itself and to clear
+  top-down; CHANGES.md and SPEC REQ-SAFE-3 updated; tests 188 pass.
+- Private profile: `!taskStart` for tools needed mid-goal, clearing guidance
+  (goal first, state the bounds, top-down, re-run after a timeout), marker
+  listing. Backup: `runtime/backups/amaia.json.pre-clearfix-20261108`.
+- Run 5 (box by coordinates) cleared about 760 of 780 cells; natural stone and
+  dirt and the bot's own cobblestone pillars are left (ISSUES items 12–14). The
+  bot was stopped at the end of the session with its memory archived, so the next
+  start is fresh; it holds an unbreakable diamond pickaxe from the owner.
+- Design council for clearing, own placements, outages and observation ran
+  (main seat, Opus, Sol blind; Opus adversary). The owner ruled Q1–Q5 the same
+  night (DECISIONS.md "Clearing an area and the bot's own blocks"; his new ask:
+  the bot should not leave its pathfinder blocks behind as clutter). Design and
+  rulings: `runtime/diagnostics/i1-build/clear-council/recommended-design.md`,
+  lane reports beside it.
+- Exact next step: fold the rulings and the clutter ask into the recommended
+  design, run the council's review of that text (a fresh Sol review, then the
+  adversary's follow-up), show the owner the result in plain words, then write
+  PLAN (slices S2b: outages and the block listing; S2c: the clear capability,
+  ledger and dig seam, before S3) and SPEC edits. The first build step of S2c is
+  a live probe of the pathfinder-placement tell.
+- The private profile is back on the model host's usual name (the host machine's
+  VPN login had lapsed); it applies at the bot's next start.
+
 ## 2026-11-08 (evening) — I1: S0-lite and S2 done and live-tested; S3 next
 
 ### Where things stand
