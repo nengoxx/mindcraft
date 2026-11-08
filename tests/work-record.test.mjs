@@ -448,10 +448,19 @@ test('!stop still stops the bot when the cancelled task cannot be written (G1)',
     assert.equal(errors.mock.calls.filter(c => /!stop: could not write/.test(String(c.arguments[0]))).length, 1);
 });
 
+test('a finished obtain task\'s view shows what the bot holds now (a repeat was once answered "done" from memory)', () => {
+    const record = R.newRecord({ objective: '40 oak planks', request_text: null, requested_by: F.OWNER, anchor: null,
+        steps: [{ skill: 'obtain', args: { item: 'oak_planks', count: 40 } }] });
+    record.status = 'done';
+    const bot = F.makeBot({ inventory: { oak_planks: 3 } });
+    const view = F.modules.view.renderView(record, { bot });
+    assert.match(view, /^LAST TASK \(done\): "40 oak planks"\. You hold now: 3 oak_planks\. No task is active now/);
+});
+
 test('a finished task\'s guidance survives a long objective: the variable text is clipped first (G10)', () => {
     const record = R.newRecord({ objective: 'o'.repeat(680), request_text: null, requested_by: F.OWNER, anchor: null, steps: [] });
     record.status = 'done';
     const view = F.modules.view.renderView(record, { bot: F.makeBot() });
     assert.ok(view.length <= 700, String(view.length));
-    assert.match(view, /Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again\. For a new gathering, crafting or delivery request use !taskStart\.$/);
+    assert.match(view, /Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again\. Every new gathering, crafting or delivery request, even one that repeats the last task, is new work: start it with !taskStart\. Never say something is done unless your inventory shows it now\.$/);
 });

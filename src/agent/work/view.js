@@ -19,6 +19,10 @@ function ago(ms) {
     return s < 120 ? `${s} s` : `${Math.round(s / 60)} min`;
 }
 
+function held_count(bot, item) {
+    return (bot.inventory?.items?.() ?? []).filter(i => i.name === item).reduce((n, i) => n + i.count, 0);
+}
+
 function clip(text, max = VIEW_MAX) {
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
@@ -31,8 +35,12 @@ export function renderView(record, { bot, selfPromptActive = false, now = Date.n
         if (selfPromptActive) return null;
         // The guidance has reserved room; the variable text is clipped first.
         const guidance = 'No task is active now. Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again. ' +
-            'For a new gathering, crafting or delivery request use !taskStart.';
-        const head = `LAST TASK (${record.status}${record.reason ? `: ${record.reason}` : ''}): "${record.objective}".`;
+            'Every new gathering, crafting or delivery request, even one that repeats the last task, is new work: start it with !taskStart. ' +
+            'Never say something is done unless your inventory shows it now.';
+        // What the bot holds now, next to the word "done" (a repeated request was once answered "done" from memory).
+        const items = [...new Set(record.plan.filter(s => s.args?.item).map(s => s.args.item))];
+        const held = bot && items.length ? ` You hold now: ${items.map(i => `${held_count(bot, i)} ${i}`).join(', ')}.` : '';
+        const head = `LAST TASK (${record.status}${record.reason ? `: ${record.reason}` : ''}): "${record.objective}".${held}`;
         return clip(head, VIEW_MAX - guidance.length - 1) + ' ' + guidance;
     }
     const reason = record.status === 'paused' && record.reason ? `: ${record.reason}` : '';
