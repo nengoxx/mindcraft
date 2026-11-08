@@ -820,3 +820,51 @@ test('give: !taskResume with nothing left in the inventory blocks truthfully', a
     await F.until(() => empty.work.record.status === 'blocked' && /have 0/.test(empty.work.record.reason ?? ''), { timeout: 8000 });
     assert.equal(empty.work.record.reason, 'have 0 stick, 4 still to give to steve');
 });
+
+const quarry = () => {
+    const world = new F.World();
+    for (let i = 0; i < 30; i++) world.set(2 + i, 64, 0, 'stone');
+    return world;
+};
+const silk = (bot, name) => { bot.inventory.items().find(i => i.name === name).enchants = [{ name: 'silk_touch', lvl: 1 }]; };
+
+test('obtain cobblestone with a silk-touch pickaxe and a plain one uses the plain one', async () => {
+    const agent = setup({ world: quarry(), inventory: { diamond_pickaxe: 1, iron_pickaxe: 1 } });
+    silk(agent.bot, 'diamond_pickaxe');
+    agent.work.startTask('cobble', 'obtain item=cobblestone count=3');
+    await done(agent);
+    assert.equal(agent.bot.count('cobblestone'), 3);
+    assert.equal(agent.bot.count('stone'), 0);
+});
+
+test('obtain cobblestone with only a silk-touch pickaxe digs nothing', async () => {
+    const agent = setup({ world: quarry(), inventory: { diamond_pickaxe: 1 }, replies: [''] });
+    silk(agent.bot, 'diamond_pickaxe');
+    agent.work.startTask('cobble', 'obtain item=cobblestone count=3');
+    await F.until(() => agent.work.record.status === 'blocked', { timeout: 8000 });
+    assert.equal(agent.bot.calls.filter(c => c[0] === 'collect').length, 0); // nothing dug
+    assert.equal(agent.bot.count('stone'), 0);
+});
+
+test('a collect that brings in none of the wanted item fails at once, so the step blocks after a few blocks', async () => {
+    const agent = setup({ world: quarry(), inventory: { diamond_pickaxe: 1 }, replies: [''] });
+    const equip = agent.bot.tool.equipForBlock;
+    agent.bot.tool.equipForBlock = async block => { await equip(block); delete agent.bot.heldItem.enchants; };
+    agent.bot.hooks.collect = async () => silk(agent.bot, 'diamond_pickaxe'); // past the tool check: the drop is stone
+    agent.work.startTask('cobble', 'obtain item=cobblestone count=3');
+    await F.until(() => agent.work.record.status === 'blocked', { timeout: 8000 });
+    assert.match(agent.work.record.reason, /collected cobblestone but got no cobblestone/);
+    assert.ok(agent.bot.count('stone') <= 9, String(agent.bot.count('stone')));
+});
+
+test('obtain dirt with only a silk-touch shovel digs grass by hand and gets dirt', async () => {
+    const world = new F.World();
+    for (let i = 0; i < 10; i++) world.set(2 + i, 64, 0, 'grass_block');
+    const agent = setup({ world, inventory: { diamond_shovel: 1 } });
+    silk(agent.bot, 'diamond_shovel');
+    agent.bot.tool.equipForBlock = async () => { agent.bot.heldItem = agent.bot.inventory.items()[0]; }; // the fastest tool, as mineflayer-tool picks
+    agent.work.startTask('dirt', 'obtain item=dirt count=2');
+    await done(agent);
+    assert.equal(agent.bot.count('dirt'), 2);
+    assert.equal(agent.bot.count('grass_block'), 0);
+});

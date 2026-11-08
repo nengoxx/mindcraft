@@ -74,8 +74,11 @@ export default {
         const target = collectTarget(node);
         const chunk = Math.min(node.n, COLLECT_CHUNK);
         const before = bot.output.length;
+        const held = world.getInventoryCounts(bot)[node.have] || 0;
         const ok = await ctx.call(`collect ${target}`, () => skills.collectBlock(bot, target, chunk));
-        if (ok) return {};
+        // Digging that brings in none of the wanted item fails at once (a silk-touch tool once dug 195 stone for cobblestone).
+        if (ok && (world.getInventoryCounts(bot)[node.have] || 0) > held) return {};
+        if (ok) return { failed: `collected ${target} but got no ${node.have}` };
         const output = bot.output.slice(before);
         if (/No (more )?\S+ nearby to collect/.test(output))
             return { blocked: `none reachable: no ${node.via} within 64 blocks that is safe to break` };

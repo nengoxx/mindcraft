@@ -431,6 +431,14 @@ export async function defendSelf(bot, range=9) {
 
 
 
+function hasSilkTouch(bot, item) {
+    try {
+        return (item?.enchants ?? []).some(e => (e.name ?? bot.registry.enchantments?.[e.id]?.name) === 'silk_touch');
+    } catch {
+        return false;
+    }
+}
+
 export async function collectBlock(bot, blockType, num=1, exclude=null) {
     /**
      * Collect one of the given block type.
@@ -500,6 +508,20 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         const block = blocks[0];
         await bot.tool.equipForBlock(block);
         if (bot.interrupt_code) break;
+        // Carry (I1 S2): a silk-touch tool drops the block itself (stone for cobblestone, grass for dirt), not
+        // the item asked for. Blocks that drop nothing without silk touch (ice, glass, leaves) keep it.
+        const self = bot.registry.itemsByName[block.name]?.id;
+        const drops = bot.registry.blocksByName[block.name]?.drops ?? [];
+        if (block.name !== blockType && drops.length && !drops.includes(self) && hasSilkTouch(bot, bot.heldItem)) {
+            const kind = bot.heldItem.name.split('_').pop();
+            const plain = bot.inventory.items().find(i => i.name.endsWith('_' + kind) && !hasSilkTouch(bot, i) && block.canHarvest(i.type));
+            if (plain) await bot.equip(plain, 'hand');
+            else if (block.canHarvest(null)) await bot.unequip('hand');
+            else {
+                log(bot, `Only a silk-touch tool can mine ${block.name}: it would drop ${block.name}, not ${blockType}.`);
+                return false;
+            }
+        }
         if (isLiquid) {
             const bucket = bot.inventory.findInventoryItem('bucket');
             if (!bucket) {

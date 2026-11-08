@@ -205,6 +205,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
         }
     };
     bot.equip = async item => { bot.heldItem = item; };
+    bot.unequip = async () => { bot.heldItem = null; };
     bot.tool = { equipForBlock: async block => {
         bot.heldItem = bot.inventory.items().find(s => block.harvestTools?.[s.type]) || null;
     } };
@@ -250,7 +251,8 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
             bot.calls.push(['collect', block.name, block.position.toString()]);
             if (bot.hooks.collect) await bot.hooks.collect(block);
             if (bot.interrupt_code) { const err = new Error('stopped'); err.name = 'PathStopped'; throw err; }
-            const drop = registry.blocksByName[block.name].drops[0];
+            const silk = (bot.heldItem?.enchants ?? []).some(e => e.name === 'silk_touch');
+            const drop = silk ? registry.itemsByName[block.name].id : registry.blocksByName[block.name].drops[0];
             world.set(block.position.x, block.position.y, block.position.z, 'air');
             bot.entity.position = block.position.offset(0.5, 0, 0.5);
             if (drop != null) bot.give(registry.items[drop].name, 1);

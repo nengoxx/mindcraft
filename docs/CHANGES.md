@@ -188,6 +188,14 @@ with its reapply check (a test in `tests/`) and retirement trigger:
   block. Without it tilling under a slab or carpet broke it through
   `breakBlockAt`. Reapply check: `work-protect.test.mjs` "tillAndSow never breaks
   a protected block above the soil (G11)". Retire with the `placeBlock` carry.
+- `agent/library/skills.js`, `collectBlock` (S2 live trial): after `equipForBlock`,
+  a silk-touch tool is swapped for a plain one of the same kind (else the bare hand,
+  else a refusal with the reason) when the block is not the type asked for and its
+  normal drops differ from itself (stone for cobblestone, grass for dirt). Without it
+  "16 cobblestone" dug about 195 stone with the owner's silk-touch pickaxe and got
+  none. Reapply check: `work-runner.test.mjs` "obtain cobblestone with a silk-touch
+  pickaxe and a plain one uses the plain one" and the two silk-touch tests after it.
+  Retire when upstream's tool choice accounts for silk touch.
 - `utils/mcdata.js`: `isHostile` also excludes `allay` and `copper_golem`, beside
   the iron and snow golems (owner ruling 2026-11-08: golems and allays are not
   hostile, and the base keeps several iron golems). Probe P11 found both classed
