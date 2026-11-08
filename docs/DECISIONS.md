@@ -70,3 +70,39 @@ connected, and the owner has to start it by hand.
 - If the bot drops anyway, for example because the server kicked it for being
   AFK, tell the owner so he can start the server again.
 - Never leave the bot disconnected on purpose for longer than a few minutes.
+
+## 2026-11-08 — Iterations and simplification
+
+This supersedes "Build order S0–S4 as in PLAN.md" in the entry "Task layer design
+approved; no Pi". Native tool calls move to the second iteration. The order is
+PLAN.md §1.
+
+The owner's rule for cuts: reuse or defer, never drop a discussed feature. A
+feature either reuses an existing upstream, Mindcraft or Mineflayer mechanism that
+really delivers it, or is deferred to a named later iteration and kept in SPEC.md
+with its requirement. Only internal machinery that delivers nothing the owner can
+see may be cut.
+
+- **Iteration 1, usable for play:** planning, gathering and crafting, combat then
+  back to the task, and a simple terrain-fitting shelter, driven by Mindcraft's
+  text commands.
+- **Deferred, by iteration:**
+  - Iteration 2: native tool calls and measuring summary-versus-decision load.
+  - Iteration 3: Qwen's own designs, the design library, offline design, and owner
+    templates.
+  - Iteration 4: exploring beyond the loaded area and remembering places.
+  - Iteration 5: mining underground and smelting, including wider smelting
+    coverage.
+  - Survival iteration, for when damage is turned back on: the night shelter
+    mode, health and food gates, auto-deposit to a chest, asking the owner before
+    long builds or longer searches, `/locate`, and a careful underground
+    staircase.
+  - Every other deferral is named too: the enclosure check and layer rows go
+    with iteration 3; the background chunk indexer, biome priors, a fuller
+    discovery database and the rarer structure checks with iteration 4.
+- **Smelting reuses the nearest furnace:** the bot may use any nearby furnace
+  whose slots are empty, never breaks it, and takes back only what it put in.
+- **Junk drop in iteration 1:** when the inventory is nearly full, the bot may
+  drop common junk (dirt, cobblestone, gravel and similar stone, seeds, rotten
+  flesh), keeping a stack of dirt and cobblestone and anything the task needs. It
+  never discards anything else.

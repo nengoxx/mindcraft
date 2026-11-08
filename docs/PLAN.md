@@ -1,37 +1,81 @@
 # Plan — building the task layer
 
 This document says **how and in what order** the [specification](SPEC.md) is
-built. Requirement numbers (`REQ-…`) and open questions (`OQ-…`) refer to SPEC.md.
+built. Requirement numbers (`REQ-…`) and open questions (`OQ-…`) refer to SPEC.md;
+each requirement there carries the iteration that builds it (`[I1]` … `[Surv]`).
 Owner rulings are in [DECISIONS.md](DECISIONS.md).
 
-Contents: 1 Order · 2 Rules for every slice · 3 Slices · 4 S0 probes ·
+Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Probes ·
 5 Design experiment (DX) · 6 Review and commit · 7 Live-testing etiquette ·
 8 Deferred items and their seams.
 
 ---
 
-## 1. Order
+## 1. Iterations and order
 
 ```
-S0 probes → S1 transport → S2 task record, runner, resume → S3 terrain-fitting shelter
-   → S4 hardening → DX design experiment (offline) → S5A structures
-   → S5B discovery → S6 underground and smelting
+I1  usable for play     S0-lite → S2 → S3
+I2  native tools        S1 → S4 (rest)
+I3  structures          DX → S5A
+I4  discovery           S5B
+I5  underground, smelt  S6
+Surv survival           SV (when the owner turns damage back on)
 ```
 
-- **S0–S3** are the approved core (DECISIONS 2026-11-08). S2 comes right after
-  transport because losing the task on interruption is the owner's main complaint.
-- **S4 sits right after S3.** Its items (owner chat during a task, the
-  summary-versus-decision load on the single backend, stop and death in every step
-  type) affect every later live trial. Fixing them first means the S5–S6 trials
-  measure the new features, not these confounders. S4 also needs the S2/S3
-  measurements, which exist only then.
-- **DX before S5A** (E1). DX builds the compiler, validator and fixture verifier
-  offline and decides the design representation. It needs no game. It does use
-  the model backend, so it is scheduled like a trial: never while a live trial
-  runs. It shares no code with S4, so it may run before S4 or alongside it.
-- **S5A before S5B before S6.** Structures use surface materials (wood, stone)
-  that S2's resolver already obtains. Discovery is needed before underground
-  mining and the iron tier.
+The slice names S0 … S6 are kept; iterations group them. The full requirement
+text of every later iteration stays in SPEC, tagged with its iteration.
+
+**The owner's rule for cuts** (DECISIONS 2026-11-08, "Iterations and
+simplification"): no feature discussed with the owner is dropped. It either reuses
+an existing upstream, Mindcraft or Mineflayer mechanism that really delivers it, or
+is deferred to a named later iteration. Only internal machinery that delivers
+nothing the owner can see is retired.
+
+- **I1 — usable for play (build now).** The smallest set that fixes the core
+  complaints: planning, gathering and crafting, combat then back to the task, a
+  simple terrain-fitting shelter. Transport is Mindcraft's text `!commands` with
+  the compact step DSL (SPEC §12.0); native tools wait for I2.
+  - Step vocabulary: `obtain` (surface: wood, stone, crafting, a crafting table),
+    `go_to`, `give`, `build` (the shelter macro; the catalog only by explicit
+    name).
+  - S0-lite: request logging, the two baselines, P11 (hostile classification).
+  - S2: task record, runner and resume, the surface obtain resolver, protection,
+    the persisted ledger (`permanent` and `station` kinds), the task view and
+    fact-based reports.
+  - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
+    the fit search, the builder carry, the Room verifier, material and tool
+    insertion, P8 (door yaw).
+  - S4's offline tests (stop and death in each step type, owner chat during a
+    task) are folded into S2 and S3, and its live trial runs during an S3 build.
+- **I2.** S1 native tool calls (P1 runs first; provider, the #769 adapter copy,
+  prompt layout arm A, the "use tools" correction). The rest of S4: measure
+  summary-versus-decision contention (OQ-18).
+- **I3 — structures.** DX, narrowed (§5). S5A: in-game designs through
+  `build{source: new, parts}`, the design library, offline design, owner templates
+  with `!saveTemplate`, the `enclosure` region type and the layer-row front end.
+- **I4 — discovery.** S5B: exploring beyond the loaded area, places memory on
+  `MemoryBank`, structure signatures; also the background chunk indexer, biome
+  priors, the discovery-database extras (depletion, TTLs, LRU, merge radius,
+  global explored set, dangerous places) and the mansion and stronghold rows.
+- **I5 — underground and smelting.** S6: `smeltItem` reusing the nearest empty
+  furnace, buried ore through the pathfinder's digging, and the wider smelting
+  table (`smelting.json`).
+- **Survival iteration (SV).** When the owner turns damage back on: the night
+  `shelter` policy; the health and food gates; auto-deposit to an owner chest and
+  surplus drop; the owner-question bundle (ask before long builds, search-budget
+  extensions, `/locate`, rare-target prompts); the careful `descend_to` staircase.
+- **On evidence.** Built only if the named failure is observed: the `name{json}`
+  drift parser (REQ-TRN-9), prompt layout arm B (REQ-TRN-12).
+
+Why this order:
+
+- Losing the task on interruption is the owner's main complaint, so the task
+  record and resume (S2) come right after the baseline, on the text path that
+  already works.
+- I3 before I4 before I5: structures use surface materials that I1's resolver
+  already obtains; discovery comes before underground mining and the iron tier.
+- DX needs no game but uses the model backend, so it is scheduled like a trial:
+  never while a live trial runs.
 
 ## 2. Rules for every slice
 
@@ -45,7 +89,8 @@ A slice is done when all of these hold:
 2. It passed review (§6) and was committed.
 3. It was deployed by an agent-only restart and each live acceptance trial passed
    uncoached at least once. Every attempt, passed or failed, is recorded.
-4. Its metrics are recorded (§2.3) and SPEC/PLAN/CHANGES/ISSUES are current.
+4. Its metrics are recorded (§2.3), and the docs whose content changed are
+   current.
 
 A trial that fails for the same cause after two fix rounds goes to a design
 decision instead of a third patch.
@@ -58,442 +103,505 @@ decision instead of a third patch.
 - The developer may end a trial only for a critical problem (danger to the owner's
   builds or items, a loop that damages the world) or demonstrated non-progress,
   with a terminal `!stop`. That counts as a failed attempt.
-- Before each trial, record the bot's position, inventory, time of day and the
-  non-natural blocks within 16 of the site. After it, record the same plus the
-  metrics below.
+- Before a build trial, record the non-natural blocks within 16 of the site;
+  after it, the same (the protected-block diff).
 - Never resume a failed trial from old memory. Start the next attempt as a new
   request.
 - The owner's server currently makes the bot invincible (no damage, drowning or
-  hunger), and trials run that way with `work.night_policy: continue`. Every trial
-  report says "invincible"; no survival or self-sufficiency claim follows.
+  hunger), and trials run that way. Every trial report says "invincible"; no
+  survival or self-sufficiency claim follows.
 
 ### 2.3 Metrics recorded for every trial
 
-From `runtime/diagnostics/requests.jsonl` and the task record (REQ-OBS-1..3):
-model calls by kind; summaries as a share of all requests; prompt, cached and
-completion tokens; reasoning characters; latency per request; wall time; tool-call
-parse rate; interruptions by cause and how many resumed with 0 model calls; crash
-restarts; blocks and their reasons; verifier outcome; protected-block diff; edits
-(placed, dug, leaves cleared); distance travelled; interventions (target 0).
+What the logs and the record give automatically (REQ-OBS-1..3): request text;
+start and end time; model calls by kind; summaries as a share of all requests;
+latency per request; interruptions by cause and how many resumed with 0 model
+calls; crash restarts; blocks and their reasons; verifier outcome. Build trials
+add the protected-block diff. Interventions: target 0.
 
 ## 3. Slices
 
-### S0 — Probes and observability
+### I1 — usable for play
 
-- **Goal.** Measure before building: the backend's tool support, caching, the
-  facts later slices depend on, and a baseline on the current code.
-- **SPEC.** REQ-TRN-1, REQ-OBS-1; answers OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-17.
+#### S0-lite — Logging and baselines
+
+- **Goal.** A baseline on the current code and the logging every later trial
+  reads.
+- **SPEC.** REQ-OBS-1 (text path); answers OQ-17.
 - **Files.**
   - `src/models/openai_tools.js` (new): provider with request logging only, text
     path unchanged.
-  - `src/models/prompter.js` (carry): pass the request kind to `sendRequest` in its
-    existing `options` argument.
-  - `src/agent/work/index.js`, `commands.js`, `probes.js` (new): skeleton and the
-    `!probe(name)` command, registered only when `work.probes_enabled` is true.
-  - `src/agent/commands/index.js` (carry): registration hook for work commands.
-  - `tests/probes/backend-tools.mjs` (new): the backend tool-call and cache probe;
-    reads the endpoint from the private profile; writes to `runtime/diagnostics/`.
+  - `src/models/prompter.js` (carry): pass the request kind to `sendRequest` in
+    its existing `options` argument.
+  - `tests/probes/hostiles.mjs` (new, P11).
   - `tests/work-s0.test.mjs` (new).
-- **Offline tests.** Provider logs every request kind with the right fields and
-  never sends tools; the request kind reaches the provider from all four prompter
-  paths; `!probe` is absent when disabled.
-- **Probes and baselines.** See §4.
+- **Offline tests.** The provider logs every request kind with the right fields
+  and never sends tools; the request kind reaches the provider from all four
+  prompter paths.
+- **Probe.** P11 (§4).
 - **Live acceptance (current code, uncoached).** Two baselines with the existing
   text commands: "get 40 oak planks" and "build a small shelter here". They are
-  measurements, not pass/fail; their numbers are the comparison point for S1–S3.
-- **Metrics.** All of §2.3, plus `unstuck` firings during stationary work.
-- **Exit.** Every probe in §4 has a recorded result; the S1 route (tool path or
-  DSL fallback) is decided from P1; the REQ-TRN-12 prompt-layout arm is decided
-  from P2 and written into SPEC; SPEC open questions are updated; a sanitized
-  summary is added to RESEARCH.md.
-- **Not in S0.** Any tool path, task record or behaviour change.
+  measurements, not pass/fail; their numbers are the comparison point for S2 and
+  S3. Count `unstuck` firings during the shelter baseline (the old P12).
+- **Exit.** Baselines and P11 recorded; OQ-17 updated; a sanitized summary added
+  to RESEARCH.md §8.
+- **Not in S0-lite.** Tools, the task record, any behaviour change, a `!probe`
+  command.
 
-### S1 — Transport
-
-- **Goal.** Native tool calls on decision requests, plain-text history, the
-  prompt layout chosen at S0.
-- **SPEC.** REQ-TRN-2 … REQ-TRN-9, REQ-TRN-11, REQ-TRN-12; REQ-ARC-3.
-- **Files.**
-  - `src/models/openai_tools.js`: tools, envelope, explicit reasoning budget.
-  - `src/agent/commands/tool_adapter.js` (copy of #769 plus the patch).
-  - `src/models/native_tools.js` (new shim: `parseToolArguments`).
-  - `src/agent/commands/index.js` (carry): export the command list.
-  - `src/models/prompter.js` (carry): envelope on the tool path; tools only on
-    decision requests; the dynamic-state-after-history message if S0 chose arm B.
-  - `src/agent/agent.js` (carry): structured branch inside the stop-epoch checks.
-  - `operator/examples/profiles/local.json`: layout reorder, tool-form examples,
-    `use_native_tools`. The private profile gets the same change.
-  - `tests/work-transport.test.mjs` (new).
-- **Transitional tools.** S1 has no `obtain` step yet, so `collectBlocks` and
-  `craftRecipe` are offered as tools in S1 only, to make the gather trial
-  possible. S2 removes them (REQ-TRN-10).
-- **Offline tests.** Schema generation, including nested `array`/`object`
-  parameters; a nested `task_start` schema round-trips into a stub `perform`
-  unchanged; the envelope passes through `promptConvo` with the stale-response
-  check intact; only the first call runs and extras are refused; text `!commands`
-  from the model get the "use tools" turn and do not run; owner forced commands
-  still run; summary, coding and bot-responder requests carry no tools; the
-  `name{json}` fallback; all tool schemas together < 8 KB.
-- **Live acceptance (uncoached).**
-  1. **Parsing:** a fixed sequence of at least 10 independent uncoached requests,
-     written and frozen before the run in `tests/s1/requests.json` (short gather,
-     craft, give, follow and status requests): at least 95 % of tool calls parse.
-  2. **Completion and latency**, separately: "get 40 oak planks" completes; request
-     count and latency are recorded against the S0 baseline. It is not required to
-     take any minimum number of turns.
-- **Metrics.** §2.3, with parse rate per turn and schema bytes.
-- **Exit.** Acceptance met; Pi trigger line count (REQ-ARC-4) recorded.
-- **Not in S1.** Task record, runner, resume, `obtain`.
-- **If S0's P1 failed:** S1 becomes the DSL-over-text fallback: `task_start` and
-  `task_revise` take one string argument in a compact step DSL, parsed by
-  `work/plan.js`. S1 accepts the parser against stubs (≥ 95 % valid DSL on the
-  frozen request sequence); its live gather trial uses the existing text commands.
-  Executable DSL tasks are accepted in S2.
-
-### S2 — Task record, runner and resume
+#### S2 — Task record, runner, resume, text commands
 
 - **Goal.** The bot keeps its task through interruptions and restarts, and gathers
-  and crafts through `obtain` (wood and stone tiers).
-- **SPEC.** REQ-REC-1 … 11; REQ-RES-1 … 15; REQ-PLAN-1 … 8 (non-build parts);
-  REQ-OBT-1 … 5, 9, 11, 12; REQ-SAFE-1 … 5, 7, 9 … 11; REQ-TRN-10; REQ-OBS-2.
+  and crafts through `obtain` (wood and stone tiers), driven by text commands.
+- **SPEC.** REQ-REC-1 … 11 (REQ-REC-8 retired); REQ-RES-1 … 13 and 16 (REQ-RES-8's
+  I1 part); REQ-PLAN-1 … 8 (non-build parts); REQ-TRN-13 … 15 (text commands and
+  DSL); REQ-OBT-1 … 5, 9, 11; REQ-SAFE-1 … 5, 7, 9, 11; REQ-FIND-15, 16 (I1
+  part); REQ-OBS-2.
 - **Files.**
-  - `src/agent/work/`: `index.js`, `config.js`, `record.js`, `runner.js`, `plan.js`,
-    `commands.js` (`task_*`), `steps/obtain.js`, `steps/go_to.js`, `steps/give.js`,
-    `resolve.js`, `protect.js` (predicate, tree test, persisted ledger, the
-    `Movements.prototype.safeToBreak` patch with the hazard flags, SIGINT
-    `clean_stop` handler),
-    `view.js`, `report.js`, `data/natural_blocks.json`.
-  - Carries: `agent.js` (work init with `init_message`), `prompter.js` (task view in
-    `$SELF_PROMPT`), `commands/index.js` (register), `history.js`
-    (`memory_max_chars`).
-  - Profile: summariser wording (no coordinates, quantities or step progress).
-  - `tests/work-record.test.mjs`, `work-runner.test.mjs`, `work-resolve.test.mjs`,
-    `work-protect.test.mjs`.
+  - `src/agent/work/`: `index.js`, `config.js`, `record.js`, `runner.js`,
+    `plan.js` (DSL parser, validation, dry run), `commands.js` (`!taskStart`,
+    `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`), `steps/obtain.js`,
+    `steps/go_to.js`, `steps/give.js`, `resolve.js`, `protect.js` (predicate, tree
+    test, persisted ledger, the `Movements.prototype.safeToBreak` patch with the
+    forced flags, SIGINT `clean_stop` handler), `view.js`, `report.js`,
+    `data/natural_blocks.json`.
+  - Carries: `agent.js` (work init with `init_message`), `prompter.js` (task view
+    in `$SELF_PROMPT`), `commands/index.js` (register), `history.js`
+    (`memory_max_chars`, default 1,000).
+  - Carry: `library/skills.js` (`pickupNearbyItems` skips junk-type items within
+    3 blocks of a recorded junk drop point).
+  - Profile: summariser wording (no coordinates, quantities or step progress);
+    examples showing `!taskStart` for gathering and crafting. Settings overlay:
+    `blocked_actions` = the deployment's existing blocked list (including any
+    `!setMode` block) plus `!buildStructure`; examples steer away from
+    `!newAction` to `!taskStart` and `!build`.
+  - `tests/work-record.test.mjs`, `work-runner.test.mjs`, `work-dsl.test.mjs`,
+    `work-resolve.test.mjs`, `work-protect.test.mjs`.
 - **Offline tests** (fixture bot plus the real ActionManager and modes code):
+  - DSL and commands: every grammar rule and every error message of REQ-TRN-15
+    (unknown skill and key, missing and repeated keys, unclosed quote, bad numbers
+    and positions, a later-iteration source, over 8 steps, over 1,000
+    characters); all errors returned together; a `"` inside an argument gives
+    Mindcraft's argument-count error; a command written in backticks does not
+    run; only the first command in a reply runs; the commands appear in
+    `$COMMAND_DOCS`; `!taskStart` from the model and from the owner's forced path
+    reach the same `perform`; the stop-epoch checks still stop a model command;
+  - parsing on a frozen request sequence: at least 10 independent requests,
+    written and frozen before the run in `tests/s2/requests.json` (short gather,
+    craft, give and follow requests), each with the expected DSL; the parser and
+    validator accept every expected plan (the live parse rate is measured in the
+    trials, target ≥ 95 % valid);
   - record: atomic write, unknown version left alone, every lifecycle transition;
   - restart: crash restart resumes with 0 model calls; fresh start loads `paused`;
     a SIGINT stop writes `clean_stop`, re-raises the signal, and the next start
     (even with `init_message 'Agent process restarted.'`) loads `paused`; startup
     clears `clean_stop` after reading it, so stop → start → resume → crash
-    resumes the task again as a crash restart; 3 restarts in 10 minutes block the
-    step;
+    resumes the task again as a crash restart;
+  - stall rule: `stalled_s` resets on improvement, carries across a simulated
+    restart, ignores time with the process down, and blocks at 600 s with the last
+    cause (fake clock); constant combat with progress never blocks; a crash loop
+    blocks;
   - supersede: a new request while a task is `paused` or `blocked` cancels it as
     `superseded`; while `active` it is refused;
   - anchor: `here` resolves to the owner's position when tracked, else the bot's,
     and is unchanged after inserted `obtain` steps and a restart;
-  - craft calls use the 120 s deadline; other calls 45 s;
-  - the "use tools" turn appears at most once per decision request;
+  - one 120 s no-progress deadline for every call, crafting included;
   - resume: a mode interrupt resumes with no AUTO MESSAGE and no model call; an
     interrupted run is resumed by the self-heal timer; a thrown error is caught and
     `resume_func` survives; the no-progress deadline ends the run through
     `requestInterrupt`; a run ends itself at the run bound, checked only between
     actuator calls;
-  - gate: refusal persists its reason; blocks after 120 s (fake clock);
+  - resume check: refuses while a hostile within 8 has a clear path (the
+    `self_defense` pair), passes once it is gone, never blocks by itself;
   - causes: owner `!stop` → `cancelled`; death → `paused(died)`; a resumable
     replacement → `paused(replaced)`;
-  - `!goal` refused while a task is active; `unstuck` paused in stationary steps;
-  - the report is posted after the run, with no nested `runAction`;
-  - `task_start` returns falsy and saves history; all validation errors together;
-  - night: under `continue`, night hostile interruptions do not count toward the
-    block threshold and no dig-in happens; under `shelter`, dig-in and time-based
-    resume with no model call;
+  - folded from S4: `!stop` and death in each step type (`obtain`, `go_to`,
+    `give`); owner chat during a run: a non-resumable chat action pauses the
+    runner and it resumes afterwards; `followPlayer` pauses the task;
+  - `!goal` refused while a task is active, from the model and the owner;
+    `unstuck` paused in stationary steps;
+  - the report is posted after the run, from facts, with no nested `runAction`;
+  - `!taskStart` returns falsy and saves history;
+  - night: hostile interruptions at night resume like any other; no dig-in exists;
   - resolver: planks from logs, sticks, a wooden pickaxe and a stone pickaxe from
-    an empty inventory; table need from recipe shape; leftovers; re-evaluation
-    after partial progress gives the right shortfall;
+    an empty inventory, using `bot.recipesAll` and `requiresTable`; the first
+    recipe the inventory allows; leftovers by mcdata's batch arithmetic; the graph
+    recomputed after partial progress gives the right shortfall; an item with no
+    method gives "no method for X in this version";
   - protection: a natural tree is collectable, an all-log cabin is not; collection
     never re-selects a protected block; the prototype patch covers a `Movements`
     that was never passed to `setMovements` and the collect plugin's check; while
     a task runs `safeToBreak` uses `dontCreateFlow` and `dontMineUnderFallingBlock`
-    true even after `collectBlock` set them false, except that a block of the
-    current `obtain` target type skips only the water-adjacency check (underwater
-    clay is collectable; a lava neighbour, a falling block or a player standing on
-    it is still refused; a path dig next to water is still refused); the tree test runs
-    once per position per run (memoized); the bot's own table, recorded in the
-    persisted ledger, is collectable after a restart; after any task replacement,
-    a still-present `permanent` table or furnace outside any blueprint is carried into the new
-    record as a `station` entry and stays collectable, while other entries are
-    dropped;
-  - full inventory blocks with a report and discards nothing.
+    true for every block even after `collectBlock` set them false; the tree test
+    runs once per position per run (memoized); the bot's own table, recorded in
+    the persisted ledger, is collectable after a restart; after any task
+    replacement, a still-present `permanent` table or furnace outside any
+    blueprint is carried into the new record as a `station` entry and stays
+    collectable, while other entries are dropped;
+  - junk drop: below `work.min_free_slots` the bot tosses only `work.junk_items`,
+    keeps `work.junk_keep` and anything the task needs, drops before moving to the
+    work while facing away from the work position, records the drop point for 5
+    minutes, and `pickupNearbyItems` (also as called by `item_collecting`) skips
+    junk-type item entities within 3 blocks of it but still picks up other items
+    there, and junk again after 5 minutes; a refill re-runs the drop at most
+    twice; when the minimum cannot be reached the step blocks with the five
+    largest stacks; nothing off the list is ever discarded;
+  - `blocked_actions`: `!buildStructure` is absent from `$COMMAND_DOCS` and
+    refused when the model or the owner sends it; an existing `!setMode` block is
+    kept; `!collectBlocks` and `!craftRecipe` still run;
+  - `!newAction` is refused while a task is non-terminal, from the model and the
+    owner, by the same wrapper as `!goal`, and runs again once the task ends;
 - **Live acceptance (uncoached).**
   1. "get 40 oak planks", started at dusk: at least one mob interruption resumed
      with 0 extra model calls (log), the bot back within 6 blocks of `work_pos`,
      inventory ≥ 40, truthful report. Repeat until at least one mob interruption
-     occurs; a run without one does not count.
+     occurs; a run without one does not count. Request count and latency are
+     compared with the S0-lite baseline.
   2. Kill the agent process mid-task (`!restart` from the owner channel): the crash
      restart completes the task.
   3. An operator Stop then Start mid-task leaves the task `paused`; so does a
      MindServer UI stop then start (do this only while the owner is connected; §7).
   4. "make me a stone pickaxe" from an empty inventory: the resolver chain
      completes with 1–3 model calls.
-- **Metrics.** §2.3; model calls per gather task against the 1–3 target.
-- **Exit.** All four trials pass; the craft deadline is confirmed against real
-  crafting sync times.
-- **Not in S2.** Building, `find`, smelting, underground, places memory.
+- **Metrics.** §2.3; model calls per gather task against the 1–3 target; the
+  DSL's live parse rate.
+- **Exit.** All four trials pass; the 120 s deadline is confirmed against real
+  crafting sync times; OQ-20 has a first reading.
+- **Not in S2.** Building, `find`, smelting, underground, places memory, tools.
 
-### S3 — Terrain-fitting shelter
+#### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
-  against a hillside, in one `build` call, without felling trees or touching the
-  owner's builds. Both detail levels work.
-- **SPEC.** REQ-BLD-1, 2, 4, 9 … 18, 20 … 28; REQ-BLD-12a, 34; REQ-BLD-29 for
-  `catalog` and the `auto` steps 2–3 (the shelter macro, then the catalog by
-  explicit name); REQ-PLAN-4, 8; REQ-REC-12 (owner questions, first consumer
-  `ask_over_s`); REQ-SAFE-1 … 5 applied to building; the `build` tool (§12.4).
+  against a hillside, in one `!build` command, without felling trees or touching
+  the owner's builds. Both detail levels work.
+- **SPEC.** REQ-BLD-1, 2, 4, 6 (I1 items), 8, 9 … 12, 12a, 14 … 18, 20 … 22, 24 … 29
+  (I1 parts), 34; REQ-PLAN-4, 8; REQ-SAFE-1 … 5 applied to building; the `!build`
+  command (REQ-TRN-13).
 - **Files.**
-  - `src/agent/work/`: `site.js`, `shelter.js` (the shelter macro), `verify.js`,
-    `steps/build.js` (sources `catalog` and `auto` without the library or in-game
-    design; `detail` and `embed` from `work.build.auto_keywords`), `commands.js`
-    (`build` tool), `ask.js` (owner questions), `protect.js` (builder hooks, ledger
-    tags `scaffold`/`permanent`).
-  - Carries: `agent.js` (owner-answer interception in `handleMessage` before the
-    model, REQ-REC-12); `npc/build_goal.js` (cell classes, protection at dig and replace, both
-    door cells, dig order, face-aware placement, re-read); `library/skills.js`
-    (protection before `placeBlock`'s break, door yaw positioning, re-read).
+  - `src/agent/work/`: `site.js`, `shelter.js` (the permanent shelter macro, with
+    the approach cell and its Room contract), `verify.js` (Room checks; explicit
+    contracts for the four catalog templates), `steps/build.js` (sources `catalog`
+    and `auto` steps 2–3; `detail` and `embed` from `work.build.auto_keywords`),
+    `commands.js` (`!build`), `protect.js` (builder hooks).
+  - Carries: `npc/build_goal.js` (cell classes, the patched `safeToBreak` at dig
+    and replace, both door cells, dig order, face-aware placement, re-read,
+    deferral of cells a player occupies); `library/skills.js` (the patched
+    `safeToBreak` before `placeBlock`'s break, door yaw positioning, re-read).
+  - Profile: examples showing `!build`.
   - `tests/work-site.test.mjs`, `work-build.test.mjs`, `work-verify.test.mjs`.
 - **Offline tests** (synthetic block grids, same style as
   `tests/structure-site.test.mjs`):
   - fit: open grass accepted; trees kept (trunk in an `air` cell rejected; leaves
     counted); hillside uses the natural wall; water inside or next to a dug cell
     rejected; the owner's wall satisfies a `solid` cell and is never edited; a chest
-    in a floor cell rejects the candidate; `embed: avoid` versus `allow`, set by
+    in a floor cell rejects the candidate; `embed: require` versus `allow`, set by
     code from the keyword table;
   - source resolution: shelter words go to the macro (even "small house", never the
     catalog house); a request naming a catalog template goes to the catalog; `auto`
-    never picks an owner template; no model call is made;
-  - owner questions: `pending_question` recorded; only an owner chat message that
-    parses to yes, no or an option answers it; a model reply never does; a matched
-    answer is consumed before the model (no model call, one "asked X / owner
-    answered Y" system line in history); a non-matching owner message reaches the
-    model and the question stays pending; the task stays `blocked(awaiting_owner)`
-    with 0 model calls, with no timeout, until answered, cancelled or superseded;
+    never picks an owner template; a request neither fits is refused with the
+    reason; no model call is made;
   - detail: default `minimal` (open 1×2 entrance, no door); a request that
     mentions a door gives `basic`;
   - builder: `solid` satisfied by stone or dirt; `solid` placed from inventory
-    material; both entrance cells prepared; dig order from the entrance; the cell face
-    is passed; a wrong facing after placement is not counted; a cell a player
-    occupies is deferred, "please step out" is said once with no model call, the
-    cell is placed on a later pass, and the wait does not trip the no-progress
-    deadline (REQ-BLD-34);
-  - protection at the builder's dig and at `placeBlock`'s break;
-  - scaffolding uses dirt only; cleanup removes only `scaffold` ledger entries of
-    the current build, never a completed structure or a `permanent` placement next
-    to it;
+    material; both entrance cells prepared, including an upper doorway cell that
+    is occupied at the start (a fixture, in place of a repeated live trial); the
+    approach cell is cleared, including a dirt pillar standing in it; dig order
+    from the entrance; the cell face is passed; a wrong facing after placement is
+    not counted; a cell a player occupies is deferred, "please step out" is said
+    once with no model call, the cell is placed on a later pass, and the wait does
+    not trip the no-progress deadline (REQ-BLD-34);
+  - protection: the builder's dig and `placeBlock`'s break call the patched
+    `safeToBreak`; a dig next to water or under sand is refused; a cave under a
+    gravel ceiling blocks with the reason;
+  - scaffolding uses dirt only;
   - verifier: the `minimal` and `basic` room checks, including a door with the
-    wrong facing failing and `minimal` never reported as mob-proof;
-    path checks run with dig, place and scaffolding off;
+    wrong facing failing and `minimal` never reported as mob-proof; a catalog
+    template's explicit contract; path checks run with dig, place and scaffolding
+    off;
+  - folded from S4: `!stop` and death during a `build` step;
   - the bill comes from the world diff; catalog templates no longer reject grass.
+- **Probe.** P8 (door yaw, §4), before the first `basic` trial.
 - **Live acceptance (uncoached, no materials at the start).**
   1. open grass: "build a small shelter here" (`minimal`, open entrance);
   2. among trees: "build a small hut here" (no trunk felled);
   3. against a hillside: "build a small hut with a door here, against the hill"
-     (`basic`; natural wall used). Code picks the rotation, so whether the
-     doorway's upper cell is occupied at the start cannot be arranged: record it,
-     and repeat the trial at another spot until one run has it;
+     (`basic`; natural wall used);
   4. a hillside with water or gravel nearby: "build a small shelter here": a safe
-     build or a precise refusal.
+     build or a precise refusal;
+  5. folded from S4: during a "build a small shelter here" task the owner (1) asks
+     an unrelated question, (2) says "come here", (3) says "stay here for now",
+     then (4) "carry on". Expected: (1) the task continues; (2) the bot comes and
+     then resumes the task; (3) the task is paused; (4) it resumes and completes.
 
-  Trials 1–3 **must end in a verified build**; a refusal fails them. Only trial 4
-  may pass with a precise safety refusal. For each: one `build` call starts the
-  task (plus any `obtain` steps the validator inserted); the build is at the
-  frozen anchor; the verifier passes for its detail level; no protected block
-  changed (diff within 16); in trial 3 the door closes the doorway; at least one
-  night-time interruption survived across the set; the report matches the
-  verifier.
+  Trials 1–3 and 5 **must end in a verified build**; a refusal fails them. Only
+  trial 4 may pass with a precise safety refusal. For each: one `!build` command
+  starts the task (plus any `obtain` steps the validator inserted); the build is
+  at the frozen anchor; the verifier passes for its detail level; no protected
+  block changed (diff within 16); in trial 3 the door closes the doorway; the
+  report matches the verifier.
 - **Metrics.** §2.3; model calls against the 2–5 target; `unstuck` firings.
-- **Exit.** All four sites pass; OQ-7 and OQ-8 have rulings; `work.max_leaf_clear`
-  has a default.
+- **Exit.** All five trials pass; OQ-7 and OQ-8 have rulings;
+  `work.max_leaf_clear` has a default; OQ-20 (whether to block more
+  commands) is decided. I1 is then usable for
+  play.
 - **Not in S3.** Parts specs, compiler, sources `owner`, `mine` and `new`, the
-  design library, `auto` steps 1 and 4, ladders, multi-storey.
+  design library, `auto` steps 1 and 4, ladders, multi-storey, scaffold cleanup,
+  `embed: avoid`.
 
-### S4 — Hardening
+### I2 — native tools
 
-- **Goal.** The core behaves well around the owner and the single backend.
-- **SPEC.** §7.5 (all causes, every step type), §16 items on owner chat; OQ-18.
-- **Files.** `work/runner.js`, `work/commands.js` (tool descriptions, e.g. "call
-  `task_pause` if the owner wants the bot to stay"); `prompter.js` only if a request
-  gate is ruled necessary; docs.
-- **Offline tests.** Owner chat during a run: a non-resumable chat action pauses the
-  runner and it resumes afterwards; `followPlayer` pauses the task; `!stop` and
-  death in each step type (`obtain`, `build`, `go_to`, `give`); summaries
-  arriving during a decision request (ordering kept, C04).
-- **Live acceptance (uncoached).** During a "build a small shelter here" task the
-  owner (1) asks an unrelated question, (2) says "come here", (3) says "stay here
-  for now", then (4) "carry on". Expected: (1) the task continues; (2) the bot comes
-  and then resumes the task; (3) the task is paused; (4) it resumes and completes.
-- **Metrics.** §2.3; summary requests overlapping decision requests; added latency.
-- **Exit.** The trial passes; the request-gate decision (OQ-18) is recorded with its
-  numbers; the residual list in ISSUES.md is current.
-- **Not in S4.** New features.
+#### S1 — Transport
 
-### DX — Design experiment (offline)
+- **Goal.** Native tool calls on decision requests, plain-text history, prompt
+  layout arm A. The task layer is unchanged; the tools call the same `perform`
+  functions as the I1 text commands.
+- **SPEC.** REQ-TRN-1 … 8, 10 … 12; REQ-ARC-3 … 5.
+- **First.** Probe P1 (§4). If it fails, I2 keeps the text DSL and S1 stops here.
+- **Files.**
+  - `src/models/openai_tools.js`: tools, envelope, explicit reasoning budget.
+  - `src/agent/commands/tool_adapter.js` (copy of #769 plus the patch).
+  - `src/models/native_tools.js` (new shim: `parseToolArguments`).
+  - `src/agent/commands/index.js` (carry): export the command list.
+  - `src/models/prompter.js` (carry): envelope on the tool path; tools only on
+    decision requests.
+  - `src/agent/agent.js` (carry): structured branch inside the stop-epoch checks.
+  - `operator/examples/profiles/local.json`: arm A layout, tool-form examples,
+    `use_native_tools`. The private profile gets the same change.
+  - `tests/work-transport.test.mjs` (new).
+- **Offline tests.** Schema generation, including nested `array`/`object`
+  parameters; a nested `task_start` schema round-trips into a stub `perform`
+  unchanged; the envelope passes through `promptConvo` with the stale-response
+  check intact; only the first call runs and extras are refused; text `!commands`
+  from the model get the "use tools" turn, at most once per decision request, and
+  do not run; owner forced commands still run; summary, coding and bot-responder
+  requests carry no tools; all tool schemas together < 8 KB.
+- **Live acceptance (uncoached).** One integration smoke: "get 40 oak planks"
+  completes through `task_start`; the parse rate on the S2 frozen request
+  sequence is at least 95 %.
+- **Metrics.** §2.3, with parse rate per turn and schema bytes.
+- **Exit.** Acceptance met; Pi trigger line count (REQ-ARC-4) recorded; arm B and
+  the drift parser left unbuilt unless a failure was seen.
+- **Not in S1.** Arm B, the `name{json}` parser, transitional gather tools.
 
-- **Goal.** Decide how Qwen writes designs, with evidence, and seed the design
-  library. Protocol in §5.
-- **SPEC.** REQ-BLD-3, 5, 6, 7, 24 (fixture form); answers OQ-6, OQ-9, OQ-11, OQ-16.
-- **Files.** `src/agent/work/parts.js`, `ops.js`, `compile.js`, the region part of
-  `verify.js`; `tests/dx/fixtures/*.json` (flat, hillside, forest worlds);
-  `tests/dx/corpus.json`; `tests/dx/rubric.json`; `tests/dx/run.mjs` (makes model
-  requests); `tests/work-compile.test.mjs`. A layer-row front end exists only for
-  arm C and is deleted if C is not admitted.
-- **Offline tests.** Every op; part attachment and stacking; foundations; door
-  upper cells; auto-ladder; substitutions listed; regions from flood-fill; bill;
-  caps; precise validation errors.
+#### S4 — Contention
+
+- **Goal.** Measure the summary-versus-decision load on the single backend.
+- **SPEC.** OQ-18; §16 item on owner chat.
+- **Files.** `prompter.js` only if a request gate is ruled necessary; docs.
+- **Offline tests.** Summaries arriving during a decision request keep their order
+  (C04).
+- **Live acceptance.** The S3 trial 5 sequence, repeated on the tool path, with
+  overlap measured.
+- **Metrics.** Summary requests overlapping decision requests; added latency.
+- **Exit.** The request-gate decision (OQ-18) is recorded with its numbers.
+
+### I3 — structures
+
+#### DX — Design experiment (offline)
+
+- **Goal.** Check that Qwen can write parts-only designs, with evidence, and seed
+  the design library. Protocol in §5.
+- **SPEC.** REQ-BLD-3, 5, 6, 7, 24 (fixture form); answers OQ-6, OQ-9, OQ-11,
+  OQ-16.
+- **Files.** `src/agent/work/compile.js` (parts to template, private geometry
+  helpers), the compiled-part contracts in `verify.js`; `tests/dx/fixtures/*.json`
+  (flat, hillside, forest worlds); `tests/dx/corpus.json`; `tests/dx/rubric.json`;
+  `tests/dx/run.mjs` (makes model requests; doubles as the offline design session,
+  REQ-BLD-32); `tests/work-compile.test.mjs`.
+- **Offline tests.** Each part (chamber, wall, deck, passage); attachment and
+  stacking (a tower as stacked chambers, a pit as a roofless `require` chamber);
+  foundations; door upper cells; auto-ladder; substitutions listed; each part's
+  emitted checks against independently written fixture expectations; bill; caps;
+  precise validation errors.
 - **Live acceptance.** None in game. The experiment run itself (§5) is the
   acceptance.
-- **Metrics.** Those of §5.
-- **Exit.** Chosen arm (or the fail branch of §5); frozen `parts/1` schema; caps
-  and revision limits set; `embed` tests defined; results summarised in
-  RESEARCH.md; valid designs saved as the first library entries.
-- **Not in DX.** In-game building, the design tools, source resolution.
+- **Exit.** Arm A adopted, arm B tried only if A failed, or the fail branch of §5;
+  frozen `parts/1` schema; caps and revision limits set; `embed` tests defined;
+  results summarised in RESEARCH.md; valid designs saved as the first library
+  entries.
+- **Not in DX.** In-game building, source resolution.
 
-### S5A — Structures v1
+#### S5A — Structures
 
 - **Goal.** Open-ended structures from natural language: hut, cave, tower, base,
   and new requests, through the parts spec, the compiler and the existing builder.
-- **SPEC.** REQ-BLD-1 … 34 (all sources, the full `auto` order, `detail`,
-  `!saveTemplate`); REQ-PLAN-9 ("design needed"); REQ-TRN-10 tool list with the
-  design tools.
+- **SPEC.** REQ-BLD-1 … 34 (all sources, the full `auto` order, `detail`, ladders,
+  scaffold cleanup, `embed: avoid`, `!saveTemplate`); REQ-PLAN-9 ("design
+  needed").
 - **Files.**
-  - `src/agent/work/designs.js` (stores, library, tag matching), `steps/build.js`
-    (sources `owner`, `mine`, `new`; `auto` steps 1 and 4 with the "design needed"
-    result), `commands.js` (`design_structure`, `list_designs`; owner-only
-    `!saveTemplate` built on `worldToBlueprint`), `compile.js` integration,
-    `verify.js` (all region types).
-  - `shelter.js` replaced by a one-chamber parts spec through the compiler (one
-    generator, not two); S3's tests are kept as regression.
+  - `src/agent/work/designs.js` (owner store, library, tag matching),
+    `steps/build.js` (sources `owner`, `mine`, `new` with `parts`; `auto` steps 1
+    and 4 with the "design needed" result), `commands.js` (`parts` on `!build` and
+    the `build` tool; owner-only `!saveTemplate` built on `worldToBlueprint`),
+    `compile.js` integration, `verify.js` (region recovery for owner templates),
+    `protect.js` (ledger kind `scaffold`, cleanup).
+  - `shelter.js` stays as it is (REQ-BLD-4); S3's tests are kept as regression.
   - Carry: `npc/build_goal.js` (ladder cells, suffix parsing, access before upper
     work).
-  - `operator/design-session.mjs` (new): the offline design session.
+  - The `enclosure` contract kind in `verify.js`; the layer-row front end.
   - `tests/work-designs.test.mjs`.
+- **Probe.** P7 (ladder climbing, §4).
 - **Offline tests.** `auto` order: library tag match, then the shelter macro, then
   the catalog only by explicit name, then "design needed", with no model call
-  before step 4; `auto` never picks an owner template; `new` returns "design
-  needed" and starts no task; no tool's `perform` makes a model call; with
-  `work.design.ingame_enabled: false` step 4 refuses with the reason;
-  `!saveTemplate`: refuses if any cell is unloaded, converts `levels[].placement`
-  to `blocks[y][z][x]`, maps block names to placing items (`wall_torch` →
-  `torch`), turns plants and short grass into air, drops upper door halves and
-  second bed cells, refuses unmapped names and regions over
+  before step 4; `auto` never picks an owner template; `new` without `parts`
+  returns "design needed" with the frozen `at` as a string and starts no task;
+  `build{source: new, parts, at}` compiles, freezes the blueprint and contract
+  into the task and saves the design to the library; invalid parts return the
+  errors and the same `at`, at most 2 revisions; no command's `perform` makes a
+  model call; with `work.design.ingame_enabled: false` step 4 refuses with the
+  reason; `!saveTemplate`: refuses if any cell is unloaded, converts
+  `levels[].placement` to `blocks[y][z][x]`, maps block names to placing items
+  (`wall_torch` → `torch`), turns plants and short grass into air, drops upper
+  door halves and second bed cells, refuses unmapped names and regions over
   `work.build.save_template_max`, writes only to the owner folder, is absent from
-  tools and docs; the "design needed" result is a string that carries the frozen
-  `at`, and the follow-up `build` uses it; exact owner-template lookup,
-  ambiguity refusal with matches, Qwen never writes to the owner folder;
-  `window` openings only in `basic`; design files carry `by`, tags, request,
-  compiler version and validation; ladder placement order; upper-level access;
-  every region check on fixtures; in-game revision limit.
+  tools and docs; exact owner-template lookup, ambiguity refusal with matches,
+  Qwen never writes to the owner folder; `window` openings only in `basic`;
+  design files carry `by`, tags, request, compiler version and validation; ladder
+  placement order; upper-level access; cleanup removes only `scaffold` entries of
+  the current build; every region check on fixtures; `embed: avoid`.
 - **Live acceptance (uncoached).**
   1. "build a small hut among these trees";
   2. "dig me a little cave into this hill";
   3. "build a two-storey stone tower with a ladder";
   4. "build a small base: two rooms connected by a corridor";
   5. "design me a new …" (a novel structure the owner names at trial time):
-     `source: new` → "design needed" → `design_structure` (at most 2 revisions) →
-     `build{source: mine, at}` at the original anchor; skipped if DX's fail branch turned in-game design off;
+     `source: new` → "design needed" → `build{source: new, parts, at}` (at most 2
+     revisions) at the original anchor; skipped if DX's fail branch turned in-game
+     design off;
   6. one free request the owner phrases without asking for a new design: `auto`
      resolves it (record which step of the order was used);
   7. "build my template X here" for a template the owner saved earlier with
-     `!saveTemplate` (from one of his own builds);
-  8. the process restarted during upper-storey work on the tower: it resumes and
-     completes.
+     `!saveTemplate` (from one of his own builds).
 
   Each verified by its contract for its detail level; no protected block changed;
   substitutions and auto-ladders listed in the report. A request resolved from the
-  library, the macro or the catalog starts with one `build` call and no design
-  work.
-- **Metrics.** §2.3; resolved source per build (library, macro, catalog, in-game
-  design); revisions used; model calls per build.
+  library, the macro or the catalog starts with one `build` and no design work.
+  (A restart during upper-storey work is covered offline: the builder re-diffs the
+  frozen blueprint idempotently, and S2 proved crash resume.)
+- **Metrics.** §2.3; resolved source per build; revisions used; model calls per
+  build.
 - **Exit.** All trials pass; the S3 shelter regression still passes.
-- **Not in S5A.** Schematic or image import, layer rows (unless DX admitted them),
-  stairs, beds, gable roofs.
+- **Not in S5A.** Schematic or image import, stairs, beds, gable roofs.
 
-### S5B — Surface discovery
+### I4 — discovery
+
+#### S5B — Surface discovery
 
 - **Goal.** Find blocks, mobs, animals, villagers and structures beyond loaded
   chunks, remember places, report honestly.
-- **SPEC.** REQ-FIND-1 … 14, 17 … 19; REQ-SAFE-6, 8; REQ-REC-12 (budget
-  extensions as owner questions); answers OQ-5 (live part).
-- **Files.** `src/agent/work/places.js` (with the `MemoryBank` backing), `locate.js`,
-  `explore.js`, `steps/find.js`, `steps/go_to.js` (place targets),
-  `data/structure_signatures.json`, `data/biome_priors.json`;
-  `tests/work-find.test.mjs`, `work-places.test.mjs`.
-- **Offline tests.** Locator order; full-height scan from the formula; signature
-  rules (each row, candidate versus recognised); frontier scoring and the water
-  penalty; breadcrumbs and `work_pos` updates; explore legs use `canDig=false`;
-  exhaustion records a `pending_question` with 0 model calls; under
-  `night_policy: continue` legs run at night, under `shelter` the dusk dig-in
-  happens and hiding time is excluded from the budget; places: atomic write, caps, LRU, merge radius, dimension,
-  `!savedPlaces` after a restart; hunting forced off during `find{entity}` and
-  restored; out-of-scope refusals.
+- **SPEC.** REQ-FIND-1 … 11, 13, 14, 17 … 19 (I4 parts); REQ-SAFE-8; answers OQ-5.
+- **Files.** `src/agent/work/places.js` (the persisted `MemoryBank` backing),
+  `locate.js`, `explore.js`, `steps/find.js`, `steps/go_to.js` (place targets),
+  `data/structure_signatures.json`; `tests/work-find.test.mjs`,
+  `work-places.test.mjs`.
+- **Probes.** P5, P6, P10 (§4), before the first live trial.
+- **Offline tests.** Locator order; the on-demand full-height scan from the
+  formula, at each leg; signature rules (each row, candidate versus recognised);
+  frontier scoring (coverage, distance, water penalty); breadcrumbs and `work_pos`
+  updates; explore legs use `canDig=false`; exhaustion gives a final
+  `not_found_within_budget` report and blocks the step; legs run at night; places:
+  atomic write, the dimension field, `!savedPlaces` and `last_death_position`
+  after a restart; a stored target is re-observed before use; an unknown
+  structure is refused at validation.
 - **Live acceptance (uncoached).**
   1. A block target outside the loaded chunks is found and stored ("find me some
      sand" or another target the owner picks that is not loaded);
   2. an honest exhaustion report for a target that is absent within budget;
   3. "find cows";
-  4. "find a village";
-  5. the process restarted mid-leg resumes from its breadcrumbs.
-- **Metrics.** §2.3; chunks explored; blocks travelled; time hidden at night
-  (only under `shelter`).
+  4. "find a village".
+
+  (Resuming mid-leg from breadcrumbs is covered offline; S2 proved crash resume.)
+- **Metrics.** §2.3; chunks explored; blocks travelled.
 - **Exit.** All trials pass.
-- **Not in S5B.** Underground access, `/locate` by default, explorer maps, boats.
+- **Also in I4.** The background chunk indexer, biome priors, the
+  discovery-database extras and the mansion and stronghold rows (SPEC §10, all
+  `[I4]`), with their own offline tests.
+- **Not in S5B.** Underground access, `/locate`, explorer maps, boats.
 
-### S6 — Underground and smelting
+### I5 — underground and smelting
 
-- **Goal.** Iron-tier items from an empty inventory, safely.
-- **SPEC.** REQ-OBT-6 … 8, 10; REQ-FIND-15, 16; answers OQ-19.
-- **Files.** `src/agent/work/underground.js` (`descend_to`), `smelt.js` (the
-  station-addressed smelting actuator: opens the furnace at the persisted station,
-  moves only this step's items; no carry to `skills.js` or `mcdata.js`),
-  `data/smelting.json` (furnace recipes, replacing mcdata's input whitelist,
-  mcdata.js:256-259 and :285-301, and the check at skills.js:169-172),
-  `resolve.js` (mine and smelt nodes, iron tier, fuel, furnace reconciliation,
-  inventory re-read per S0's P9), `protect.js` (hazard settings);
-  `tests/work-underground.test.mjs`, `work-smelt.test.mjs`.
-- **Offline tests.** Staircase digs with neighbour checks; lava turns the tunnel;
-  falling block above stops the dig; pickaxe tier required; torches if held; exit by
-  the staircase; ore choice by cost; fuel arithmetic; smelt batches ≤ 8; furnace
-  inspected after an interruption; `unstuck` is paused during every furnace
-  wait, including a wait resumed after an interruption or restart; the actuator
-  never opens a furnace other than
-  its station and never takes items it did not put in; inputs outside mcdata's
-  whitelist (stone → smooth_stone, cactus → green_dye) resolve and smelt.
+#### S6 — Underground and smelting
+
+- **Goal.** Iron-tier items from an empty inventory, safely enough while the bot
+  is invincible.
+- **SPEC.** REQ-OBT-5 (iron), 6 … 8, 10; REQ-FIND-16 (I5 settings); REQ-SAFE-3's
+  obtain-target exception; answers OQ-3.
+- **Probe.** P9 (§4), before integration.
+- **Files.** `src/agent/library/skills.js` (carry: `smeltItem` uses only a
+  furnace with empty input, fuel and output slots, and takes back only the counts
+  it put in), `resolve.js` (mine and smelt nodes, iron tier, fuel, station output
+  collected on resume, inventory re-read per P9), `data/smelting.json` (inputs
+  beyond mcdata's whitelist),
+  `protect.js` (underground hazard settings; the obtain-target water exception);
+  `tests/work-smelt.test.mjs`, `work-mine.test.mjs`.
+- **Offline tests.** `smeltItem` skips a nearby furnace with anything in its
+  input, fuel or output slot and uses the next empty one or places its own; it
+  never takes back more than it put in; an owner's furnace is never broken; the
+  station is persisted and its output collected on resume;
+  `unstuck` is paused by `smeltItem` during the furnace wait, including a resumed
+  smelt; fuel arithmetic; smelt batches ≤ 8; inputs outside mcdata's whitelist
+  (stone → smooth_stone, cactus → green_dye) resolve and smelt from
+  `smelting.json`; buried ore is reached by the
+  pathfinder's digging under the forced flags; lava stays avoided; pickaxe tier
+  required; underwater clay is collectable under the target exception while a
+  path dig next to water is still refused.
 - **Live acceptance (uncoached).**
   1. "get 10 iron ingots" from an empty inventory;
-  2. a smelt interrupted (combat or restart) completes without losing items;
-  3. "make me 8 smooth stone" (an input outside mcdata's whitelist);
-  4. a precise refusal when the only route meets lava or unloaded terrain.
+  2. "make me 8 smooth stone" (an input outside mcdata's whitelist);
+  3. a precise refusal when the only route meets lava or unloaded terrain.
 - **Metrics.** §2.3; blocks dug; time underground.
 - **Exit.** All trials pass.
-- **Not in S6.** Diamond tier or beyond, Nether, buckets, other acquisition methods.
+- **Not in S6.** The `descend_to` staircase, diamond tier
+  or beyond, Nether, buckets, other acquisition methods.
 
-## 4. S0 probes
+### Survival iteration
 
-Run inside the bot's own process through `!probe(name)` (enabled only by
-`work.probes_enabled`), except P1–P2 which call the backend directly. Probes that
-place blocks use natural ground at a spot the owner agrees to, and remove only
-their own placements afterwards. Results go to
-`runtime/diagnostics/probes-<date>.json`.
+#### SV — Survival
 
-Probes are measurements, not trials, so the owner may hand the bot what they
-need. **Probe kit** (the bot's inventory is stale, so ask the owner for it before
-S0): 4 ladders; 1 oak door; 8 dirt (backing column and door frame); 1 furnace (the
-P9 test furnace); 2 raw iron (or any 2 smeltable items) and 1 coal; 1 wooden
-pickaxe, so P9 can take its furnace back (a furnace drops nothing when broken by
-hand), unless the bot is checked to hold a pickaxe before P9.
+- **When.** The owner turns damage back on. Until then none of this can trigger.
+- **SPEC.** REQ-RES-8 (health and food gate), REQ-RES-14, 15 (night `shelter`),
+  REQ-SAFE-10 (food), REQ-OBT-11 (auto-deposit, surplus drop), REQ-REC-12 and its
+  consumers (REQ-BLD-8's ask, REQ-FIND-10's owner question, REQ-FIND-11,
+  REQ-SAFE-6 `/locate`), the `descend_to` staircase (§10.6), OQ-19.
+- **Files.** `work/ask.js`; `agent.js` (carry: owner-answer interception);
+  `work/underground.js`; the `shelter` branch of the runner and explorer; the
+  Surv keys of SPEC §14.
+- **Offline tests and trials.** Specified when the iteration is planned, from the
+  requirement text in SPEC; the earlier owner-question tests (only an owner
+  message answers; a matched answer never reaches the model; no timeout) and
+  night-policy tests (dig-in and time-based resume with no model call) are the
+  starting point.
 
-| # | Probe | Method | Answers |
-|---|---|---|---|
-| P1 | Backend tool calls | 10 requests with 3 tools (nested `task_start`, scalar `goToPlayer`, no-arg `task_status`) at the 2048 budget; with and without `parallel_tool_calls:false`. Record parse rate, latency, reasoning characters, how many calls per reply, whether nested arguments arrive intact. | OQ-1; S1 route |
-| P2 | Prefix cache and prompt layout | 5 consecutive decision turns with a changing tail, for both REQ-TRN-12 arms: (A) dynamic state at the end of the system prompt, before the history; (B) dynamic state after the history. Record cached tokens if reported, else prefill time, and latency. The better arm becomes REQ-TRN-12. | OQ-2; REQ-TRN-12 |
-| P3 | Request logging | Provider logs all four request kinds in a short session. | REQ-OBS-1 |
-| P4 | Baselines | The two uncoached baselines (S0 slice). | comparison |
-| P5 | Loaded area | Count loaded chunk columns and their extent; check that underground blocks are visible in them. | R_load, OQ-5 |
-| P6 | Entity range | Over a few minutes, the farthest distance at which each entity type is seen and disappears. | OQ-5 |
-| P7 | Ladder | Place a 4-high ladder on a backing column; set a goal at the top; record whether the pathfinder climbs or pillars. | OQ-4 |
-| P8 | Door yaw | Place a door in a dirt doorway standing on the wall's perpendicular axis and off it; read `facing` each time. Door facing following yaw is a prediction until this runs. | OQ-4 |
-| P9 | Inventory after furnace | Place the kit furnace on natural ground away from any other furnace and check it is empty; open **that** furnace by position (`bot.openFurnace` on the block, not the nearest-furnace `smeltItem`, which could pick and empty an owner's furnace); smelt 2 items; compare `bot.inventory` with the counts after closing and reopening a window; take the furnace back. | OQ-3 |
-| P10 | Signature blocks | Check that every marker block name in the signature table exists in the deployed version's registry (offline); live sightings later in S5B. | OQ-5 |
-| P11 | Hostile classification | Log entity types seen and `mc.isHostile` for each. | OQ-17 |
-| P12 | `unstuck` during stationary work | Count firings during the shelter baseline. | REQ-RES-11 |
+## 4. Probes
+
+Each probe runs in the slice that needs it, as a test script or a short check the
+owner agrees to. There is no `!probe` command and no `probes.js`. Probes that place
+blocks use natural ground at a spot the owner agrees to, and remove only their own
+placements afterwards. Results go to `runtime/diagnostics/probes-<date>.json`.
+
+Probes are measurements, not trials, so the owner may hand the bot what they need.
+The bot's inventory is stale, so ask the owner for each kit before its slice:
+
+- **I1 kit (S3, P8):** 1 oak door and 8 dirt (door frame).
+- **I3 kit (S5A, P7):** 4 ladders and 4 more dirt (backing column).
+- **I5 kit (S6, P9):** 1 furnace (the test furnace), 2 raw iron (or any 2
+  smeltable items), 1 coal, and 1 wooden pickaxe so P9 can take its furnace back
+  (a furnace drops nothing when broken by hand), unless the bot is checked to hold
+  a pickaxe.
+
+| # | Probe | Slice | Method | Answers |
+|---|---|---|---|---|
+| P1 | Backend tool calls | S1 (first) | 10 requests with 3 tools (nested `task_start`, scalar `goToPlayer`, no-arg `task_pause`) at the 2048 budget; with and without `parallel_tool_calls:false`. Record parse rate, latency, reasoning characters, calls per reply, whether nested arguments arrive intact. `tests/probes/backend-tools.mjs` reads the endpoint from the private profile. | OQ-1; whether I2 proceeds |
+| P2 | (retired: arm A adopted, REQ-TRN-12.) | — | — | — |
+| P3 | Request logging | S0-lite | Covered by S0-lite's offline tests and the baselines' logs. | REQ-OBS-1 |
+| P4 | Baselines | S0-lite | The two uncoached baselines. | comparison |
+| P5 | Loaded area | S5B | Count loaded chunk columns and their extent; check that underground blocks are visible in them. | R_load, OQ-5 |
+| P6 | Entity range | S5B | Over a few minutes, the farthest distance at which each entity type is seen and disappears. | OQ-5 |
+| P7 | Ladder | S5A | Place a 4-high ladder on a backing column; set a goal at the top; record whether the pathfinder climbs or pillars. | OQ-4 |
+| P8 | Door yaw | S3 | Place a door in a dirt doorway standing on the wall's perpendicular axis and off it; read `facing` each time. Door facing following yaw is a prediction until this runs. | OQ-4 |
+| P9 | Inventory after furnace | S6 | Place the kit furnace on natural ground away from any other furnace and check it is empty; open **that** furnace by position (`bot.openFurnace` on the block) and smelt 2 items; compare `bot.inventory` with the counts after closing and reopening a window; take the furnace back. | OQ-3 |
+| P10 | Signature blocks | S5B | Check that every marker block name in the signature table exists in the deployed version's registry (offline); live sightings during S5B. | OQ-5 |
+| P11 | Hostile classification | S0-lite | Offline: list every entity type in the deployed version's registry with its `type` and the `mc.isHostile` result (utils/mcdata.js:113-116). Live cross-check: S2's resume-check log lines name each hostile seen. | OQ-17 |
+| P12 | `unstuck` during stationary work | S0-lite | Count firings during the shelter baseline (a log count, not a probe). | REQ-RES-11 |
 
 ## 5. Design experiment protocol (DX)
 
@@ -505,10 +613,11 @@ Needs only the compiler, validator and fixture verifier; no game.
   - Medium: tower with a ladder, two-room base, 12-block wall, lookout on a
     platform and similar.
   - Odd: L-shaped house, round tower, pyramid, bridge and similar.
-- **Arms.** A parts only · B parts plus coordinate ops · C parts plus ASCII layer
-  rows. Two seeds each: 24 × 3 × 2 = 144 first attempts, plus revisions.
+- **Arms.** A parts only, one seed: 24 first attempts, plus revisions. Arm B
+  (parts plus coordinate ops) runs only if A fails the bar. The layer-row arm is
+  retired; layer rows become an I3 front end built in S5A.
 - **Route.** The deployed model and backend, `reasoning_budget_tokens` 2048 (the
-  in-game setting). Estimated 1.5–3 hours on the single backend.
+  in-game setting).
 - **Per attempt.** Up to 2 validator revisions, each with the precise errors.
 - **Measures.**
   - parse rate;
@@ -518,14 +627,15 @@ Needs only the compiler, validator and fixture verifier; no game.
     (dimensions within the words' range, material words matched to roles, door or
     ladder present when the request implies one);
   - tokens and latency.
-- **Decision rule.** Adopt the simplest arm with ≥ 80 % valid after ≤ 2 revisions
-  on the simple and medium tiers and ≥ 70 % intent match. Admit ops or layer rows
-  only with a gain of ≥ 15 points on the odd tier, without falling below that bar.
-- **Fail branch.** If no arm meets the bar, S5A ships **library-only**: designs
-  are made in offline design sessions with more revisions and a larger reasoning
-  budget, `auto` uses the library and the shelter macro, and in-game design is off
-  (`work.design.ingame_enabled: false`; `source: new` and `auto` step 4 refuse
-  with the reason).
+- **Decision rule.** Adopt arm A if it reaches ≥ 80 % valid after ≤ 2 revisions on
+  the simple and medium tiers and ≥ 70 % intent match. Otherwise run arm B and
+  adopt it only if it meets the same bar. A failed experiment is never reported as
+  open-ended capability.
+- **Fail branch.** If neither meets the bar, S5A ships **library-only**: designs
+  are made in offline design sessions (`tests/dx/run.mjs`) with more revisions and
+  a larger reasoning budget, `auto` uses the library and the shelter macro, and
+  in-game design is off (`work.design.ingame_enabled: false`; `source: new` and
+  `auto` step 4 refuse with the reason).
 - **Outputs.** Chosen arm or the fail branch; frozen `parts/1` schema; caps (OQ-6);
   offline revision limit (OQ-11); `embed` tests (OQ-9); every valid design saved to
   the library with `by: model` and tags.
@@ -536,10 +646,10 @@ Needs only the compiler, validator and fixture verifier; no game.
   worktrees, never the same tree (operator/README.md convention).
 - **Gates before review.** All offline suites (§2.1). New tests reproduce the
   cause they guard, as the existing suites do.
-- **Review.** Each slice gets an independent code review and an adversarial review
-  of the frozen diff. Fix findings that can happen on the owner's deployment;
-  record the rest as residuals in ISSUES.md. A finding that survives two fix rounds
-  goes to a design decision.
+- **Review.** Each slice gets the independent review the owner's review policy
+  sets for it. Fix findings that can happen on the owner's deployment; record the
+  rest as residuals in ISSUES.md. A finding that survives two fix rounds goes to a
+  design decision.
 - **CHANGES.md.** Every new or grown carry gets an entry: the file and what changed;
   why; a **reapply check** (the test that must pass after an upstream merge); a
   **retirement trigger** (the upstream change that would make it unnecessary).
@@ -558,9 +668,9 @@ Needs only the compiler, validator and fixture verifier; no game.
   Stage by explicit path. Then deploy by an agent-only restart and run the live
   trials; trial results go in a follow-up docs commit.
 - **Push.** Only on the owner's word.
-- **Docs.** Each slice updates SPEC (if a requirement changed), PLAN (status),
-  ISSUES (residuals), CHANGES (carries) and HANDOFF (next step). DECISIONS is
-  append-only and records owner rulings only.
+- **Docs.** A slice updates only the docs whose content changed: SPEC (a changed
+  requirement), PLAN (status), ISSUES (residuals), CHANGES (carries), HANDOFF
+  (next step). DECISIONS is append-only and records owner rulings only.
 
 ## 7. Live-testing etiquette
 
@@ -588,23 +698,24 @@ Needs only the compiler, validator and fixture verifier; no game.
 ## 8. Deferred items and their seams
 
 None of these forces a rewrite: the record is versioned, steps are a registry,
-designs compile through one ops layer, and transport sits behind the provider.
+every design compiles to the one template format, commands and tools share the
+same `perform` functions, and transport sits behind the provider. Every deferral
+inside v1 has a named iteration (§1); this table lists what lies beyond v1.
 
 | Item | Seam |
 |---|---|
 | Clearing or levelling as an explicit task | a new `clear` step in the registry, using the protection predicate |
 | Furniture and decoration (`detail: full`); stairs, beds, gable roofs (yaw-dependent blocks) | exact cells with suffixes plus one builder handler: set yaw, place, verify `facing` |
-| Schematic import (`.schem`, `.litematic`, `.nbt`) | a design front end emitting coordinate ops (`by: import`); prismarine-schematic reads the files |
-| Image-to-design | a design front end (`by: image`) |
-| ASCII layer rows (unless DX admits them) | a design front end |
+| Schematic import (`.schem`, `.litematic`, `.nbt`) | a front end emitting the template format (`by: import`); prismarine-schematic reads the files |
+| Image-to-design | a front end emitting the template format (`by: image`) |
 | Larger design caps | configuration (`work.build.max_cells`, `max_volume`) plus inventory logistics |
 | `hunt` (with the `res` bug fixed), trading, buckets, shearing, farming, fishing | resolver methods |
 | Diamond tier and beyond | resolver methods and tier data |
-| `/locate` by default, explorer maps | locator-chain providers |
+| Explorer maps | a locator-chain provider |
 | Boats, ocean crossings, Nether, End, strongholds | exploration and resolver methods |
 | Multi-task queues | the versioned record (one file becomes a queue) |
 | Friends' ownership | `requested_by` in the record; `only_chat_with` |
 | Request gate between summaries and decisions | prompter, if S4 rules it necessary |
-| Dynamic state after the history in the prompt | prompter, if S0/S1 show it pays (OQ-2) |
+| Dynamic state after the history (arm B), the `name{json}` drift parser | prompter and agent loop, on evidence (REQ-TRN-12, 9) |
 | Pi or another loop | the provider interface (REQ-ARC-4 triggers) |
 | Upstream #769 adapter | replaces ours if merged with nested params (REQ-ARC-5) |

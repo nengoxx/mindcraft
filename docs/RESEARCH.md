@@ -139,7 +139,7 @@ reduced tool list; no paper describes resuming a task after combat.
   accuracy from 13.62 % to 43.13 % by retrieving tools first.
 - CodeAct ([2402.01030](https://arxiv.org/abs/2402.01030)): code actions up to 20 %
   better than JSON/text actions across 17 models.
-- Hence SPEC §12: about 16 tools, schemas under 8 KB, plans as typed JSON, no
+- Hence SPEC §12: about 13 tools (I2), schemas under 8 KB, plans as typed JSON, no
   generated code on the tool path.
 
 ## 6. What a vanilla client can know
@@ -187,22 +187,28 @@ only the target and the block below for liquid; orange terracotta alone does not
 mark a desert temple (badlands are made of it); "dark oak ≥ 150" would match the
 dark forest itself unless it means planks.
 
-Unprobed predictions (to be measured in S0, PLAN §4): door facing follows the
+Unprobed predictions (each measured in the slice that needs it, PLAN §4): door facing follows the
 bot's yaw at placement (from reading `placeBlock`, which looks at the support block
-before placing), so a verifier must check it (probe P8); the client inventory may
-go stale after furnace use, since upstream restarts after every smelt (probe P9).
+before placing), so a verifier must check it (probe P8, S3); the client inventory
+may go stale after furnace use, since upstream restarts after every smelt (probe
+P9, S6).
 
 Code facts found during the doc reviews: minecraft-data ships crafting recipes but
-no furnace recipes, so smelting needs its own table; `collectBlock` and the collect
+no furnace recipes, so smelting beyond mcdata's whitelist needs its own table; `collectBlock` and the collect
 plugin turn the pathfinder's liquid and falling-block safety flags off, and both
 flags are read only inside `Movements.safeToBreak`; MindServer's "start agent"
 starts the process the same way as a crash restart; a command's result is
 written to history as a system string, so structured results must be serialized;
 Mineflayer's `blockPlaced` event reports only the destination cell, so the second
-cell of a door or bed is not seen.
+cell of a door or bed is not seen. Found during the cuts review: Mineflayer's
+`bot.recipesAll` and prismarine-recipe's `requiresTable` and `result.count` already
+give every recipe, the table rule and the yield; `smeltItem` picks the nearest
+furnace and empties its slots, which a small carry closes (use only an empty
+furnace; take back only what it put in); `blocked_actions` removes a command from
+both the prompt docs and execution.
 
-## 8. Measurements from S0
+## 8. Measurements from the probes
 
-To be added after the S0 probes (PLAN §4), sanitized: tool-call parse rate,
+To be added as each probe runs (PLAN §4), sanitized: tool-call parse rate,
 cache behaviour, R_load, entity ranges, ladder and door behaviour, post-furnace
 inventory, signature block presence, baselines.
