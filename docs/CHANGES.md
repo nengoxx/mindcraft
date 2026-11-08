@@ -143,3 +143,69 @@ log root comes from a `runtimePath` addition to the fork's `utils/runtime_paths.
 (unset, the operator's default `runtime/`). Reapply check: `tests/work-s0.test.mjs`
 "the request kind reaches the provider from all four prompter paths". Retire when
 upstream passes a request purpose to its providers.
+
+I1 S2 (the task layer, `src/agent/work/`). The carries into upstream files, each
+with its reapply check (a test in `tests/`) and retirement trigger:
+
+- `agent/agent.js`: `startEvents(init_message)` builds `this.work` after
+  `npc.init()`, and `start` passes the process's `init_message` through. Why: the
+  task layer tells a crash restart (`'Agent process restarted.'`) from a fresh
+  start (REQ-REC-7). Reapply check: `work-record.test.mjs` "agent.js startEvents
+  builds the task layer with the process's init_message". Retire when upstream
+  has a persistent task layer of its own.
+- `models/prompter.js`: `$SELF_PROMPT` shows the task view whenever a task record
+  exists (REQ-REC-10), else upstream's text; `requestOptions` adds the current
+  task's id beside the request kind of S0-lite (REQ-OBS-1), and the
+  `openai_tools` provider logs it as `task_id`. Reapply checks:
+  `work-record.test.mjs` "$SELF_PROMPT shows the task view while a record exists,
+  else the upstream text"; `work-s0.test.mjs` "every prompter path logs the
+  active task id, and null when there is none (S2)". Retire with the task layer.
+- `agent/commands/index.js`: the five task commands join the command list, so
+  they parse, appear in `$COMMAND_DOCS` and obey `blocked_actions` like any other
+  (REQ-TRN-13). Reapply check: `work-dsl.test.mjs` "the task commands appear in
+  $COMMAND_DOCS with the grammar summary". Retire with the task layer.
+- `agent/history.js`: the summary cap is the `memory_max_chars` setting, default
+  1,000, instead of the literal 500 (REQ-REC-11). Reapply check:
+  `work-record.test.mjs` "summary cap honours memory_max_chars (default 1000)".
+  Retire when upstream makes the cap configurable.
+- `agent/library/skills.js`: `pickupNearbyItems` skips item entities of a type the
+  task layer dropped as junk within 3 blocks of the drop point, for 5 minutes
+  (REQ-OBT-11); the `item_collecting` mode calls the same function. Without it the
+  bot picks its junk straight back up. Reapply check: `work-resolve.test.mjs`
+  "pickupNearbyItems skips junk near a drop point, still picks up other items
+  there, and junk again after 5 minutes". Retire when upstream's pickup can
+  exclude items.
+- `agent/library/skills.js`, `placeBlock` (S2 fix wave 1): the break-in-the-way
+  branch (:744) and the `air` branch (:660) ask the work module's protection
+  predicate (`isProtectedForBot`, work/protect.js) first and refuse with the
+  reason. Without it `!placeHere` on a chest, or code placing `air`, dug an
+  owner's block through `breakBlockAt`, which no `safeToBreak` guards. Reapply
+  check: `work-protect.test.mjs` "placeBlock never breaks a protected block in
+  its way, nor removes one as air (F1)". Retire with the task layer, or when
+  upstream's `placeBlock` consults the pathfinder's `safeToBreak`.
+- `agent/library/skills.js`, `tillAndSow` (S2 fix wave 2): before it breaks the
+  block above the soil (:1654) it asks the same predicate and refuses a protected
+  block. Without it tilling under a slab or carpet broke it through
+  `breakBlockAt`. Reapply check: `work-protect.test.mjs` "tillAndSow never breaks
+  a protected block above the soil (G11)". Retire with the `placeBlock` carry.
+- `utils/mcdata.js`: `isHostile` also excludes `allay` and `copper_golem`, beside
+  the iron and snow golems (owner ruling 2026-11-08: golems and allays are not
+  hostile, and the base keeps several iron golems). Probe P11 found both classed
+  hostile (registry type `mob`), which would make `self_defense` attack them and
+  the resume check wait for them. `hoglin`, which the function misses, is
+  Nether-only and left as is. Reapply check: `work-runner.test.mjs` "allays and
+  golems are not hostile; zombies and creepers are (owner ruling, P11)". Retire
+  when upstream excludes them.
+
+No hook into upstream code beyond these: the `!goal`/`!newAction` guard wraps the
+two commands' `perform` at work init, the `safeToBreak` patch is installed on
+`Movements.prototype` by `work/protect.js`, and placements come from Mineflayer's
+`blockPlaced` event. The tracked example profile `operator/examples/profiles/local.json`
+gains the summariser wording (no coordinates other than build origins, no
+quantities or step progress; under 1,000 characters) and examples that send
+gathering and crafting to `!taskStart` (the default examples for those requests
+swapped in place, the hand-run crafting goal dropped), with a fallback to the
+existing commands when `!taskStart` answers "no method". Construction keeps its
+default examples and `!buildStructure` stays unblocked until S3 brings `!build`.
+Run the suites with
+`node --experimental-test-module-mocks --test tests/*.test.mjs`.

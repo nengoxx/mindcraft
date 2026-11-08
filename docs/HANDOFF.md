@@ -1,48 +1,39 @@
 # Handoff
 
-## 2026-11-08 — specification and plan in iterations; next is I1
+## 2026-11-08 (evening) — S0-lite and S2 built; S2 live trials and S3 next
 
 ### Where things stand
 
-- The owner chose this fork as the base and approved the task-layer design
-  ([DECISIONS.md](DECISIONS.md)). The design is in [SPEC.md](SPEC.md), the build
-  order in [PLAN.md](PLAN.md), the research behind it in [RESEARCH.md](RESEARCH.md).
-  No task-layer code exists yet.
-- The work is grouped into iterations (DECISIONS "Iterations and simplification";
-  PLAN §1). **I1, "usable for play"**, is S0-lite → S2 → S3 on Mindcraft's text
-  commands: planning, gathering and crafting, combat then back to the task, and a
-  simple terrain-fitting shelter. Native tool calls are I2; later iterations stay
-  specified in SPEC with their tags.
-- Code: `develop` at the commit that added these docs; the last code change is
-  C17 (`e67b290`). Local commits are not pushed.
-- The bot is **stopped** since 2026-11-07 18:05 UTC (operator Stop; app and proxy
-  down). Afterwards another client used the same bot identity, so the bot's saved
-  runtime memory and history no longer match the world, its position or its
-  inventory. Treat them as stale: start fresh (memory not loaded, the operator
-  default) and never resume old work from them.
-- Earlier work (C01–C17) made narrow harness fixes; four uncoached house trials did
-  not complete a usable house. Details are in [ISSUES.md](ISSUES.md),
-  [CHANGES.md](CHANGES.md) and git history.
+- **S0-lite** is committed and deployed: request logging (`requests.jsonl`, provider
+  `openai_tools`), probe P11, and the two baselines (RESEARCH.md §8.1–8.2).
+- **S2** is committed (task record, runner and resume, `!taskStart` and the step
+  DSL, the surface obtain resolver, protection, the persisted ledger, junk drop,
+  reports from facts). Reviewed by Sol and an Opus adversary over two fix waves and
+  the main seat's final rulings; residuals are in ISSUES.md "Iteration 1 residuals".
+- Plan changes from the review (PLAN and SPEC updated): `!buildStructure` stays
+  available until S3 (S2 ships before the shelter); owner `!stop` cancels any
+  unfinished task; farmed plants (sugar cane, bamboo, cactus, berries, kelp) are
+  protected as possible farms; allays and golems are never attacked.
+- The bot runs the S2 code with the S2 profile (private patch applied on the
+  installed checkout).
 
-### Exact next step: build I1, in a clean session
+### Exact next step
 
-1. Read SPEC.md (the `[I1]` requirements), PLAN.md (§1, §2, the I1 slices, §4),
-   DECISIONS.md, ISSUES.md and CHANGES.md. On an installed checkout, also read the
-   private `runtime/diagnostics/HANDOFF.md` for operator detail (paths, receipts,
-   evidence); it is absent from public clones.
-2. Confirm no other client is connected with the bot's identity.
-3. Before the first start or restart, archive the bot's saved runtime memory
-   (`memory.json` in the bot's folder under the runtime directory) by moving it
-   aside. Reason: agent-only restarts always load it, and a fresh start without an
-   incoming message saves nothing to replace it.
-4. Ask the owner to start the game server (only he can) and to hand the bot the
-   I1 probe kit (PLAN §4: 1 oak door and 8 dirt, for P8 in S3). Then start the
-   bot with the operator Start (`operator/mindcraft.sh start`, see
-   operator/README.md) and check status read-only before any action.
-5. Build S0-lite (request logging, P11, the two baselines), then S2, then S3, as
-   PLAN describes; each slice is reviewed and committed before the next.
-6. Open owner question to ask early in that session (SPEC OQ-20): block
-   `!newAction` (generated code) outright in I1, or keep only the during-task guard?
+1. Run PLAN S2's four live trials (uncoached; §2.2 protocol; record each attempt):
+   "get 40 oak planks" at dusk with a mob interruption; a `!restart` crash
+   mid-task; an operator Stop/Start mid-task (owner connected); "make me a stone
+   pickaxe" from an empty inventory. Compare with the baselines (14 and 22 calls).
+2. Then S3 (terrain-fitting shelter), in a clean session: PLAN §3 S3. The probe kit
+   for P8 is 1 oak door and 8 dirt. S3 also moves the `!buildStructure` block and
+   the construction examples to `!build` (PLAN S3 profile bullet).
+
+### Notes
+
+- To start the bot with fresh memory: full operator Stop, archive the bot's
+  `memory.json`, then Start. An agent-only restart saves the running history on
+  exit and loads it again, so it cannot give a fresh start.
+- The backend slowed about 30× once (a 551 s request) until it was restarted;
+  if trials look stalled, check model latency in `requests.jsonl` first.
 
 ### Live-testing etiquette (PLAN §7)
 

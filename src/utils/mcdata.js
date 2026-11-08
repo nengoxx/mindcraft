@@ -112,7 +112,9 @@ export function isHuntable(mob) {
 
 export function isHostile(mob) {
     if (!mob || !mob.name) return false;
-    return  (mob.type === 'mob' || mob.type === 'hostile') && mob.name !== 'iron_golem' && mob.name !== 'snow_golem';
+    // Fork carry: allays and golems are not hostile (owner ruling 2026-11-08, probe P11).
+    const friendly = ['iron_golem', 'snow_golem', 'copper_golem', 'allay'];
+    return  (mob.type === 'mob' || mob.type === 'hostile') && !friendly.includes(mob.name);
 }
 
 // blocks that don't work with collectBlock, need to be manually collected

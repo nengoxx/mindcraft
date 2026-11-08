@@ -1,0 +1,28 @@
+{
+  "note": "Blocks world generation places as terrain (REQ-SAFE-1). Everything else is protected unless it is in the placement ledger. Logs (`*_log`, not stripped) pass only the tree test and leaves (`*_leaves`) only with persistent=false; both are handled in protect.js. Names missing from the negotiated registry are ignored. Crops, pumpkins, melons and the commonly farmed plants (sugar cane, bamboo, cactus, sweet berry bushes, kelp) are left out on purpose: they are usually the owner's farm. Ores (`_ore`) count only with an open face (protect.js).",
+  "suffixes": ["_ore"],
+  "names": [
+    "stone", "granite", "diorite", "andesite", "deepslate", "tuff", "calcite", "dripstone_block", "pointed_dripstone",
+    "smooth_basalt", "basalt", "bedrock", "amethyst_block", "budding_amethyst", "amethyst_cluster",
+    "large_amethyst_bud", "medium_amethyst_bud", "small_amethyst_bud", "magma_block", "infested_stone",
+    "infested_deepslate",
+    "dirt", "grass_block", "coarse_dirt", "podzol", "mycelium", "rooted_dirt", "mud", "clay", "moss_block",
+    "pale_moss_block", "sculk", "sculk_vein",
+    "sand", "red_sand", "gravel", "sandstone", "red_sandstone",
+    "terracotta", "white_terracotta", "orange_terracotta", "yellow_terracotta", "brown_terracotta",
+    "red_terracotta", "light_gray_terracotta",
+    "snow", "snow_block", "powder_snow", "ice", "packed_ice", "blue_ice",
+    "water", "lava",
+    "short_grass", "tall_grass", "fern", "large_fern", "dead_bush", "bush", "short_dry_grass", "tall_dry_grass",
+    "firefly_bush", "seagrass", "tall_seagrass", "lily_pad", "vine", "glow_lichen",
+    "hanging_roots", "cave_vines", "cave_vines_plant", "spore_blossom", "moss_carpet", "pale_moss_carpet",
+    "pale_hanging_moss", "azalea", "flowering_azalea", "big_dripleaf", "big_dripleaf_stem", "small_dripleaf",
+    "mangrove_roots", "muddy_mangrove_roots", "mangrove_propagule",
+    "oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling", "cherry_sapling",
+    "dark_oak_sapling", "pale_oak_sapling",
+    "dandelion", "poppy", "blue_orchid", "allium", "azure_bluet", "red_tulip", "orange_tulip", "white_tulip",
+    "pink_tulip", "oxeye_daisy", "cornflower", "lily_of_the_valley", "sunflower", "lilac", "rose_bush", "peony",
+    "pink_petals", "wildflowers", "leaf_litter", "open_eyeblossom", "closed_eyeblossom",
+    "brown_mushroom", "red_mushroom", "brown_mushroom_block", "red_mushroom_block", "mushroom_stem"
+  ]
+}

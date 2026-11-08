@@ -236,3 +236,25 @@ test('the request kind reaches the provider from all four prompter paths', async
         ['bot_responder', 'SYSTEM: responder']]);
     assert.ok(calls[2].options.signal instanceof AbortSignal); // the coding signal still reaches the client
 });
+
+test('every prompter path logs the active task id, and null when there is none (S2)', async () => {
+    reply = () => completion('respond');
+    const model = new OpenAITools('fixture', URL);
+    let active = 'tabc123';
+    const prompter = Object.create(Prompter.prototype);
+    Object.assign(prompter, {
+        agent: { name: 'fixture', history: { getHistory: () => [] }, work: { taskId: () => active } },
+        profile: { conversing: 'convo', coding: 'code', saving_memory: 'memory', bot_responder: 'responder' },
+        cooldown: 0, last_prompt_time: 0, awaiting_coding: false,
+        chat_model: model, code_model: model, convo_examples: null, coding_examples: null,
+    });
+    await prompter.promptConvo(turns());
+    await prompter.promptMemSaving(turns());
+    await prompter.promptCoding(turns());
+    await prompter.promptShouldRespondToBot('other bot: hello');
+    active = null;
+    await prompter.promptConvo(turns());
+    assert.deepEqual(logLines().map(l => [l.kind, l.task_id]), [
+        ['decision', 'tabc123'], ['summary', 'tabc123'], ['coding', 'tabc123'], ['bot_responder', 'tabc123'], ['decision', null]]);
+    assert.equal('task_id' in calls[0].options, false); // kept out of the HTTP options
+});

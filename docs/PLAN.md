@@ -168,12 +168,14 @@ add the protected-block diff. Interventions: target 0.
     in `$SELF_PROMPT`), `commands/index.js` (register), `history.js`
     (`memory_max_chars`, default 1,000).
   - Carry: `library/skills.js` (`pickupNearbyItems` skips junk-type items within
-    3 blocks of a recorded junk drop point).
-  - Profile: summariser wording (no coordinates, quantities or step progress);
-    examples showing `!taskStart` for gathering and crafting. Settings overlay:
-    `blocked_actions` = the deployment's existing blocked list (including any
-    `!setMode` block) plus `!buildStructure`; examples steer away from
-    `!newAction` to `!taskStart` and `!build`.
+    3 blocks of a recorded junk drop point; `placeBlock` and `tillAndSow` ask the
+    protection check before breaking a block in the way).
+  - Profile: summariser wording (no coordinates except build origins until S3,
+    no quantities or step progress); examples showing `!taskStart` for gathering
+    and crafting, and a fallback to the existing commands when `!taskStart`
+    answers "no method". Construction keeps its current examples and
+    `!buildStructure` until S3 (review ruling F19, 2026-11-08): S2 ships before
+    the shelter, so `blocked_actions` stays the deployment's existing list.
   - `tests/work-record.test.mjs`, `work-runner.test.mjs`, `work-dsl.test.mjs`,
     `work-resolve.test.mjs`, `work-protect.test.mjs`.
 - **Offline tests** (fixture bot plus the real ActionManager and modes code):
@@ -245,9 +247,8 @@ add the protected-block diff. Interventions: target 0.
     there, and junk again after 5 minutes; a refill re-runs the drop at most
     twice; when the minimum cannot be reached the step blocks with the five
     largest stacks; nothing off the list is ever discarded;
-  - `blocked_actions`: `!buildStructure` is absent from `$COMMAND_DOCS` and
-    refused when the model or the owner sends it; an existing `!setMode` block is
-    kept; `!collectBlocks` and `!craftRecipe` still run;
+  - `blocked_actions`: construction keeps `!buildStructure` until S3; an existing
+    `!setMode` block is kept; `!collectBlocks` and `!craftRecipe` still run;
   - `!newAction` is refused while a task is non-terminal, from the model and the
     owner, by the same wrapper as `!goal`, and runs again once the task ends;
 - **Live acceptance (uncoached).**
@@ -286,7 +287,9 @@ add the protected-block diff. Interventions: target 0.
     and replace, both door cells, dig order, face-aware placement, re-read,
     deferral of cells a player occupies); `library/skills.js` (the patched
     `safeToBreak` before `placeBlock`'s break, door yaw positioning, re-read).
-  - Profile: examples showing `!build`.
+  - Profile: examples showing `!build`. Settings overlay: `blocked_actions` =
+    the deployment's existing list plus `!buildStructure`; examples steer away
+    from `!newAction` and `!buildStructure` to `!build` (moved here from S2).
   - `tests/work-site.test.mjs`, `work-build.test.mjs`, `work-verify.test.mjs`.
 - **Offline tests** (synthetic block grids, same style as
   `tests/structure-site.test.mjs`):

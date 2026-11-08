@@ -41,8 +41,10 @@ export class History {
             ['My brain disconnected, try again.', 'Vision is only supported by certain models.'].includes(memory.trim()))
             throw new Error('Invalid memory summary');
 
-        if (memory.length > 500)
-            memory = memory.slice(0, 500);
+        // Fork carry: the cap is the memory_max_chars setting (REQ-REC-11).
+        const max_chars = settings.memory_max_chars ?? 1000;
+        if (memory.length > max_chars)
+            memory = memory.slice(0, max_chars);
 
         return memory;
     }

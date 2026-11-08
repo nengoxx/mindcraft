@@ -17,9 +17,9 @@ export class OpenAITools extends GPT {
         const completions = this.openai.chat.completions;
         const create = completions.create.bind(completions);
         completions.create = (body, options = {}) => {
-            // `kind` arrives in sendRequest's options from the prompter; it is ours,
-            // so it is removed before the options reach the HTTP client.
-            const { kind = null, ...requestOptions } = options;
+            // `kind` and `task_id` arrive in sendRequest's options from the prompter;
+            // they are ours, so they are removed before the options reach the HTTP client.
+            const { kind = null, task_id = null, ...requestOptions } = options;
             const started = Date.now();
             const request = create(body, requestOptions);
             // The SDK's own APIPromise is returned, so awaiting it and withResponse()
@@ -27,20 +27,20 @@ export class OpenAITools extends GPT {
             // parse helpers fail on this client: accepted, no I1 or specified I2
             // caller uses them (review S0-lite round 2).
             request.then(
-                response => logRequest(kind, body, response, null, started),
-                error => logRequest(kind, body, null, error, started));
+                response => logRequest(kind, task_id, body, response, null, started),
+                error => logRequest(kind, task_id, body, null, error, started));
             return request;
         };
     }
 }
 
-function requestRecord(kind, body, response, error, started) {
+function requestRecord(kind, task_id, body, response, error, started) {
     const usage = response?.usage;
     const choice = response?.choices?.[0];
     return {
         time: new Date(started).toISOString(),
         kind,
-        task_id: null, // S2 adds the task layer
+        task_id,
         // The full messages exactly as sent: what the model was given is what these
         // logs exist to inspect.
         prompt: body?.messages ?? null,
@@ -76,12 +76,12 @@ function reasoningChars(message) {
 // A write failure never reaches the request and is reported once.
 let logFailureReported = false;
 
-function logRequest(kind, body, response, error, started) {
+function logRequest(kind, task_id, body, response, error, started) {
     try {
         const file = runtimePath('diagnostics', 'requests.jsonl');
         // Every line, so a removed folder is recreated.
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.appendFileSync(file, JSON.stringify(requestRecord(kind, body, response, error, started)) + '\n', 'utf8');
+        fs.appendFileSync(file, JSON.stringify(requestRecord(kind, task_id, body, response, error, started)) + '\n', 'utf8');
     } catch (err) {
         if (logFailureReported)
             return;

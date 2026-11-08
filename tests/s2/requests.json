@@ -1,0 +1,19 @@
+{
+  "note": "Frozen request sequence for S2 (PLAN §3 S2). Written before the DSL parser existed; do not edit. Each entry is an owner request and the !taskStart arguments a correct plan uses. The owner is called 'steve' here.",
+  "owner": "steve",
+  "requests": [
+    { "id": 1, "request": "get 40 oak planks", "objective": "40 oak planks", "steps": "obtain item=oak_planks count=40" },
+    { "id": 2, "request": "make me a stone pickaxe", "objective": "a stone pickaxe", "steps": "obtain item=stone_pickaxe count=1" },
+    { "id": 3, "request": "collect 16 oak logs", "objective": "16 oak logs", "steps": "obtain item=oak_log count=16" },
+    { "id": 4, "request": "craft some sticks and bring them to me", "objective": "8 sticks for steve", "steps": "obtain item=stick count=8; give player=steve item=stick count=8" },
+    { "id": 5, "request": "come here", "objective": "come to steve", "steps": "go_to target=here" },
+    { "id": 6, "request": "get me 32 cobblestone", "objective": "32 cobblestone for steve", "steps": "obtain item=cobblestone count=32; give player=steve item=cobblestone count=32" },
+    { "id": 7, "request": "make a crafting table", "objective": "a crafting table", "steps": "obtain item=crafting_table count=1" },
+    { "id": 8, "request": "go to 100 64 -20 and get 10 birch logs there", "objective": "10 birch logs near 100 64 -20", "steps": "go_to target=100,64,-20; obtain item=birch_log count=10" },
+    { "id": 9, "request": "craft a wooden pickaxe and a wooden axe", "objective": "a wooden pickaxe and a wooden axe", "steps": "obtain item=wooden_pickaxe count=1; obtain item=wooden_axe count=1" },
+    { "id": 10, "request": "get 64 dirt", "objective": "64 dirt", "steps": "obtain item=dirt count=64" },
+    { "id": 11, "request": "make 4 torches", "objective": "4 torches", "steps": "obtain item=torch count=4" },
+    { "id": 12, "request": "get 20 spruce planks and 4 sticks, then come back to me", "objective": "20 spruce planks and 4 sticks, then back to steve", "steps": "obtain item=spruce_planks count=20; obtain item=stick count=4; go_to target=owner" },
+    { "id": 13, "request": "follow me to my house and give me 2 crafting tables there", "objective": "2 crafting tables for steve at his house", "steps": "obtain item=crafting_table count=2; go_to target=owner; give player=steve item=crafting_table count=2" }
+  ]
+}

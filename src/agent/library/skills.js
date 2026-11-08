@@ -4,6 +4,8 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { format } from 'node:util';
+import { isGuardedJunk } from "../work/resolve.js";
+import { isProtectedForBot } from "../work/protect.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -562,7 +564,8 @@ export async function pickupNearbyItems(bot) {
      * await skills.pickupNearbyItems(bot);
      **/
     const distance = 8;
-    const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' && bot.entity.position.distanceTo(entity.position) < distance);
+    // Fork carry: skip junk the task layer dropped nearby (REQ-OBT-11).
+    const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' && bot.entity.position.distanceTo(entity.position) < distance && !isGuardedJunk(bot, entity));
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
     while (nearestItem) {
@@ -652,6 +655,12 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
     const target_dest = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z));
 
     if (blockType === 'air') {
+        // Fork carry: never remove a protected block (REQ-SAFE-1/3).
+        const existing = bot.blockAt(target_dest);
+        if (isProtectedForBot(bot, existing)) {
+            log(bot, `Cannot remove ${existing.name} at ${target_dest}: it is protected (not natural terrain and not placed by me).`);
+            return false;
+        }
         log(bot, `Placing air (removing block) at ${target_dest}.`);
         return await breakBlockAt(bot, x, y, z);
     }
@@ -731,6 +740,11 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
     const empty_blocks = ['air', 'water', 'lava', 'grass', 'short_grass', 'tall_grass', 'snow', 'dead_bush', 'fern'];
     if (!empty_blocks.includes(targetBlock.name)) {
         log(bot, `${targetBlock.name} in the way at ${targetBlock.position}.`);
+        // Fork carry: never break a protected block in the way (REQ-SAFE-1/3).
+        if (isProtectedForBot(bot, targetBlock)) {
+            log(bot, `Cannot place ${blockType} at ${targetBlock.position}: ${targetBlock.name} there is protected (not natural terrain and not placed by me).`);
+            return false;
+        }
         const removed = await breakBlockAt(bot, x, y, z);
         if (!removed) {
             log(bot, `Cannot place ${blockType} at ${targetBlock.position}: block in the way.`);
@@ -1635,6 +1649,11 @@ export async function tillAndSow(bot, x, y, z, seedType=null) {
         if (block.name === 'farmland') {
             log(bot, `Land is already farmed with ${above.name}.`);
             return true;
+        }
+        // Fork carry: never break a protected block to till (REQ-SAFE-1/3).
+        if (isProtectedForBot(bot, above)) {
+            log(bot, `Cannot till: ${above.name} above is protected (not natural terrain and not placed by me).`);
+            return false;
         }
         let broken = await breakBlockAt(bot, x, y+1, z);
         if (!broken) {

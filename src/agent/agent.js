@@ -17,6 +17,7 @@ import settings from './settings.js';
 import { Task } from './tasks/tasks.js';
 import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
+import { Work } from './work/index.js';
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
@@ -121,7 +122,7 @@ export class Agent {
                 this.clearBotLogs();
               
                 this._setupEventHandlers(save_data, init_message);
-                this.startEvents();
+                this.startEvents(init_message);
               
                 if (!load_mem) {
                     if (settings.task) {
@@ -439,7 +440,7 @@ export class Agent {
         }
     }
 
-    startEvents() {
+    startEvents(init_message = null) {
         // Custom events
         this.bot.on('time', () => {
             if (this.bot.time.timeOfDay == 0)
@@ -509,6 +510,10 @@ export class Agent {
 
         // Init NPC controller
         this.npc.init();
+
+        // Fork carry: the task layer. init_message tells a crash restart from a
+        // fresh start (REQ-REC-7).
+        this.work = new Work(this).init(init_message);
 
         // This update loop ensures that each update() is called one at a time, even if it takes longer than the interval
         const INTERVAL = 300;

@@ -177,7 +177,9 @@ export class Prompter {
             prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
         if (prompt.includes('$SELF_PROMPT')) {
             // if active or paused, show the current goal
-            let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : 'You currently have no active persistent goal. Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again. Respond to the owner\'s latest request in the conversation normally, following your usual instructions for new or resumed work.\n';
+            // Fork carry: the task view replaces this text whenever a task record exists (REQ-REC-10).
+            const task_view = this.agent.work?.view();
+            let self_prompt = task_view ? task_view + '\n' : !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : 'You currently have no active persistent goal. Do not resume a goal that was stopped or ended, or a task that appears only in your memory summary, unless the owner asks again. Respond to the owner\'s latest request in the conversation normally, following your usual instructions for new or resumed work.\n';
             prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
         }
         if (prompt.includes('$LAST_GOALS')) {
@@ -208,6 +210,12 @@ export class Prompter {
         return prompt;
     }
 
+    // REQ-OBS-1: the request kind and the current task's id reach the provider
+    // in sendRequest's options.
+    requestOptions(kind, extra = {}) {
+        return { ...extra, kind, task_id: this.agent.work?.taskId() ?? null };
+    }
+
     async checkCooldown() {
         let elapsed = Date.now() - this.last_prompt_time;
         if (elapsed < this.cooldown && this.cooldown > 0) {
@@ -231,7 +239,7 @@ export class Prompter {
             let generation;
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt, undefined, {kind: 'decision'});
+                generation = await this.chat_model.sendRequest(messages, prompt, undefined, this.requestOptions('decision'));
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -285,7 +293,7 @@ export class Prompter {
             prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
             controller.signal.throwIfAborted();
 
-            let resp = await this.code_model.sendRequest(messages, prompt, undefined, {signal: controller.signal, kind: 'coding'});
+            let resp = await this.code_model.sendRequest(messages, prompt, undefined, this.requestOptions('coding', {signal: controller.signal}));
             controller.signal.throwIfAborted();
             await this._saveLog(prompt, messages, resp, 'coding');
             controller.signal.throwIfAborted();
@@ -300,7 +308,7 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
         prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        let resp = await this.chat_model.sendRequest([], prompt, undefined, {kind: 'summary'});
+        let resp = await this.chat_model.sendRequest([], prompt, undefined, this.requestOptions('summary'));
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -315,7 +323,7 @@ export class Prompter {
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
         prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt, undefined, {kind: 'bot_responder'});
+        let res = await this.chat_model.sendRequest([], prompt, undefined, this.requestOptions('bot_responder'));
         return res.trim().toLowerCase() === 'respond';
     }
 

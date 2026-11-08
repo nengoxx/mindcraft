@@ -109,3 +109,19 @@ Recorded by slice review; none occurs on the owner's deployment as configured.
 | S0-lite | Logging parses the response body, so `asResponse()` and the SDK's beta `parse` helpers fail on this client (awaiting `create` and `withResponse()` work). |
 | S0-lite | Probe P11 with `minecraft_version: "auto"` falls back to the newest installed dataset; run it with the settings path of a pinned deployment. |
 | S0-lite | No rotation of `requests.jsonl` (about 0.5 MB per gather task). |
+| S2 | A unit that fails deterministically ("steve is not in view", "could not craft") retries its 3 attempts at once with nothing changed in between, so it blocks within milliseconds; `go_to target=owner` is frozen at validation and blocks at once if the owner walked away. |
+| S2 | An unreadable `task.json` is left alone at start-up, but the next `!taskStart` overwrites it without keeping a copy. |
+| S2 | A crash restart with no `memory.json` costs one model call (upstream's start-up message, agent.js:214-216). |
+| S2 | Default conversation example 22 still uses `!setMode`, which the deployment blocks. |
+| S2 | The 120 s no-progress deadline against real crafting sync times (up to about 80 s) and the 10 s stop watchdog: a live check in the S2 trials. |
+| S2 | The bot's station placements (crafting table, furnace) before its first task ever (no `task.json` yet) are kept in memory only; a crash before that first task forgets them, so such a table stays protected. |
+| S2 | The tree test reads a pure-log structure (logs of one type and no other block type) of at most 64 logs under a natural canopy as a tree, so it is collectable. |
+| S2 | Trees over 64 logs are protected by the tree test's component cap and left standing. |
+| S2 | Natural trees of different wood types that touch each other are protected (a log of another type counts as a build) and left standing. |
+| S2 | Mineflayer's `playerCollect` carries no pickup count, so a give step counts a partial pickup of a stack as the whole stack (needs the owner's inventory nearly full). |
+| S2 | `!stop` with a failed record write: memory says cancelled, the disk still says active; a crash restart before the next successful write resumes the stopped task. |
+| S2 | The active and blocked task views clip their guidance ("do not use !goal", "Decide with !taskRevise…") for very long objectives; only the finished view reserves room for it. |
+| S2 | The tree test's upward rule still protects some natural logs: a trunk tip above its canopy, horizontal branch runs and a stump under a gap can be left standing (safe direction). |
+| S2 | Any `!stop`, including the model's own ("stop following me"), cancels a non-terminal task, also a paused one; REQ-SAFE-11 names the owner's `!stop`. The owner can ask again. |
+| S2 | A `give` step confirms pickups only during its bounded attempt (the call plus up to 30 s). A pickup after that window, or after an interrupt (self-defence, unstuck, an owner command) ends the wait, is not credited: the step blocks ("dropped N X near P, not picked up", or "not confirmed picked up" on the run after an interrupt or crash) although the owner may hold the items. A later `!taskResume` re-gives the outstanding count if the inventory still holds it, else blocks "have 0 X, N still to give". The owner decides (`!taskCancel` if he has them). |
+| S2 | A `give` step's block message says "dropped … not picked up" also when the bot itself picked its drop back up (the items are in its inventory again). |

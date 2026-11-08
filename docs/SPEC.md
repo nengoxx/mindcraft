@@ -316,7 +316,8 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
-| `agent/library/skills.js` | I1: the patched `safeToBreak` before `placeBlock`'s break-in-the-way (:732-738); door yaw positioning; post-place re-read; `pickupNearbyItems` skips junk-type item entities within 3 blocks of a recorded junk drop point (REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). | fork carry | I1 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips junk-type item entities within 3 blocks of a recorded junk drop point (REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -361,7 +362,7 @@ fork carries). These hooks need no core edit:
 | `interruptions` | `{count, last{by, at, step, pos}}` for the task view (`window[]` retired with the interruption limit, REQ-RES-16). | code |
 | `restarts[]` | (retired: the stall rule replaces the restart-storm guard, REQ-REC-8.) | — |
 | `night_blocked` | (retired: night blocks cost no model call under E1.2, so no bookkeeping is needed.) | — |
-| `placements[]` | The placement ledger: `{pos, block, build_id?, kind?: permanent|station (scaffold from I3), at}` for every block the bot placed during this task, plus `station` entries carried forward from the task it replaced (REQ-BLD-22). | code |
+| `placements[]` | The placement ledger: `{pos, block, build_id?, kind?: permanent|station (scaffold from I3), at}` for every block the bot placed while this task was active, the crafting tables and furnaces it placed while it was not, plus `station` entries carried forward from the task it replaced (REQ-BLD-22). | code |
 | `pending_question` | `[Surv]` `{id, text, options, asked_at}` while code waits for an owner answer (REQ-REC-12). | code |
 | `clean_stop` | Set when the agent process receives SIGINT; cleared by startup classification after it is read (REQ-REC-7). | code |
 | `metrics` | (retired: totals come from `requests.jsonl` and the bot log, REQ-OBS-2.) | — |
@@ -379,7 +380,7 @@ fork carries). These hooks need no core edit:
 |---|---|
 | `obtain` | metric = inventory count of the item; explicit material choices; from I5 the smelting station position, pending furnace inputs and expected output. |
 | `go_to` | metric = distance to target. |
-| `give` | metric = count handed over (observed in inventory). |
+| `give` | metric = count the player was seen to pick up (`confirmed`). One unit is one bounded attempt: a Mineflayer `playerCollect` listener is armed right before `giveToPlayer` and kept until the outstanding count is credited or `GIVE_CONFIRM_S` (30 s, code constant) pass, then removed. Credit = min(the target player's pickups of the step's item, summed by stack count; the bot's inventory decrease of that item since the unit started), so a stack the player picks up elsewhere, the bot's own re-pickups and any other inventory loss never count. There is no work-level listener, no settlement between ticks and no automatic resume. Done when `confirmed` covers the count; otherwise the step blocks with what happened ("dropped N X near P, not picked up" / "P picked up M of N X; K dropped near P, not picked up") and is never tossed again by itself. `!taskResume` re-gives only the outstanding count from what is still in the inventory, else blocks "have 0 X, N still to give to P". `inv_start` is persisted before the first toss, so a crash between toss and pickup blocks "not confirmed picked up". |
 | `build` | metric = missing cells; `structures[]` entry id; resolved source. |
 | `find` | `target, phase, waypoint, visited, rejected, elapsed_s, travelled, breadcrumbs[], return_place, last_evidence, coverage`. |
 
@@ -393,7 +394,7 @@ fork carries). These hooks need no core edit:
 | `active` | `[Surv]` an ask is pending (REQ-REC-12) | `blocked(awaiting_owner)`; 0 model calls |
 | `blocked(awaiting_owner)` | `[Surv]` owner answers yes or an option | `active` |
 | `paused`/`blocked` | a new task request (`!taskStart` or `!build`) | old task `cancelled(superseded)`; new task `active` |
-| `active` | owner `!stop` | `cancelled` (terminal) |
+| any non-terminal | owner `!stop` (written by the `!stop` wrapper before it awaits the action shutdown; if the write fails it is logged once and upstream `!stop` still runs; REQ-SAFE-11) | `cancelled(stop)` (terminal) |
 | `active` | death | `paused(died)` |
 | `active` | another resumable action replaces the runner | `paused(replaced)` |
 | `active` | `!taskPause` | `paused` |
@@ -443,11 +444,15 @@ fork carries). These hooks need no core edit:
 - **REQ-REC-10** [I1] Whenever a record exists, a compact **task view** of at most
   700 characters (about 200 tokens) replaces the `$SELF_PROMPT` text. It never
   says "no active persistent goal" while a task exists (today's text at
-  prompter.js:180). The full blueprint and places memory are never sent.
+  prompter.js:180). A finished task's view keeps the fork's guidance "Do not
+  resume a goal that was stopped or ended, or a task that appears only in your
+  memory summary, unless the owner asks again"; that guidance has reserved room and
+  the variable text (status, reason, objective) is clipped first. The full blueprint and places memory are never sent.
 - **REQ-REC-11** [I1] The memory summary covers only the conversation. Its cap
   becomes the setting `memory_max_chars`, default 1,000 (the owner found 500 too
   low; upstream's literal is 500). The summariser
-  prompt tells the model not to record coordinates, quantities or step progress.
+  prompt tells the model not to record coordinates, quantities or step progress;
+  until S3 it keeps build origins, because construction still runs on `!goal`.
 - **REQ-REC-12 Owner questions.** [Surv] Deferred as one bundle with its
   consumers (`ask_over_s`, rare-target prompts, search-budget extensions,
   `/locate`). Until then no code path asks the owner: a search that runs out of
@@ -515,16 +520,26 @@ fork carries). These hooks need no core edit:
   is never resumed by Mindcraft. The bound is checked between actuator calls,
   never in the middle of one.
 - **REQ-RES-7** [I1] Long skills are called in bounded chunks: `obtain` collects or
-  crafts in chunks; a build pass places at most a bounded number of cells.
+  crafts in chunks (a craft unit runs at most 4 recipe runs, because Mineflayer's
+  craft loop ignores `interrupt_code`); a build pass places at most a bounded number of cells.
 - **REQ-RES-16 Step stall rule.** [I1] (W3; one rule replaces the interruption
   limit, the restart-storm guard and the gate wait.) Each step persists its best
   metric value, `last_progress_at` and `stalled_s`. Whenever the metric improves on
   `best` (more items, fewer missing cells, less distance, more coverage), `stalled_s`
   resets to 0. While the task is `active` and the process runs, the runner and the
   self-heal timer add elapsed wall time to `stalled_s` at each record write, so the
-  sum carries across restarts (time with the process down does not count). When
+  sum carries across restarts (time with the process down does not count). The
+  timer's periodic write measures the step first, so one long actuator call that
+  keeps progressing is not counted as stalled. That sampling feeds only the stall
+  clock: the runner moves `work_pos` from its own measure before and after the
+  unit. When
   `stalled_s` reaches `work.step_stall_s` (600), the step blocks with its last
-  recorded cause ("no progress for 10 min; last: creeper interruption"). One model
+  recorded cause ("no progress for 10 min; last: creeper interruption"); a block
+  from the timer also interrupts a run still in its call and posts its report
+  once that run has ended or after 15 s (a call that never returns), whichever
+  comes first, exactly once, and only if the task is still that blocked one
+  (same record, same plan generation, no `!stop` since); a result that
+  arrives after the block (or after a pause, cancel or revision) is discarded. One model
   call. A step that keeps making progress under constant combat never blocks.
 
 ### 7.3 Resume check
@@ -558,7 +573,13 @@ fork carries). These hooks need no core edit:
   profile's examples steer Qwen to `!taskStart` and `!build` instead. The
   self-prompter stays
   stopped in task mode, because `resumeAction` does nothing while it is active
-  (action_manager.js:63).
+  (action_manager.js:63). A goal it was running when the task started is kept in
+  the record (`goal`): when the task ends `done` its self-prompting restarts; on
+  any other end it stays stopped and the report says so (the record's `goal` is
+  cleared then, so a later resume and done does not revive it). `!endGoal`,
+  `!stop`, a new `!goal` and a clean stop or fresh start also clear it, and the
+  handback checks, just before it restarts the goal, that the record is still the
+  same task, the goal was not cleared meanwhile and the self-prompter is stopped.
 - **REQ-RES-10 Self-heal timer.** [I1] When the task is `active`, `resume_func` is ours,
   and the agent has been idle for more than `work.stall_s` (15 s), call
   `resumeAction()`. This covers runs that ended interrupted (no `idle`) and
@@ -571,7 +592,8 @@ fork carries). These hooks need no core edit:
   Movement steps leave `unstuck` on.
 - **REQ-RES-12 Non-blocking report.** [I1] The runner never awaits `handleMessage`
   while it is the running action. It finishes the run, then posts its report with
-  `setTimeout`. Reports are always rendered from facts and need no model call
+  `setTimeout`; a report from the self-heal timer (a stall block) waits until the
+  interrupted run has returned. Reports are always rendered from facts and need no model call
   (`work.report_with_model` is retired).
 
 ### 7.5 Causes, detected from real events
@@ -811,7 +833,8 @@ exhausted search, an unfittable build) and a plan revision.
     `work.junk_keep` (by default one stack, 64, each of dirt and cobblestone, for
     scaffolding and stone tools), anything the current task's steps or resolver
     need, and everything not on the list. It reuses `skills.discard`
-    (skills.js:863, `bot.toss`).
+    (skills.js:877, `bot.toss`), one observed inventory stack per call, so an
+    interruption stops the drop between any two stacks.
   - **Re-pickup guard.** Vanilla picks up an item on contact once its throw delay
     ends, and upstream also walks to items: `pickupNearbyItems` (skills.js:556,
     8 blocks; called after manual digging at :522) and the `item_collecting` mode
@@ -1140,7 +1163,12 @@ mechanical (owner, addenda 2 and 3).
   Mineflayer's `blockPlaced` event, so pathfinder pillars are tracked too
   (pathfinder places through `bot.placeBlock` directly). The ledger is persisted
   in the task record (`placements[]`), so exemptions and cleanup survive a crash
-  restart. Each entry is tagged with its build (or task) and a kind: `permanent`
+  restart. While no task is active (none, or one paused, blocked or ended) only
+  the bot's stations are recorded (crafting table, furnace: a one-off
+  `!craftRecipe` takes back the table it placed), in the current record or,
+  before the first task, in memory until a record exists; everything else the bot
+  places then (`!buildStructure`, `!placeHere`, generated code) stays protected
+  like any non-natural block. Each entry is tagged with its build (or task) and a kind: `permanent`
   (blueprint cells, a placed crafting table or furnace) or `station` (below).
   [I3] A third kind, `scaffold` (pillars and other non-blueprint placements made
   while a build runs), arrives with cleanup (REQ-BLD-23); until then such
@@ -1312,8 +1340,9 @@ layer does not change between them.
   too ("Command '!x' does not exist.", agent.js:281-283); `!stop`, `!stats`,
   `!inventory` and `!goal` cannot be blocked (:18). The I1 value is the
   deployment's existing blocked list (including any `!setMode` block, which keeps
-  Qwen from turning modes off during a task) plus `!buildStructure`, which
-  `!build` covers. Overriding the setting replaces the whole list, so the existing
+  Qwen from turning modes off during a task); from S3 it adds `!buildStructure`,
+  which `!build` covers (S2 ships first, so construction keeps `!buildStructure`
+  until then). Overriding the setting replaces the whole list, so the existing
   entries must be carried over.
   `!collectBlocks` and `!craftRecipe` stay available for one-off requests; the
   profile's examples show `!taskStart` and `!build`. Whether to block more is
@@ -1437,11 +1466,19 @@ About 13 tools in all.
   Non-natural means not placed by world generation as terrain. The natural list
   lives in `work/data/natural_blocks.json` (stone family, dirt family, sand,
   gravel, clay, ores, natural logs, natural leaves, plants, snow, ice, liquids…).
+  Commonly farmed plants (sugar cane, bamboo, cactus, sweet berry bushes, kelp)
+  are left out with the crops, for every caller (they may be the owner's farms).
+  Ore exposure is a task-layer harvesting policy, not owner property: inside a
+  task run an ore counts only with a face open to air or water, and buried ores
+  are reached from I5; outside task runs ores are natural, buried or not, as
+  before S2 (native `!collectBlocks` mines them).
   Everything else is protected: planks, glass, crafted blocks, containers, beds,
   doors, cobblestone, wool, and the blocks of villages and other structures.
-- **REQ-SAFE-2 Exemption.** [I1] Positions in the placement ledger (the bot's own
-  placements) are exempt, so the bot can pick up its own table or furnace and
-  repair its own build. Nothing else is exempt.
+- **REQ-SAFE-2 Exemption.** [I1] A placement-ledger entry (the bot's own
+  placement) exempts its position only while the block there is the recorded
+  block, so the bot can pick up its own table or furnace and repair its own build;
+  an entry whose block is gone or replaced is retired when seen, on a restored
+  ledger too. Nothing else is exempt.
 - **REQ-SAFE-3 One mechanism for pathfinding, collection and building.** [I1] At work init the
   work module wraps `Movements.prototype.safeToBreak` of mineflayer-pathfinder
   (`class Movements`, node_modules/mineflayer-pathfinder/lib/movements.js:18,
@@ -1466,15 +1503,30 @@ About 13 tools in all.
     are the path digs, keep the full forced flags.
   - The tree test (REQ-SAFE-4) is memoized inside the wrapper: its result is
     cached per position for the current run, because the pathfinder calls
-    `safeToBreak` for the same blocks many times while it searches.
-  - Two call sites dig without the pathfinder: the builder's dig and
-    `placeBlock`'s break-in-the-way (skills.js:732-738, which calls `breakBlockAt`
-    → `bot.dig`). Both call the same patched `safeToBreak` through a `Movements`
-    instance (REQ-BLD-14), so there is one predicate in fact, not two copies.
-- **REQ-SAFE-4 Log heuristic (tree test).** [I1] Same-type connected logs, any axis,
-  capped at about 40 blocks, that reach leaves with `persistent=false` are a
-  natural tree. Other logs are protected (an all-log cabin), except ledger
-  positions.
+    `safeToBreak` for the same blocks many times while it searches. Outside a
+    run it is computed fresh.
+  - Three call sites dig without the pathfinder: the builder's dig,
+    `placeBlock`'s break-in-the-way and `air` branch (skills.js:744 and :660),
+    and `tillAndSow`'s break of the block above the soil (skills.js:1654); the
+    skills call `breakBlockAt` → `bot.dig`. `placeBlock` and `tillAndSow` (S2) ask the same
+    protection predicate the patched `safeToBreak` checks first
+    (`isProtectedForBot`), without upstream's hazard flags, and refuses with the
+    reason; the builder's dig (S3) calls the patched `safeToBreak` through a
+    `Movements` instance (REQ-BLD-14). One predicate in fact, not two copies.
+- **REQ-SAFE-4 Log heuristic (tree test).** [I1] A log is a natural tree when both
+  hold: (1) a path of same-type logs going up (one block up per step, straight or
+  diagonal), visiting at most 40 logs, reaches a log with `persistent=false` leaves
+  directly above it: a trunk ends under its canopy; and (2) its component, the
+  26-connected same-type logs containing it, has at most 64 logs (over the cap it
+  is protected) and no log of it touches a block that is not natural, not leaves,
+  not air or water, not `cocoa`, `bee_nest`, `beehive`, `creaking_heart` or a
+  farmed plant (sugar cane, bamboo and its sapling, cactus and its flower, sweet
+  berry bushes, kelp and its plant, melon, pumpkin; accepted beside a tree, never
+  collectable themselves), and not a ledger entry of the bot's own. A log of
+  another wood type is not accepted (a mixed-wood build). So planks, a door, glass,
+  a torch or another wood against a log build under a canopy protect it. There is no ground condition: a felled trunk stays a tree.
+  Other logs are protected (an all-log cabin, also where a tree's leaves touch its
+  side), except ledger positions.
 - **REQ-SAFE-5** [I1] Navigation may dig natural terrain, as upstream does; it never digs
   protected blocks.
 - **REQ-SAFE-6 `/locate` is off by default** [Surv] (`work.find.allow_locate: false`;
@@ -1513,7 +1565,7 @@ About 13 tools in all.
 
 | Key | Default | Meaning | Source |
 |---|---|---|---|
-| `memory_max_chars` (settings) | 1000 | Memory summary cap (REQ-REC-11). The owner's deployment already overrides it to 1,200. | W3 (owner) |
+| `memory_max_chars` (settings) | 1000 | Memory summary cap (REQ-REC-11). | W3 (owner) |
 | `work.return_radius` | 6 | Blocks from `work_pos` before returning. | D4 |
 | `work.stall_s` | 15 | Idle seconds before the self-heal timer resumes. | D4 |
 | `work.no_progress_s` | 120 | Per-call no-progress deadline, crafting sync included (REQ-RES-5). | W3 |
@@ -1532,7 +1584,7 @@ About 13 tools in all.
 | `work.min_free_slots` | 4 | Free inventory slots a step needs before the junk drop runs (REQ-OBT-11). | W3b (owner) |
 | `work.junk_items` | dirt, cobblestone, gravel, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds, rotten_flesh | Items the junk drop may toss. | W3b (owner) |
 | `work.junk_keep` | dirt 64, cobblestone 64 | Junk kept back for scaffolding and stone tools. | W3b (owner) |
-| `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block) plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
+| `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
 
 Constants in code (not keys): the junk drop's 5-minute drop-point memory, its
 3-block skip radius and its two re-runs per step; the resume check's hostile radius 8 (the same as
@@ -1697,10 +1749,10 @@ Recorded, not built:
 | OQ-14 | (closed by E1.2: night costs no model call under either policy, so no sleep decision exists in v1.) | — |
 | OQ-15 | (closed by W1: the ledger persists in the task record, REQ-BLD-22; W3 kinds `permanent` and `station`, `scaffold` from I3.) | — |
 | OQ-16 | Plan quality of the quantized Qwen with the text DSL (I1) and the typed schema (I2); whether DX arm A (parts only) meets the bar. | S2/S3 trials, I2 trials, DX |
-| OQ-17 | Which entity types `mc.isHostile` (utils/mcdata.js:113-116) classifies as hostile on the deployed version; the resume check and `self_defense` rely on it. | S0-lite, probe P11 |
+| OQ-17 | Which entity types `mc.isHostile` (utils/mcdata.js:113-116) classifies as hostile on the deployed version; the resume check and `self_defense` rely on it. P11 ran: `allay` and `copper_golem` were classified hostile and are now excluded (§5.3); `hoglin`, which the function misses, is Nether-only and left as is. | S0-lite, probe P11 |
 | OQ-18 | Is a request gate between summaries and decisions needed on the single backend? | I2 (S4 measurement) |
 | OQ-19 | Is `descend_to` ever needed as a plan step, or only inside `obtain`? | Survival iteration |
-| OQ-20 | Which raw commands to block through `blocked_actions` beyond the I1 default (`!buildStructure`); `!collectBlocks` and `!craftRecipe` stay available for one-off requests (REQ-TRN-13). Blocking also removes them from the owner's typed commands. Also an open owner question: whether to block `!newAction` outright in I1 rather than guard it during tasks (REQ-RES-9). | S2/S3 trials: decide if Qwen bypasses `!taskStart` or `!build` |
+| OQ-20 | Which raw commands to block through `blocked_actions` beyond the I1 default (`!buildStructure`, from S3); `!collectBlocks` and `!craftRecipe` stay available for one-off requests (REQ-TRN-13). Blocking also removes them from the owner's typed commands. Also an open owner question: whether to block `!newAction` outright in I1 rather than guard it during tasks (REQ-RES-9). | S2/S3 trials: decide if Qwen bypasses `!taskStart` or `!build` |
 
 ---
 

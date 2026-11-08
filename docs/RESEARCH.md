@@ -212,3 +212,26 @@ both the prompt docs and execution.
 To be added as each probe runs (PLAN §4), sanitized: tool-call parse rate,
 cache behaviour, R_load, entity ranges, ladder and door behaviour, post-furnace
 inventory, signature block presence, baselines.
+
+### 8.1 Baselines on the pre-task-layer code (S0-lite, 2026-11-08)
+
+Uncoached, one owner message each, invincible bot, fresh memory, the deployed Qwen
+backend. The request log (`requests.jsonl`, REQ-OBS-1) gives the counts.
+
+| Request | Outcome | Model calls | Time | Notes |
+|---|---|---|---|---|
+| "get 40 oak planks" | 40 planks, truthful report | 11 decision + 3 summary (21 %) | 208 s | Plan through `!goal` and the self-prompter; every self-defence interruption cost a new model call; one wasted `!useOn` stripped a log. |
+| "build a small shelter here" | report claims a 6×4×6 dirt shelter with a door; not verified | 17 decision + 4 summary + 1 coding | about 10 min | The catalog `!buildStructure` was rejected twice for leaf litter on the footprint; generated code built the walls; the door was placed twice; 122 dirt gathered for a 60-dirt template; the report contradicts the inventory. |
+
+A first attempt at the plank baseline was void: one decision request took 551 s
+(657 completion tokens) while earlier ones took about 15 s; it recovered after the
+backend was restarted (about 28 s for 569 tokens). Prompt-cache hits were rare (2
+of 22 requests in the shelter baseline; 3,976 cached tokens when it hit).
+
+### 8.2 P11 — hostile classification (2026-11-08)
+
+The deployed version's registry has 157 entity types; `mc.isHostile` classed 42 as
+hostile. It wrongly included allay and copper golem (fixed in S2 with the owner's
+ruling; iron and snow golems were already excluded) and misses hoglin (Nether only,
+left as is). Neutral mobs (enderman, piglin, zombified piglin, spiders) count as
+hostile.

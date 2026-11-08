@@ -1,10 +1,11 @@
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
+import { workCommands } from '../work/commands.js';
 
 let suppressNoDomainWarning = true;
 
-const commandList = queryList.concat(actionsList);
+const commandList = queryList.concat(actionsList, workCommands); // fork carry: task commands (REQ-TRN-13)
 const commandMap = {};
 for (let command of commandList) {
     commandMap[command.name] = command;
