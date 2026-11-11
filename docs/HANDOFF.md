@@ -1,50 +1,47 @@
 # Handoff
 
-## 2026-11-10/11 — clearing design approved (revision 6); PLAN and SPEC next
+## 2026-11-11 (evening) — S2c deployed; S2d and S2e designed; live trials next
 
-- The clutter ask (the bot's own pathfinder blocks) went through a small council
-  and a live probe; the owner ruled the lean tidy (DECISIONS.md "Tidying the
-  bot's own scaffold blocks"). Findings 17–18 added to ISSUES.md (cube analysis).
-- The whole design had its review round (Sol plus the Opus adversary, two fix
-  waves, then main-seat rulings): `runtime/diagnostics/i1-build/clear-council/recommended-design.md`
-  revision 6 (`final-r6.sha256`), rulings in `review-r3/r4/r5-rulings.md`,
-  live probe in `clutter/live-probe/`. The owner approved it on 2026-11-11
-  (DECISIONS.md); the complete scaffold record is a later slice, and the S2c
-  trials count the bot's own blocks left behind.
-- PLAN S2b/S2c and the SPEC are written and committed (`aa84358`, quick review
-  SHIP after one fix wave).
-- Bot: online again since 2026-11-11 (operator restarted), idle. A 6-block test
-  pillar stands at −468 73..78 1770 (pre-design, unrecorded).
-- S2b is built, reviewed (Sol plus the Opus adversary, two fix waves, final
-  main-seat rulings; records in `runtime/diagnostics/i1-build/s2b-review/`) and
-  committed (`d9595e6`); deployed 2026-11-11 by an agent-only restart (the owner
-  allows restarts at any time; keep the bot in game while working).
-- Live checks run by the main seat alone, 2026-11-11 (the owner could not log in;
-  owner messages sent through MindServer `send-message` as the owner):
-  - Block listing: "where are the cobblestone blocks around you?" gave one
-    `!blockPositions("cobblestone", 32)` call, 52 found, the nearest being the
-    block under her; no movement from the command (self_defense moved her).
-  - Outage: the model was cut for about 4 min through a local socat relay
-    (profile url and `work.model_outage_wait_s` 60 set through MindServer
-    `set-agent-settings`, restored identical afterwards) during a walking goal.
-    The goal never paused: self_defense against phantoms called `stopLoop()`
-    every cycle and the pause check skipped interrupted loops. Fixed (the pause
-    no longer skips them; quick review SHIP); the goal itself survived and went
-    on after recovery.
-  - Repeat trial on the fixed code (`f0a0eaf`, model cut 16:22–16:25): the goal
-    paused at 16:23 although a mode had stopped its loop, saved PAUSED with the
-    outage flag, and probed once a minute. A restart then loaded the pause
-    ("before the restart", no new notice) and went on probing.
-  - From about 16:26 the model backend itself answered every request with HTTP
-    503 "the model's output became non-finite (NaN) twice in a row" (health
-    "ok"); the owner restarted it (cause unknown). At 16:35 the outage ended
-    ("reachable again"): the restart message's turn was answered first, then
-    the same goal resumed and ran to 8/8 and `!endGoal`. S2b live checks pass.
-  - The notices are whispered to the owner (`only_chat_with`), so MindServer's
-    `bot-output` does not show them and they were lost while he was offline;
-    seeing them needs an outage while he is in game (owner's 8-marker ask too).
-- Exact next step: start S2c (PLAN S2c, build order D2 → dig.js → D1 → D3 →
-  D6) in a fresh session.
+- S2c is built, reviewed (Sol plus an Opus adversary, two fix waves per part and
+  main-seat rulings; records in `runtime/diagnostics/i1-build/s2c-review/`),
+  committed (part 1 `7d94aee`, part 2 `75be9aa`, merge `1f4ab07`; 317 tests) and
+  deployed by `set-agent-settings` (MindServer keeps the loaded profile in memory,
+  so a plain agent restart reuses the old one). Startup migrated the old station
+  into `runtime/bots/amaia/placements.json`; `!tidy` answered "removed 0; left 0".
+- Private profile updated (clearing through `!taskStart` with `clear markers=` /
+  `clear box=`, `!blockPositions` for marker listing, one clear example); backup
+  `runtime/config/profiles/amaia.json.bak-pre-s2c`.
+- Sleep probe P14 (2026-11-11): sleep works through ViaProxy and the night skipped
+  about 3 s after `!goToBed` (she was alone online); phantoms broke the first
+  night. Record: `runtime/diagnostics/i1-build/sleep-council/p14-live-20261111.md`.
+  A black bed placed by `!placeHere` stands near −475 66 1744 (unrecorded, so the
+  S2 protection keeps it; the owner may break it).
+- Designs closed, the owner's answers in DECISIONS.md (`0cef52b`): S2d sleeping
+  (`sleep-council/recommended-design.md` r3) and S2e inventory upkeep
+  (`junk-council/recommended-design.md` r7; the chest part is parked). S2e amends
+  S2d: the bed pickup launches only with 2 free slots, and an `action_manager.js`
+  carry keeps a resumable action's timeout on resume (a cut follow otherwise stops
+  after 10 minutes; also true today after any fight during a follow).
+- Known: the shipped in-task junk drop can toss the way she already faced (forced
+  `lookAt` sends no packet before the toss); S2e fixes it (junk design §3, G1).
+- A 6-block test pillar stands at −468 73..78 1770 (pre-design, unrecorded).
+- Owner notices are whispered (`only_chat_with`); MindServer's web panel sends as
+  'ADMIN', which she ignores; the operator helper sends as the owner.
+- **Test card (S2c live acceptance, PLAN S2c item 4; the owner in game):**
+  1. Mark a small box with 8 identical blocks and say "clear inside the <block>
+     markers" → one `!taskStart` with `clear markers=…`; containers stay; if
+     something not natural is inside she lists it and asks once; answer "yes" or
+     "no" (short answers only). Expect a final report and the markers kept.
+  2. Make her fight on uneven ground (she pillars) with no task → within about a
+     minute after the fight she removes her own pillar blocks, quietly.
+  3. During a tidy, type `!stop` in game chat → the rest stays (also the block she
+     was digging). For "stop tidying" in words use game chat, not the panel.
+  4. `!tidy` while a task runs → refused; after it ends → tidies.
+  5. Report: blocks of hers left behind (the own-blocks count sets the priority of
+     the later full scaffold slice), anything dug that should not be, any chat
+     spam or extra model calls.
+- Exact next step: the live trials above with the owner, then S2d's PLAN and SPEC (the
+  sleep design plus the two amendments), then build S2d, then S2e.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
