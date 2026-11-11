@@ -35,17 +35,16 @@
     paused at 16:23 although a mode had stopped its loop, saved PAUSED with the
     outage flag, and probed once a minute. A restart then loaded the pause
     ("before the restart", no new notice) and went on probing.
-  - Recovery was not observed: since about 16:26 the model backend itself answers
-    every request with HTTP 503 "the model's output became non-finite (NaN)
-    twice in a row" (health "ok"). Not restarted (the owner's call). The bot is
-    online on its normal settings with the walking goal paused.
+  - From about 16:26 the model backend itself answered every request with HTTP
+    503 "the model's output became non-finite (NaN) twice in a row" (health
+    "ok"); the owner restarted it (cause unknown). At 16:35 the outage ended
+    ("reachable again"): the restart message's turn was answered first, then
+    the same goal resumed and ran to 8/8 and `!endGoal`. S2b live checks pass.
   - The notices are whispered to the owner (`only_chat_with`), so MindServer's
-    `bot-output` does not show them; the owner's eyes are needed.
-- Exact next step: once the backend answers again, check in the log that the
-  bot said it was back and resumed the walking goal, then `!stop` it; ask the
-  owner whether he saw both whispers; then start S2c (PLAN S2c, build order
-  D2 → dig.js → D1 → D3 → D6). The owner's 8-marker ask stays for when he can
-  log in.
+    `bot-output` does not show them and they were lost while he was offline;
+    seeing them needs an outage while he is in game (owner's 8-marker ask too).
+- Exact next step: start S2c (PLAN S2c, build order D2 → dig.js → D1 → D3 →
+  D6) in a fresh session.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
