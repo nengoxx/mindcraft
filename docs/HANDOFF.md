@@ -11,11 +11,18 @@
   live probe in `clutter/live-probe/`. The owner approved it on 2026-11-11
   (DECISIONS.md); the complete scaffold record is a later slice, and the S2c
   trials count the bot's own blocks left behind.
-- Bot: offline since 2026-11-11 10:37 (the server closed the connection; the
-  operator then stopped). A 6-block test pillar stands at −468 73..78 1770
-  (pre-design, unrecorded).
-- Exact next step: write PLAN (S2b, S2c) and SPEC edits from revision 6, then
-  build S2b.
+- PLAN S2b/S2c and the SPEC are written and committed (`aa84358`, quick review
+  SHIP after one fix wave).
+- Bot: online again since 2026-11-11 (operator restarted), idle. A 6-block test
+  pillar stands at −468 73..78 1770 (pre-design, unrecorded).
+- S2b is built, reviewed (Sol plus the Opus adversary, two fix waves, final
+  main-seat rulings; records in `runtime/diagnostics/i1-build/s2b-review/`) and
+  committed (`d9595e6`); tests 232 pass. Not yet deployed: the bot still runs the
+  old code until an agent-only restart (ask the owner first while he plays).
+- Exact next step: deploy S2b by an agent-only restart, run its two live checks
+  (PLAN S2b: the owner asks where 8 marker blocks are; an owner-agreed outage of
+  about 3 minutes with `work.model_outage_wait_s` set to 60 for the trial), record
+  them, then start S2c (PLAN S2c, build order D2 → dig.js → D1 → D3 → D6).
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
