@@ -167,3 +167,34 @@ adversary) and a live probe of pathfinder placements (private diagnostics,
 - The lean version must be shown to work: the live trials count the bot's own
   blocks left behind. If many are left, that later slice moves up the priority
   list.
+
+## 2026-11-11 — Sleeping through the night (slice S2d)
+
+- She sleeps every night by default, also mid-task, mid-goal and while following;
+  a config switch limits it to idle time or turns it off. The resume after sleep
+  must be solid.
+- She places a bed from her inventory near her only to sleep and picks it up
+  again straight after. With no bed she carries on as now; making a bed is later.
+- On the owner's server one sleeper skips the night for everyone, which is part of why
+  he wants it (seen live on 2026-11-11: the night skipped about 3 s after she lay
+  down). Her respawn point moving to the bed is accepted. Chat stays quiet unless
+  something needs the owner.
+- Design: `runtime/diagnostics/i1-build/sleep-council/recommended-design.md`
+  (revision 3 and its §14), amended by the inventory design below: the bed pickup
+  needs 2 free slots, and a resumed action keeps its original timeout.
+
+## 2026-11-11 — Inventory upkeep (slice S2e, after S2d)
+
+- One item list in her config gives each item a keep count: 0 (junk, dropped),
+  a number or one stack (the rest dropped), or all. Anything not listed is kept.
+  It replaces `work.junk_items` and `work.junk_keep`; tasks use the same list.
+- Defaults: 0 for rotten flesh, spider eye, gravel, leaf litter and the earlier
+  stone and seed junk; one stack for dirt, cobblestone, bone, string, phantom
+  membrane, arrow, flint and coal; all for gunpowder.
+- She drops the surplus by herself, with no model call, when she has fewer than
+  4 free slots and is idle or following the owner ("she can drop things while it's
+  following"); never during fights, tasks or a goal.
+- A chest instead of dropping is designed but waits until dropping has been
+  refined ("chest can wait for later after we refined the dropping the items").
+- Design: `runtime/diagnostics/i1-build/junk-council/recommended-design.md`
+  (revision 7, with the owner's answers in §11).
