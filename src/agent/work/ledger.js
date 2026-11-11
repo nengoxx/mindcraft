@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
+import Vec3 from 'vec3';
 import { botDataPath } from '../../utils/runtime_paths.js';
 
 // The placements ledger (SPEC §11.10, REQ-OWN-1 … 6): one versioned file per
@@ -388,7 +389,7 @@ export class Ledger {
     settleLater(attempt) {
         const timer = setTimeout(() => {
             if (this.attempts.get(attempt.key) !== attempt) return;
-            const block = this.bot.blockAt(attempt.pos);
+            const block = this.bot.blockAt(new Vec3(attempt.pos.x, attempt.pos.y, attempt.pos.z));   // blockAt needs a Vec3
             if (block && block.name === attempt.expected) this.settle(attempt, block.name);
             else this.dropAttempt(attempt, block ? `the cell shows ${block.stateId === PREDICTED_STATE ? 'predicted stone' : block.name}` : 'the cell is not loaded');
         }, this.settleMs);

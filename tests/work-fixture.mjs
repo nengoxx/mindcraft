@@ -169,7 +169,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.count = name => slots.reduce((n, s) => n + (s && s.name === name ? s.count : 0), 0);
     for (const [name, count] of Object.entries(inventory)) bot.give(name, count);
 
-    bot.blockAt = pos => world.block(pos);
+    bot.blockAt = pos => world.block(pos.floored());   // like prismarine-world getBlock: a Vec3 only
     // A block change the client sees: Mineflayer's blockUpdate (old, new).
     bot.setBlock = (x, y, z, name, props) => {
         const old = world.block(new Vec3(x, y, z));
