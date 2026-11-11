@@ -198,3 +198,18 @@ adversary) and a live probe of pathfinder placements (private diagnostics,
   refined ("chest can wait for later after we refined the dropping the items").
 - Design: `runtime/diagnostics/i1-build/junk-council/recommended-design.md`
   (revision 7, with the owner's answers in §11).
+
+## 2026-11-11 — After the S2c live trials
+
+The owner's answers to the trial findings (ISSUES.md "S2c live trials, 2026-11-11 night"):
+
+- Her scaffold records should survive a restart, "if it's not too cumbersome".
+  This reverses the "forgotten at restart" part of the two rulings above; the how
+  (and whether it also covers chunk unloads) still needs a short design pass.
+- Walking back to tidy scaffold out of reach stays the later slice: "I want the
+  slice to be clear, but it's not a priority for this iteration."
+- Pits: "she should be able to climb back, right?" Getting stuck in a 1-wide pit
+  is a bug to fix, not a limit to accept.
+- Chat: "she talks too much in chat". Most of what she says on her own should be
+  off by default and switchable on for debugging; on her own she only speaks
+  about important things.
