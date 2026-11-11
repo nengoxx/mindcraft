@@ -512,6 +512,33 @@ silently recording every pillar as `own`.
     model; code writes one system line into history ("asked X / owner answered
     Y") and the task continues. An owner message that does not match goes on to
     the model as usual, and the question stays pending.
+  - **Armed.** An answer counts only while the question is armed, so the
+    owner's bare yes to a question of the model's own is not taken as the
+    answer. A post arms it only once every line is sent, and only if it is
+    still the current question and the latest post and nothing disarmed it
+    meanwhile (the first post too). Any other bot chat to the owner (a model
+    reply, whatever started its turn: an owner message, a restart or death
+    message, a mode) and an owner message that goes on to the model disarm
+    it, each with a token of the turn that caused it; only when every such
+    turn has finished and its chat is sent does code post the question again,
+    which arms it. An unrelated turn's end does not. Runtime wraps of the
+    agent's `handleMessage` (each call a turn, carried through its awaits by
+    `AsyncLocalStorage`) and `openChat`. The armed state is not persisted: a
+    restart posts an open question again before it takes an answer.
+  - The parse: short exact answers only (case and trailing "." or "!"
+    ignored): yes, ok, sure, go ahead and the like; no, nope, nah, no thanks,
+    no keep them / no, keep them, keep them, don't. Anything else ("keep
+    going", "no problem, go ahead") goes on to the model.
+  - The question goes to the owner in chat lines of at most 200 characters,
+    split at spaces and at the text's own line breaks, so a long question
+    arrives whole, and paced at least 1 s apart, under the server's chat-spam
+    kick (vanilla: +20 a message, −1 a tick, kick above 200); the same holds
+    for every code report (report.js `chatLines`, Work `deliver`). All code
+    output to the owner goes through one queue with one next-send time, so
+    deliveries never interleave or send faster. Before each line a question
+    post checks that its task, its question and its post are still current,
+    and stops otherwise: a replaced question sends nothing more, and a newer
+    post of the same question drops the older one.
   - There is no timeout: the task stays `blocked(awaiting_owner)` until it is
     answered, cancelled or superseded (REQ-REC-5).
   - `!taskResume` is refused while a question is open ("waiting for the owner's
@@ -1503,15 +1530,22 @@ analysis).
   2026-11-08). The question is the same statement followed by "Clear it? yes /
   no" (`pending_question.kind` `clear_start`); a no cancels the task as
   `cancelled(owner_declined)` with nothing dug (main-seat ruling, OQ-22).
-- **REQ-CLR-5 Protection scope.** [I1] While the task is active and its current
-  step is a clear step, the Protector reads the box from the frozen args:
+- **REQ-CLR-5 Protection scope.** [I1] While the task is active, its current
+  step is a clear step and the bot is in the task anchor's dimension (the box,
+  its kept layer and its grants are coordinates in that dimension), the
+  Protector reads the box from the frozen args:
   - the kept outer layer counts as protected for every caller (through the
     `safeToBreak` prototype patch, so modes and collection never dig it either),
     and the clear step's own movements exclude it (`exclusionAreasBreak` ≥ 100,
-    so it cannot be broken, and `exclusionAreasPlace`);
+    so it cannot be broken; nothing is placed in it: every move the pathfinder
+    generates is dropped when a placement destination, reference + face, lies
+    in the kept layer, because `exclusionAreasPlace` is handed the feet cell
+    for a forward bridge that places one cell below, movements.js:412-413);
   - inside the box, `scaffold` and `own` ledger entries are ordinary cells
     (REQ-OWN-2), and granted positions are exempt while their block matches
-    (REQ-CLR-9);
+    (REQ-CLR-9); a completed `building` entry stays protected before any grant
+    or container rule, so a furnished build's chest is reported "part of my
+    build", never asked about;
   - containers (`work.clear.containers`, every listed block that holds items)
     are never candidates unless the owner's explicit answer grants them
     (REQ-CLR-9); the bot's own `station` furnace in a box is a container like
@@ -1528,9 +1562,15 @@ analysis).
   approach (non-destructive outside the box) → occupancy check (no player and not
   the bot over the cell; the pathfinder's own entity check is empty outside a
   search, §4.2) → the patched `safeToBreak` with the hazard flags forced → tool →
-  dig. It returns a reason (for example next to water, under a falling block,
+  every check again right before the dig (interruption, the caller's
+  dimension, reach, the cell loaded and still the same block, occupancy,
+  protection and so the exact grant), since equipping awaits and Mineflayer's
+  dig checks none of them → dig. It returns a reason (for example next to water, under a falling block,
   occupied, kept shell, a kept container, never removed, needs a tool), never
-  just a boolean.
+  just a boolean. The falling-block check, the dig checker's and the
+  pathfinder's through the `safeToBreak` patch alike, also knows suspicious
+  sand and gravel (the pathfinder lists only sand and gravel,
+  movements.js:64-66), so the support of a kept one is not dug.
   Options `{ move, obtain, hand }`; with `hand: true` it digs by hand when no held
   tool harvests the block. `breakBlockAt` and `digDown` are not used: they refuse
   without a harvest tool (skills.js:651-655).
@@ -1538,27 +1578,40 @@ analysis).
   are not air or liquid, not `never_remove`, not an ungranted container, and
   have fewer than 2 hard failures.
   Order: the highest layer first, then nearest first; at most 16 digs per unit.
-  When only cells under the bot remain, it first moves to a cleared cell. When
+  When only cells under the bot remain, it first moves to a cleared cell; with
+  none yet, those cells wait for a later unit (a soft refusal, never counted as
+  a failure; the stall rule bounds it). When
   nothing held can harvest the next cell, it obtains a tool through an inline
   `obtain` sub-progress. The stall rule, resume with no model call, the run bound
-  and the deadlines are inherited from S2 (§7).
+  and the deadlines are inherited from S2 (§7). In another dimension than the
+  anchor's the unit digs nothing and the step waits with no block and no model
+  call: the run ends as a refusing resume check does, with the cause ("the box
+  is in overworld; I am in the_nether") as its last cause, the next idle
+  retries it, the stall rule bounds it, and the step goes on once the bot is
+  back; the check runs again after every awaited move and dig, and its
+  measure keeps the last value there.
 - **REQ-CLR-8 Done and report.** [I1] Progress comes from rescans, never from
   counters. The step is done when no candidate remains and a settled second scan
   agrees. The report is rendered by code and goes to the owner directly, for
   example "772/780 cells empty; left: 5 next to water, 2 under falling blocks,
-  1 chest (a container, kept)". Drops are picked up opportunistically within the
-  runner's existing slot policy (REQ-OBT-11); the report never claims drops were
-  collected.
+  1 chest (a container, kept)". The owner gets the whole report (the step's
+  stored result is clipped to 160 characters). Drops are picked up
+  opportunistically; the runner's junk drop (REQ-OBT-11) runs before a unit,
+  but a full inventory never blocks a clear (a dig needs no free slot; drops
+  stay on the ground). The report never claims drops were collected.
 - **REQ-CLR-9 Leftovers: one owner question.** [I1] (DECISIONS 2026-11-08: a box
   the owner asked to clear; containers stay unless he says otherwise.)
   - The question is asked when the step ends with unrecorded non-natural cells
     left (not a container, not `never_remove`, not the kept layer), or with
     containers in the box, or both. It is a `pending_question`, the task is `blocked(awaiting_owner)` and
     no model call is made (REQ-REC-12). Example: "762 of 780 cells are empty. 18
-    blocks are left that I did not place and that are not natural: cobblestone
-    16, oak_planks 2 (one at −100,63,480). Remove them too? Answer yes or no."
-  - Containers (`work.clear.containers`) are listed each by name and position on
-    a line of their own, with the warning that their contents would drop (for
+    blocks are left that are not natural and not in my records: cobblestone
+    16 (one at −98,64,479), oak_planks 2 (one at −100,63,480). Remove them too?
+    Answer yes or no." ("not in my records", not "that I did not place": the
+    bot's own scaffold forgotten at a restart is among them.) Every type is
+    listed with its count, with no cap, since a yes grants all of them.
+  - Containers (`work.clear.containers`) are listed each by name and position,
+    every one of them, on lines of their own, with the warning that their contents would drop (for
     example "Also inside: chest at −100,63,478, furnace at −98,64,480; their
     contents would drop; say 'yes, chests too' to remove them"). Only that
     explicit answer covers them; a plain yes leaves them. `never_remove` blocks
@@ -1601,7 +1654,13 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
   `actions.currentActionLabel`), `dim` (`bot.game.dimension`), `at` and, for a
   `building` entry, `build_id?` (the S3 build or the `!buildStructure` run it
   belongs to, so "protected after its build" knows which build); it matches only
-  in its own dimension.
+  in its own dimension. A `!buildStructure` run is the agent's
+  `npc.build_goal.executeNext` under the `action:buildStructure` label (a
+  runtime wrap inside the executed action; the command's `perform` is left
+  alone because `runAsAction` finds its label by `perform` identity). An
+  unreadable or unknown-version file is renamed aside to
+  `placements.json.bad-<ms>` and logged, so the first write cannot overwrite
+  its entries; the ledger starts empty.
 - **REQ-OWN-2 Kinds.** [I1] Stated once; this changes the ledger branch of
   `isProtected` (protect.js), which in S2 exempts every matching entry. Every
   exemption holds only while the recorded block is still there (REQ-SAFE-2).
@@ -2101,7 +2160,7 @@ About 13 tools in all.
 | `work.clear.max_cells` | 32768 | Largest clear box (32 × 32 × 32; REQ-CLR-3). S2c. | owner (2026-11-08) |
 | `work.clear.max_distance` | 64 | Farthest clear box (REQ-CLR-3). S2c. | clear council |
 | `work.clear.marker_radius` | 32 | Marker search radius (REQ-CLR-2). S2c. | clear council |
-| `work.clear.containers` | chest, trapped_chest, barrel, every shulker box, hopper, dispenser, dropper, furnace, blast_furnace, smoker, brewing_stand, crafter, lectern, chiseled_bookshelf, decorated_pot, jukebox | Blocks that hold items: kept unless the owner's explicit answer grants them (REQ-CLR-5, 9). S2c. | clear council; owner (containers); main-seat ruling (split) |
+| `work.clear.containers` | every item-holding block of the 26.1 registry (56): chest, trapped_chest, the 8 copper chests, barrel, every shulker box, hopper, dispenser, dropper, furnace, blast_furnace, smoker, brewing_stand, crafter, lectern, chiseled_bookshelf, the 12 wood shelves, decorated_pot, jukebox, campfire, soul_campfire, suspicious_sand, suspicious_gravel | Blocks that hold items: kept unless the owner's explicit answer grants them (REQ-CLR-5, 9); a test checks the families against the registry. S2c. | clear council; owner (containers, 2026-11-11 "leave out any chest or container"); main-seat ruling (split) |
 | `work.clear.never_remove` | spawner | Blocks a clear always keeps (REQ-CLR-5). S2c. | clear council; main-seat ruling (split) |
 | `work.ledger_max` | 2000 | Cap on live `scaffold` entries (REQ-OWN-5). S2c. | clear council |
 | `work.tidy.enabled` | true | Automatic tidy triggers on or off; `!tidy` always works (REQ-OWN-8). S2c. | clear council |
@@ -2249,6 +2308,50 @@ Recorded, not built:
     server revert (REQ-OWN-5);
   - the held item changing before the placement packet writes no entry (the safe
     direction).
+- The clear step and the ledger, S2c review round 1 (LOW unless noted):
+  - the tell A guard (REQ-OWN-6) is a text-order check of the installed
+    pathfinder source: it catches the predicted write removed, renamed or
+    reordered, not a write made conditional or dead; a behavioural guard
+    (driving the pathfinder against a placeBlock spy) is later debt;
+  - while the task is blocked on a clear question (or paused), the kept layer
+    has no protection: REQ-CLR-5 scopes it to the active clear step, and
+    natural blocks are unprotected outside it anyway;
+  - an owner block placed in a cell the pathfinder just failed to fill, of the
+    same block, within the ~2 s merge window, settles as the bot's `scaffold`;
+  - `protected` is one dig refusal reason for every protection kind (kept
+    layer, kept container, never removed, the owner's build); part 2's tidy
+    sweep and S3 may want them apart;
+  - a failed ledger write (for example ENOSPC) can leave its temp file behind;
+  - the open question cannot be answered while a model-started action runs
+    (MED-LOW, the safe direction): the turn that disarmed it ends only when
+    `handleMessage` returns, which awaits `executeCommand` and so the whole
+    action (`runAsAction`; `!followPlayer` runs until stopped). Until then
+    every owner yes goes to the model and the question stays open; it is
+    posted again when the action ends (the owner can ask the model to stop
+    the action, or wait). An owner `!stop` does not bring it back: it cancels
+    the clear task (`cancelled(stop)`, REQ-SAFE-11). Not an ordering bug of
+    the interception: re-posting before the turn ends would contradict the
+    disarm rule (REQ-REC-12);
+  - if renaming an unreadable ledger aside fails (the runtime folder not
+    writable at start) and a later write succeeds, that write replaces the
+    unreadable file (needs the folder unwritable at start and writable later,
+    which does not happen on the deployment);
+  - every re-post of an open question adds the whole question to the model's
+    history again, so a long question re-posted often brings summaries forward;
+  - red sand and concrete powder are not falling blocks to the pathfinder
+    (movements.js:64-66; only suspicious sand and gravel are added): a clear
+    never keeps them, so they fall rather than being lost; part 2's tidy check
+    inherits it;
+  - a clear waiting in another dimension retries on every idle (about once a
+    second in production, a task.json reload and save each) until it is back
+    or the stall rule blocks it; with the test fixture's 20 ms idle delay the
+    upstream fast-loop guard (action_manager.js:76-87) cancels the resume and
+    the self-heal tick restarts it;
+  - owner output is paced through one queue, but model replies bypass it, so a
+    reply can land about 50 ms after a question line; a report waits behind a
+    long question (about 1 s per line); each queued report line before a
+    re-post adds another copy of the question to history (the re-post note
+    above); no test covers the stop-at-shutdown check of a queued line.
 - A table or furnace left behind by a crash stays in the world; while its ledger
   entry or station entry survives it can be reused or picked up.
 - Until I5, clay or sand under water cannot be collected, because the hazard flags

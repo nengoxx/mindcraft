@@ -254,7 +254,7 @@ Recorded by slice review; none occurs on the owner's deployment as configured.
 | S2 | A crash restart with no `memory.json` costs one model call (upstream's start-up message, agent.js:214-216). |
 | S2 | Default conversation example 22 still uses `!setMode`, which the deployment blocks. |
 | S2 | The 120 s no-progress deadline against real crafting sync times (up to about 80 s) and the 10 s stop watchdog: a live check in the S2 trials. |
-| S2 | The bot's station placements (crafting table, furnace) before its first task ever (no `task.json` yet) are kept in memory only; a crash before that first task forgets them, so such a table stays protected. |
+| S2 | (Retired by S2c: stations live in the placements ledger file, REQ-OWN-1.) The bot's station placements (crafting table, furnace) before its first task ever (no `task.json` yet) were kept in memory only; a crash before that first task forgot them, so such a table stayed protected. |
 | S2 | The tree test reads a pure-log structure (logs of one type and no other block type) of at most 64 logs under a natural canopy as a tree, so it is collectable. |
 | S2 | Trees over 64 logs are protected by the tree test's component cap and left standing. |
 | S2 | Natural trees of different wood types that touch each other are protected (a log of another type counts as a build) and left standing. |

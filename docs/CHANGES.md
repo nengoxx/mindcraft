@@ -315,3 +315,63 @@ whether part of the radius was not loaded) that S2c's marker search reuses. The 
 
 The work fixture (`tests/work-fixture.mjs`) gives its agent a real
 `ModelOutage`, as agent.js does.
+
+I1 S2c, part 1 (clearing an area, the placements ledger and the owner
+question; SPEC §11.9, §11.10, REQ-REC-12). Why: the cube-clearing trials
+(ISSUES, cube analysis) cleared by generated code with no record, no resume and
+a false report, and the S2 ledger recorded task-time pathfinder blocks as `air`
+(item 17), so the bot's own pillars stayed protected. Our own new files are
+`work/ledger.js` (the placements ledger `bots/<name>/placements.json`: kinds
+`station`, `scaffold`, `building`, `own`; recording from the placement attempt;
+retirement, the `work.ledger_max` cap, forgetting old scaffold at process start
+and on chunk unload, the tidy-dig `removing` / `removed_at` states),
+`work/dig.js` (`digCell`, the dig seam), `work/steps/clear.js` (the `clear`
+step), and `work/ask.js` (the owner-question core: parse and record). The
+record no longer holds `placements`: on the ledger's first load the S2
+stations migrate from `task.json` once and the key is deleted; the in-memory
+list before the first task (`loose`), the station carry (`carryStations`) and
+the `blockPlaced` listener in `work/index.js` are gone. The ledger records
+through a runtime wrap of `bot.placeBlock` and `bot._placeBlockWithOptions`
+installed at work init and removed with the module (no upstream patch). A
+`!buildStructure` run's placements are `building` entries of that run through a
+runtime wrap of the agent's `npc.build_goal.executeNext`, active only under the
+`action:buildStructure` label: the command's `perform` cannot be wrapped,
+because `runAsAction` finds its label by `perform` identity (actions.js:12).
+The open owner question is disarmed by any other bot chat to the owner and by
+an owner message that goes to the model, and posted again (armed once every
+line is sent) after the turn that caused it, through runtime wraps of the
+agent's `handleMessage` (each call a turn, carried by `AsyncLocalStorage`) and
+`openChat` (REQ-REC-12); code reports go through one owner-output queue,
+paced 1 s a line, and a question post stops once it is no longer current. The `safeToBreak`
+patch and the dig checker add suspicious sand and gravel to the pathfinder's
+falling blocks (`gravityBlocks`, movements.js:64-66), per Movements instance. The clear step's movements filter the
+pathfinder's generated moves by their placement destination (a per-instance
+`getNeighbors` wrap, not `exclusionAreasPlace`, which gets the feet cell for a
+forward bridge, movements.js:412-413). `work.clear` (merged one level deep by
+`loadWorkConfig`) and `work.ledger_max` join `work/config.js`.
+
+- `agent/agent.js` (grown): in `handleMessage`, after the forced-command block
+  and the translation and before the behaviour log and the history add, an
+  owner message that answers the task's open `pending_question`
+  (`work.answerQuestion`: owner username only, a short yes / no / "yes, chests
+  too") is consumed and never reaches the model; anything else goes on as
+  before. Why: an owner question costs no model call and the model can never
+  answer it (REQ-REC-12). Reapply check: `work-clear.test.mjs` "the answer is
+  consumed before the model; other owner chat goes to the model and the
+  question stays; …". Retire with the task layer, or when upstream offers a
+  hook before the model for code-owned replies.
+- Tell A (REQ-OWN-3, not our carry): the recording relies on Mindcraft's
+  pathfinder patch writing the predicted stone (`setBlockStateId(dest, 1)`)
+  before it calls `bot.placeBlock` (`patches/mineflayer-pathfinder+2.4.5.patch`,
+  index.js:571 → :575). Check: `work-ledger.test.mjs` "the installed pathfinder
+  writes the predicted stone before it calls bot.placeBlock (tell A guard,
+  REQ-OWN-6)", a source check of the installed file. If it fails after a merge
+  or a pathfinder bump, apply the dirt-only fallback of REQ-OWN-6 instead of
+  dropping the test.
+
+The work fixture gains `bot.setBlock` (a block change with Mineflayer's
+`blockUpdate`), a `bot.dig` that writes the predicted air as a `blockUpdate`
+first (digging.js:160), goto hooks that move the bot themselves (`'moved'`),
+and `clearRecord` also removes the placements ledger; `ownerSays` calls the
+agent's own `handleMessage` and `routeResponse` goes through `openChat` (as
+agent.js:422 does), so the work layer's wraps run.

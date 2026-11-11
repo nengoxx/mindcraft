@@ -55,7 +55,9 @@ export function blockPositions(bot, name, range) {
 }
 
 const DSL_HELP = 'Steps: one string, steps separated by ";", each "skill key=value ...": ' +
-    'obtain item=<item> count=<1-256>; go_to target=here|owner|<x>,<y>,<z>; give player=<name> item=<item> count=<n>. ' +
+    'obtain item=<item> count=<1-256>; go_to target=here|owner|<x>,<y>,<z>; give player=<name> item=<item> count=<n>; ' +
+    'clear box=<x1>,<y1>,<z1>:<x2>,<y2>,<z2> (exactly those cells) or clear markers=<exact block name> [shell=keep|clear] ' +
+    '(the box marked by those blocks; keep, the default, clears only the inside). ' +
     "Free text goes in single quotes; never put a double quote inside an argument (that gives an argument-count error). " +
     'At most 8 steps. Example: !taskStart("40 oak planks", "obtain item=oak_planks count=40")';
 
@@ -83,7 +85,7 @@ function taskCommand(name, description, params, run) {
 
 export const workCommands = [
     taskCommand('!taskStart',
-        'Start a task that runs by itself and survives interruptions and restarts: gathering, crafting, going somewhere, giving items. ' +
+        'Start a task that runs by itself and survives interruptions and restarts: gathering, crafting, going somewhere, giving items, clearing an area. ' +
         'Prefer it over single commands for any request that takes more than one action. ' + DSL_HELP,
         {
             objective: { type: 'string', description: "The owner's request, restated briefly." },

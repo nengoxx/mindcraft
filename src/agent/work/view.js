@@ -4,12 +4,16 @@ import { isTerminal } from './record.js';
 // $SELF_PROMPT text whenever a record exists. Never the full plan internals.
 export const VIEW_MAX = 700; // a constant, SPEC §14
 
+export const boxText = b => `x ${b.x1}..${b.x2}, y ${b.y1}..${b.y2}, z ${b.z1}..${b.z2}`;
+
 export function shortArgs(step) {
     const a = step.args;
     switch (step.skill) {
         case 'obtain': return `${a.item} x${a.count}`;
         case 'give': return `${a.item} x${a.count} to ${a.player}`;
         case 'go_to': return `${a.target.given === 'here' || a.target.given === 'owner' ? `${a.target.given} ` : ''}(${a.target.x}, ${a.target.y}, ${a.target.z})`;
+        case 'clear':
+            return a.markers ? `${a.markers} markers (${boxText(a.box)}${a.shell === 'clear' ? ', outer layer included' : ''})` : `box ${boxText(a.box)}`;
         default: return Object.entries(a).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' ');
     }
 }
@@ -57,7 +61,10 @@ export function renderView(record, { bot, selfPromptActive = false, now = Date.n
     }
     const last = record.interruptions?.last;
     if (last) parts.push(`Last interruption: ${last.by ?? 'unknown'}, ${ago(now - last.at)} ago (${record.interruptions.count} in total).`);
-    if (record.status === 'blocked') parts.push(`Blocked: ${record.reason}. Decide with !taskRevise, !taskResume or !taskCancel.`);
+    // REQ-REC-12: an open owner question is answered by the owner only.
+    if (record.status === 'blocked' && record.pending_question)
+        parts.push(`Waiting for the owner's answer; only the owner can answer, so do not answer it or use !taskResume. The question: "${record.pending_question.text}"`);
+    else if (record.status === 'blocked') parts.push(`Blocked: ${record.reason}. Decide with !taskRevise, !taskResume or !taskCancel.`);
     else if (record.status === 'paused') parts.push('Paused: !taskResume continues it, !taskCancel ends it.');
     else parts.push('It runs by itself and resumes after interruptions: answer chat briefly, do not redo its steps with other commands, and do not use !goal.');
     return clip(parts.join(' '));

@@ -314,6 +314,10 @@ export class Agent {
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
+        // Fork carry (REQ-REC-12): an owner's answer to the task's open
+        // question is consumed here and never reaches the model.
+        if (!self_prompt && !from_other_bot && this.work?.answerQuestion(source, message)) return false;
+
         const checkInterrupt = () => stop_epoch !== this.stop_epoch || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
         let behavior_log = this.bot.modes.flushBehaviorLog().trim();

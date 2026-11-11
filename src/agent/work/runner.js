@@ -64,7 +64,7 @@ export class Runner {
     get config() { return this.work.config; }
 
     ctx() {
-        return { bot: this.bot, agent: this.agent, config: this.config, call: (label, fn) => this.call(label, fn),
+        return { bot: this.bot, agent: this.agent, config: this.config, anchor: this.work.record?.anchor ?? null, call: (label, fn) => this.call(label, fn),
             checkpoint: () => this.work.write() };
     }
 
@@ -162,7 +162,9 @@ export class Runner {
                 if (handler.needsFreeSlots) {
                     const slots = await this.ensureFreeSlots(step);
                     if (this.interrupted() || !current()) return;
-                    if (slots.blocked) { work.blockStep(step, slots.blocked); return; }
+                    // 'drop-only' (the clear step): the junk drop runs, but a dig
+                    // needs no free slot, so a full inventory never blocks it.
+                    if (slots.blocked && handler.needsFreeSlots !== 'drop-only') { work.blockStep(step, slots.blocked); return; }
                 }
                 if (step.skill === 'obtain') {
                     if (!step.work_pos) step.work_pos = floored(this.bot.entity.position, this.bot.game?.dimension);
@@ -199,6 +201,20 @@ export class Runner {
                 }
                 if (result.blocked) {
                     work.blockStep(step, result.blocked);
+                    return;
+                }
+                if (result.ask) {
+                    // REQ-REC-12: blocked(awaiting_owner), no model call.
+                    work.askOwner(step, result.ask);
+                    return;
+                }
+                if (result.wait) {
+                    // The step cannot work here now: the run ends as a refusing
+                    // resume check does, with no model call; the next idle
+                    // retries it and the stall rule bounds it.
+                    step.progress.last_cause = result.wait;
+                    work.log(`step ${step.n} waits: ${result.wait}`);
+                    work.save();
                     return;
                 }
                 if (result.failed) {

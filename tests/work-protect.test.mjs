@@ -47,8 +47,8 @@ test('the predicate: natural terrain and natural trees are free; a log cabin, pl
     assert.equal(blocked(10), true);          // leaves a player placed
     for (const x of [20, 21, 22, 23, 24, 25]) assert.equal(blocked(x), false, `natural at ${x}`);
     for (const x of [30, 31, 32, 33, 34, 35]) assert.equal(blocked(x), true, `protected at ${x}`);
-    // The ledger exempts the bot's own placements.
-    const own = new protect.Protector(bot, { ledgerGet: pos => pos.x === 30 ? { block: 'oak_planks' } : null });
+    // The ledger exempts the bot's own placements (a kind that is exempt here).
+    const own = new protect.Protector(bot, { ledger: { get: pos => pos.x === 30 ? { block: 'oak_planks', kind: 'scaffold' } : null, retire() {} } });
     assert.equal(own.isProtected(bot.blockAt(at(30, 64, 0))), false);
 });
 
@@ -209,20 +209,15 @@ test('a ledger entry exempts only the block it recorded; a replaced or vanished 
     world.set(3, 64, 0, 'furnace');            // the owner put a furnace where the bot's table was
     world.set(4, 64, 0, 'crafting_table');     // the bot's own table, still there
     const agent = setup({ world, name: 'ledgername' });
-    const w = agent.work;
-    const earlier = F.modules.record.newRecord({ objective: 'earlier', request_text: null, requested_by: null, anchor: null, steps: [], placements: [
-        { pos: { x: 3, y: 64, z: 0 }, block: 'crafting_table', build_id: null, kind: 'permanent', at: 1 },
-        { pos: { x: 4, y: 64, z: 0 }, block: 'crafting_table', build_id: null, kind: 'permanent', at: 1 },
-    ] });
-    earlier.status = 'done';
-    w.adopt(earlier);
-    w.write();
-    agent.work.dispose();
+    const station = x => ({ pos: { x, y: 64, z: 0 }, block: 'crafting_table', kind: 'station', by: null, dim: 'overworld', at: 1 });
+    agent.work.ledger.add(station(3));
+    agent.work.ledger.add(station(4));
+    agent.work.dispose(); // flushes the ledger
     const again = setup({ world, name: 'ledgername', keep: true });
     const m = new pf.Movements(again.bot);
     assert.equal(m.safeToBreak(again.bot.blockAt(at(3, 64, 0))), false);  // the owner's furnace
     assert.equal(m.safeToBreak(again.bot.blockAt(at(4, 64, 0))), true);   // the bot's table
-    assert.deepEqual(again.work.record.placements.map(e => e.pos.x), [4]); // the stale entry is retired
+    assert.deepEqual(again.work.ledger.list().map(e => e.pos.x), [4]);     // the stale entry is retired
 });
 
 test('outside a task the bot can take back the crafting table a one-off !craftRecipe placed (F7)', async () => {
@@ -264,16 +259,17 @@ test('placeBlock never breaks a protected block in its way, nor removes one as a
     assert.equal(world.block(at(4, 64, 0)).name, 'air');
 });
 
-test("the bot's own crafting table, in the persisted ledger, is collectable after a restart", () => {
+test("the bot's own crafting table, in the persisted ledger, is collectable after a restart", async () => {
     const world = new F.World();
-    world.set(3, 64, 0, 'crafting_table');
+    world.fill(-8, 63, -8, 8, 63, 8, 'dirt');
     world.set(-3, 64, 0, 'crafting_table'); // the owner's
-    const agent = setup({ world, name: 'ledger' });
+    const agent = setup({ world, name: 'ledger', inventory: { crafting_table: 1 } });
     hang(agent);
     agent.work.startTask('walk', 'go_to target=40,64,0');
-    agent.bot.emit('blockPlaced', agent.bot.blockAt(at(3, 64, 0)).constructor.fromStateId(0, 0), agent.bot.blockAt(at(3, 64, 0)));
-    const entry = F.readRecord(agent).placements[0];
-    assert.deepEqual({ ...entry, at: 0 }, { pos: { x: 3, y: 64, z: 0 }, block: 'crafting_table', build_id: agent.work.record.id, kind: 'permanent', at: 0 });
+    assert.equal(await skills.placeBlock(agent.bot, 'crafting_table', 3, 64, 0), true);
+    agent.work.ledger.flush();
+    const entry = F.readLedger(agent).entries[0];
+    assert.deepEqual({ ...entry, at: 0 }, { pos: { x: 3, y: 64, z: 0 }, block: 'crafting_table', kind: 'station', by: null, dim: 'overworld', at: 0 });
     agent.work.dispose();
     agent.bot.interrupt_code = true;
     const again = setup({ world, name: 'ledger', keep: true, init_message: W.RESTART_MESSAGE });
@@ -283,41 +279,32 @@ test("the bot's own crafting table, in the persisted ledger, is collectable afte
     assert.equal(m.safeToBreak(again.bot.blockAt(at(-3, 64, 0))), false);
 });
 
-test('after a task replacement, a still-present permanent table or furnace outside any blueprint carries over as a station; other entries drop', async () => {
+test('stations live in the ledger: a task change does not touch them; one picked up since is retired when seen (REQ-OWN-1)', async () => {
     const world = new F.World();
     world.set(3, 64, 0, 'crafting_table');
     world.set(4, 64, 0, 'furnace');
-    world.set(5, 64, 0, 'dirt');
-    world.set(7, 64, 0, 'crafting_table');
     const agent = setup({ world, name: 'stations' });
     const w = agent.work;
+    for (const [x, block] of [[3, 'crafting_table'], [4, 'furnace']])
+        w.ledger.add({ pos: { x, y: 64, z: 0 }, block, kind: 'station', by: null, dim: 'overworld', at: 1 });
     for (const outcome of ['done', 'cancelled', 'superseded']) {
-        if (outcome === 'superseded') { hang(agent); w.startTask('walk', 'go_to target=40,64,0'); await w.pauseTask(); }
+        if (outcome === 'superseded') { hang(agent); w.startTask('walk', 'go_to target=40,64,0'); await w.pauseTask(); agent.bot.hooks.goto = null; }
         else w.startTask('here', 'go_to target=0,64,0');
         if (outcome === 'done') await F.until(() => w.record.status === 'done');
         if (outcome === 'cancelled') await w.cancelTask();
-        const id = w.record.id;
-        w.record.structures = [{ id: 'b1' }];
-        w.record.placements = [
-            { pos: { x: 3, y: 64, z: 0 }, block: 'crafting_table', build_id: id, kind: 'permanent', at: 1 },
-            { pos: { x: 4, y: 64, z: 0 }, block: 'furnace', build_id: id, kind: 'permanent', at: 1 },
-            { pos: { x: 5, y: 64, z: 0 }, block: 'dirt', build_id: id, at: 1 },
-            { pos: { x: 6, y: 64, z: 0 }, block: 'crafting_table', build_id: id, kind: 'permanent', at: 1 }, // picked up since
-            { pos: { x: 7, y: 64, z: 0 }, block: 'crafting_table', build_id: 'b1', kind: 'permanent', at: 1 }, // a blueprint cell
-        ];
-        w.write();
-        agent.bot.hooks.goto = null;
         assert.equal(w.startTask('next', 'go_to target=0,64,0').ok, true, outcome);
-        assert.deepEqual(w.record.placements.map(e => [e.pos.x, e.block, e.kind]), [[3, 'crafting_table', 'station'], [4, 'furnace', 'station']], outcome);
+        assert.equal('placements' in w.record, false, outcome);
         const m = new pf.Movements(agent.bot);
         assert.equal(m.safeToBreak(agent.bot.blockAt(at(3, 64, 0))), true, outcome);
-        assert.equal(m.safeToBreak(agent.bot.blockAt(at(7, 64, 0))), false, outcome);
+        assert.equal(m.safeToBreak(agent.bot.blockAt(at(4, 64, 0))), true, outcome);
         await F.until(() => w.record.status === 'done');
     }
-    // A station survives the next replacement too, while its block is there.
-    world.set(4, 64, 0, 'air');
-    w.startTask('again', 'go_to target=0,64,0');
-    assert.deepEqual(w.record.placements.map(e => [e.pos.x, e.kind]), [[3, 'station']]);
+    agent.bot.setBlock(4, 64, 0, 'furnace');   // an update showing the same block keeps it
+    assert.deepEqual(w.ledger.list().map(e => e.pos.x), [3, 4]);
+    agent.bot.setBlock(4, 64, 0, 'air');       // picked up: retired on blockUpdate
+    assert.deepEqual(w.ledger.list().map(e => e.pos.x), [3]);
+    agent.bot.setBlock(4, 64, 0, 'furnace');   // the owner's furnace there now is protected
+    assert.equal(new pf.Movements(agent.bot).safeToBreak(agent.bot.blockAt(at(4, 64, 0))), false);
 });
 
 test('digDown is not used by the task layer (REQ-FIND-15)', () => {
