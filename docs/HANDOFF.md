@@ -1,5 +1,22 @@
 # Handoff
 
+## 2026-11-10/11 — clearing design approved (revision 6); PLAN and SPEC next
+
+- The clutter ask (the bot's own pathfinder blocks) went through a small council
+  and a live probe; the owner ruled the lean tidy (DECISIONS.md "Tidying the
+  bot's own scaffold blocks"). Findings 17–18 added to ISSUES.md (cube analysis).
+- The whole design had its review round (Sol plus the Opus adversary, two fix
+  waves, then main-seat rulings): `runtime/diagnostics/i1-build/clear-council/recommended-design.md`
+  revision 6 (`final-r6.sha256`), rulings in `review-r3/r4/r5-rulings.md`,
+  live probe in `clutter/live-probe/`. The owner approved it on 2026-11-11
+  (DECISIONS.md); the complete scaffold record is a later slice, and the S2c
+  trials count the bot's own blocks left behind.
+- Bot: offline since 2026-11-11 10:37 (the server closed the connection; the
+  operator then stopped). A 6-block test pillar stands at −468 73..78 1770
+  (pre-design, unrecorded).
+- Exact next step: write PLAN (S2b, S2c) and SPEC edits from revision 6, then
+  build S2b.
+
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
 - Owner trial: clear the inside of a box marked by 8 stripped spruce wood blocks.

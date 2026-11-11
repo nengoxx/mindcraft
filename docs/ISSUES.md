@@ -223,6 +223,19 @@ Root causes, by layer, with the fix each needs:
     dig-time check does not protect a player standing on the cell (SPEC
     REQ-BLD-15 and REQ-SAFE-3 overclaim it); the OpenAI client runs with SDK
     defaults (10-minute timeout, 2 retries). Designs: `runtime/diagnostics/i1-build/clear-council/`.
+17. **Live probe of pathfinder placements (2026-11-10):** a pathfinder pillar
+    fires `blockPlaced(stone, air)` about three times per cell (the old block is
+    the pathfinder's predicted stone, state 1; the new block is the server's
+    stale air), and the real cobblestone arrives about half a second later as a
+    plain block update. So `onBlockPlaced` (`work/index.js`) records task-time
+    pathfinder blocks as `air` entries that never match, and those pillars stay
+    protected: a second cause of item 12. Fixed by the design's D2 recording
+    rule (S2c). Evidence: `runtime/diagnostics/i1-build/clear-council/clutter/live-probe/`.
+18. **Ops: MindServer crashes on a `restart-agent` sent while the agent is
+    reconnecting** (`src/mindcraft/mindserver.js:219`, no check that the agent's
+    socket exists; upstream code). It took the whole operator down once on
+    2026-11-10, when a test driver sent the restart twice. Send one restart and
+    wait for the agent to log in again.
 
 ## Iteration 1 residuals (task layer)
 

@@ -134,3 +134,36 @@ private diagnostics folder; summary in [ISSUES.md](ISSUES.md), cube analysis):
   otherwise.
 - The size limit for one clear is 32 × 32 × 32 cells (32 768), as configuration;
   the owner wants no tight limit.
+
+## 2026-11-10 — Tidying the bot's own scaffold blocks
+
+After a small council on the clutter ask (main seat, Opus, Sol blind; Opus
+adversary) and a live probe of pathfinder placements (private diagnostics,
+`clear-council/clutter/`):
+
+- Lean version first: the bot removes its recorded scaffold blocks that it can
+  reach without walking, right after a fight ends and when a task ends, plus the
+  same sweep as a command. No walking idle sweep for now; it can be added later
+  on the same sweep without a rewrite. Bridges left behind after travel stay
+  until an area clear covers them.
+- If the owner stops a tidy mid-way, the blocks not yet removed stay for good.
+- Any pillar or bridge the bot made may be removed, even one the owner walks on;
+  he keeps one by replacing a block with a different type.
+- One short line when it tidies, switchable in configuration (the owner finds
+  the bot verbose in general; to review later).
+- Scaffold records from before a restart, or from while the bot was away
+  (chunk unloaded), are not tidied automatically; an explicit area clear can
+  still remove them.
+
+## 2026-11-11 — Clearing design approved; full scaffold record later
+
+- The clearing and tidy design (revision 6 of the council's recommended design)
+  is approved as the lean version. Scaffold records from before a restart are
+  forgotten, not kept as built on purpose: an old cobblestone pillar is then
+  protected like any non-natural block and an old dirt pillar counts as natural.
+- The more complete version (record every block the bot puts down and also
+  remove scaffold out of reach, walking to it) is its own slice in a later
+  iteration.
+- The lean version must be shown to work: the live trials count the bot's own
+  blocks left behind. If many are left, that later slice moves up the priority
+  list.
