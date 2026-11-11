@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -24,7 +24,13 @@ Surv survival           SV (when the owner turns damage back on)
 
 **Status (2026-11-08):** S0-lite and S2 are built, reviewed, deployed and passed their live
 trials (S2: 1–2 model calls per request, resume after fights, crash restarts and stops
-with no call; [RESEARCH.md](RESEARCH.md) §8, [ISSUES.md](ISSUES.md) live findings). Next: S3.
+with no call; [RESEARCH.md](RESEARCH.md) §8, [ISSUES.md](ISSUES.md) live findings). (Its
+"next: S3" is superseded by the status below.)
+
+**Status (2026-11-11):** the cube-clearing trials (ISSUES, cube analysis) led to
+a design council on clearing, the bot's own blocks, model outages and
+observation; the owner approved its lean version (DECISIONS 2026-11-11). Two
+slices go before S3: S2b, then S2c. Next: S2b.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -37,7 +43,9 @@ nothing the owner can see is retired.
 
 - **I1 — usable for play (build now).** The smallest set that fixes the core
   complaints: planning, gathering and crafting, combat then back to the task, a
-  simple terrain-fitting shelter. Transport is Mindcraft's text `!commands` with
+  simple terrain-fitting shelter; since the cube-clearing trials also clearing an
+  area on request and not leaving the bot's own scaffold as clutter (DECISIONS
+  2026-11-08, 2026-11-11). Transport is Mindcraft's text `!commands` with
   the compact step DSL (SPEC §12.0); native tools wait for I2.
   - Step vocabulary: `obtain` (surface: wood, stone, crafting, a crafting table),
     `go_to`, `give`, `build` (the shelter macro; the catalog only by explicit
@@ -46,6 +54,13 @@ nothing the owner can see is retired.
   - S2: task record, runner and resume, the surface obtain resolver, protection,
     the persisted ledger (`permanent` and `station` kinds), the task view and
     fact-based reports.
+  - S2b: model outages (wait, pause and resume, one notice each way),
+    `!blockPositions`, the `goToGoal` configure carry.
+  - S2c: clearing an area (the `clear` step and one owner question for
+    leftovers and containers), the placements ledger with kinds, and tidying the
+    bot's own reachable scaffold. Clearing is a capability of its own (DECISIONS
+    2026-11-08); it lands before S3 only because S3 reuses `dig.js`, the ledger
+    kinds and the owner question.
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -67,7 +82,8 @@ nothing the owner can see is retired.
 - **Survival iteration (SV).** When the owner turns damage back on: the night
   `shelter` policy; the health and food gates; auto-deposit to an owner chest and
   surplus drop; the owner-question bundle (ask before long builds, search-budget
-  extensions, `/locate`, rare-target prompts); the careful `descend_to` staircase.
+  extensions, `/locate`, rare-target prompts; the question core itself arrives in
+  S2c); the careful `descend_to` staircase.
 - **On evidence.** Built only if the named failure is observed: the `name{json}`
   drift parser (REQ-TRN-9), prompt layout arm B (REQ-TRN-12).
 
@@ -273,14 +289,254 @@ add the protected-block diff. Interventions: target 0.
   crafting sync times; OQ-20 has a first reading.
 - **Not in S2.** Building, `find`, smelting, underground, places memory, tools.
 
+#### S2b — Model outages, block listing, movement settings
+
+- **Goal.** A model outage no longer costs a goal or misleads the owner: tasks
+  keep running, decisions wait, the goal pauses and resumes, and the owner hears
+  one notice each way. The model and the owner can list a block type's positions
+  without moving. Callers' movement settings survive `goToGoal`. (Design: the
+  clear council's recommended design, revision 6, D4 and D5, in the private
+  diagnostics folder `clear-council/`; approved DECISIONS 2026-11-11.)
+- **SPEC.** REQ-RES-17, 18 (§7.8); REQ-TRN-16; the `goToGoal` configure carry
+  (§5.3, `library/skills.js`); the REQ-BLD-15 and REQ-SAFE-3 doc fix (the
+  pathfinder's entity check is empty outside a path search, §4.2), already
+  applied in SPEC with this plan; S2b checks it against the code. The §14 keys
+  `work.model_timeout_s`, `work.model_max_retries`, `work.model_outage_wait_s`
+  and `work.model_outage_probe_s`; the §5.3 rows for `prompter.js`, `coder.js`,
+  `self_prompter.js`, `history.js`, `agent.js` and `skills.js`.
+- **Files.**
+  - `src/models/openai_tools.js`: strip `outcome` from the options and set
+    `outcome.unreachable` on connection errors, timeouts and 5xx; the client's
+    `timeout` and `maxRetries` from configuration.
+  - `src/agent/work/config.js`: the four model keys added to the defaults.
+  - `src/agent/model_outage.js` (new): outage state and the owner notices.
+  - Carries: `models/prompter.js` (the model keys through
+    `loadWorkConfig(profile.work)`, called by the prompter itself because it is
+    built before `Work`; `outcome` in `requestOptions`, the back-off
+    wait in `promptConvo`, the outage signal from `promptCoding`);
+    `agent/coder.js` (the outage messages, not counted as "no code block");
+    `agent/self_prompter.js` (new carry: `PAUSED` with the `outage` flag, the
+    recovery probe, the flag cleared by `start()`, `!stop`, a new goal and a
+    manual pause); `agent/history.js` (the flag saved with the self-prompter
+    state); `agent/agent.js` (the outage module at init, the catch on
+    `respondFunc`'s `handleMessage` call, a loaded flag restarts the probe);
+    `library/skills.js` (`goToGoal(bot, goal, configure)`).
+  - `src/agent/work/commands.js`: `!blockPositions`, with the complete search the
+    S2c marker search reuses.
+  - CHANGES.md entries for every new or grown carry (§6), `self_prompter.js`
+    being a new one.
+- **Offline tests.**
+  - provider: `outcome` never reaches the request; `unreachable` is set on a
+    connection error, a timeout and a 5xx, and not on a 4xx; the client is built
+    with the configured timeout and retries;
+  - `promptConvo` (fake clock): back-off from 5 s doubling to 60 s, none of its 3
+    tries spent; it stops when a newer message supersedes the turn and gives up
+    after `work.model_outage_wait_s` with no reply; "My brain disconnected" is never
+    said;
+  - coder: "no code was run" only when no execution began in that generation
+    session; otherwise "the code ran N times before that", with the count risen
+    also for a run that threw and the last execution's output kept; an outage is
+    never a "no code block" failure;
+  - one owner notice per outage and one on recovery, however many calls fail;
+  - self-prompter: an outage pauses the goal (`PAUSED` with the flag), never
+    stops it; the probe runs every `work.model_outage_probe_s` after the foreground
+    wait; on recovery the same goal epoch resumes, and a goal replaced meanwhile
+    does not; an owner `!stop`, a new goal, a manual pause and `start()` (also
+    through `!stfu` with a single bot) clear the flag; the flag survives a
+    save and load, and a load of `PAUSED` with it restarts the probe;
+  - a rejected `handleMessage` from `respondFunc` is caught and logged;
+  - an active task keeps running through an outage with no model call;
+  - `!blockPositions`: the complete search finds every block of the type within
+    range in a fixture where `findBlocks` misses one (the cube trials' 8th
+    marker); the bot does not move; at most 10 positions, plus the count and the
+    bounds;
+  - `goToGoal` applies `configure` to both of its `Movements` instances.
+- **Live acceptance.**
+  1. Uncoached: the owner marks a box with 8 blocks of one type, as in the cube
+     trials, and asks "where are the 8 stripped spruce wood blocks?". Expected:
+     one `!blockPositions` call, all 8 positions and the bounds, no movement.
+  2. Owner-agreed check (not uncoached, because the owner must take the model
+     backend away): `work.model_outage_wait_s` is set to 60 for the trial (a
+     profile override, restored afterwards), and with a goal running the backend
+     is unreachable for about 3 minutes, so the foreground wait ends, the goal
+     enters `PAUSED` with the outage flag and the recovery probe runs. Expected:
+     one outage notice and one recovery notice; the goal never stopped; no "My
+     brain disconnected"; after recovery the same goal resumes within one probe
+     interval.
+- **Metrics.** §2.3; model calls and failed requests during the outage; time
+  from recovery to the goal's resume.
+- **Size.** Not re-estimated in the final design. The council's first estimate
+  for D4 and D5 was about 200 production and 200 test lines, before revisions 4
+  and 5 added the recovery probe and the saved flag.
+- **Exit.** Both checks pass; CHANGES.md is current.
+- **Not in S2b.** Output compaction (rejected by the council: it would erase
+  coordinate listings; truncation stays), the clear step, the ledger, tidying.
+
+#### S2c — Clearing an area and the bot's own blocks
+
+- **Goal.** The owner can have an area cleared: the box he marks or names is
+  stated, cleared top-down by code with no model call per cell, resumed after
+  interruptions, and reported truthfully, with one question for what is left.
+  The bot records what it places by kind and removes its own reachable scaffold
+  after fights, at task end and on `!tidy`, and the trials show how much of its
+  own blocks it still leaves behind. (Design: the clear council's revision 6, D1,
+  D2, D3 and D6; DECISIONS 2026-11-08, 2026-11-10, 2026-11-11.)
+- **SPEC.** §11.9 (REQ-CLR-1 … 9) and §11.10 (REQ-OWN-1 … 11); REQ-REC-12's
+  core (its I1 part); REQ-SAFE-2 (kinds); REQ-PLAN-4 (the clear checks);
+  REQ-TRN-13, 14 (`!tidy`, `clear`), 15 (the clear errors); REQ-BLD-22 (retired
+  by REQ-OWN-1) and the REQ-BLD-21 and 23 amendments; REQ-OBS-4; the S2c keys of
+  §14; the `agent.js` and `modes.js` rows of §5.3.
+- **First step: probe P13 (done).** The live probe of the pathfinder placement
+  tell ran on 2026-11-10 (§4; private diagnostics folder,
+  `clear-council/clutter/live-probe/`). Tell A held on all 24 pathfinder
+  placements of two runs; false positives were not exercised, because no other
+  placement happened. The design therefore keeps the guard test on the
+  pathfinder patch (REQ-OWN-6) and the dirt-only fallback if the tell ever
+  fails.
+- **Build order.** D2 first, including the recording fix for the S2 defect that
+  records task-time pathfinder blocks as `air` (ISSUES, cube analysis item 17);
+  then `dig.js`; then D1 (the clear step); then D3 (the owner question); then D6
+  (tidying).
+- **Files.**
+  - `src/agent/work/`: `ledger.js` (new: the file, kinds, the placement wrap and
+    settlement, retirement, the cap, forgetting old scaffold); `dig.js` (new);
+    `tidy.js` (new); `steps/clear.js` (new, registry entry); `index.js` (wrap
+    install, the owner's raw-message `!stop` keep and the `respondFunc` wrap,
+    `onModeEnd`, forgetting old scaffold at process start, retiring `loose` and
+    the station carry); `protect.js` (kind semantics in `isProtected`, the clear
+    scope); `plan.js` (the clear DSL and validation); `runner.js` (the owner
+    question block, the task-end tidy scheduled from the run's `finally`,
+    `tidy_after_mode`); `commands.js` (`!tidy`; `!taskResume` refused while a
+    question is open); `config.js` (`work.clear`, `work.ledger_max`,
+    `work.tidy`; the one-level merge); `view.js`, `report.js` (the clear report,
+    the question in the task view, the tidy line).
+  - Carries: `agent/agent.js` (the owner-answer interception, REQ-REC-12);
+    `agent/modes.js` (new carry: `should_reprompt` and `onModeEnd`).
+  - Profile: an example showing `!taskStart` with a `clear` step.
+  - CHANGES.md: the `modes.js` carry with its retirement trigger (upstream
+    offers a quiet-action flag and a mode-end event); the grown `agent.js` carry.
+- **Offline tests** (fixture bot plus the real ActionManager and modes code):
+  - recording: a pathfinder placement (destination in state 1 at call time) is
+    recorded as `scaffold` only once the cell shows the expected block, from
+    repeated attempts merged into one entry; settling to air, a liquid,
+    predicted stone or another block writes nothing; an attempt is dropped on
+    chunk unload and world change; a changed held item writes nothing; a
+    non-scaffold placement is written at once from `newBlock`, so `!craftRecipe`
+    still takes back its table and real stone placed by code is recorded;
+    `by` and `dim` come from the attempt; entries match only in their dimension;
+  - the guard test: the installed pathfinder writes the predicted stone before
+    it calls `bot.placeBlock`;
+  - kinds: `scaffold` exempt everywhere; `own` protected outside an active clear
+    box whatever its material and exempt inside it; `building` protected after
+    its build; `station` exempt; stations migrated from `task.json` once;
+  - the ledger file: atomic, throttled write; flush at task changes and SIGINT;
+    old scaffold deleted at process start (not at the runner's reload) and on
+    chunk unload, owner-kept `own` entries kept; the cap evicts only the oldest
+    live `scaffold`; the warning above 10 000; retirement only for loaded cells;
+    `removing` exempt during a dig, revived by a same-block update within 3 s,
+    deleted after, cleared by an aborted dig;
+  - the clear step: both DSL forms; every validation error of REQ-CLR-3,
+    including the marker-count error (fewer than 4 markers, or not on three
+    axes); the corner test with at least 4 markers on three axes and an inside;
+    the complete marker search; the box and cell count stated in the
+    confirmation; a `markers=` box starts at once, a `box=` box waits for the
+    owner's yes with no dig before it, and an owner no to that `clear_start`
+    question cancels the task as `cancelled(owner_declined)` with nothing dug;
+    ungranted containers (`work.clear.containers`) and the spawner are never candidates;
+    a buried ore inside the box is dug; the kept layer protected for every caller and excluded for the
+    clear movements; top-down, nearest-first order, at most 16 digs per unit;
+    the move to a cleared cell; the occupancy check; a tool obtained inline;
+    done only after a settled second scan; the report from the final scan;
+    resume with no model call after a mode interrupt and a crash restart;
+  - the owner question: asked for leftovers, for containers, or both; consumed
+    before the model; no timeout; `!taskResume` refused while open; a plain yes
+    removes the listed blocks but no container; "yes, chests too" removes the
+    listed containers through the position-scoped exception while the liquid,
+    falling-block and occupancy checks still refuse; a grant resets the failure
+    counts; a block changed since the question is not dug; a no keeps them;
+  - tidying: every live acceptance item below as a fixture, plus the structure
+    under the bot (the hitbox footprint, connectivity over all bot-placed
+    entries before any filter, a bridge left whole), pillar-down, top-down with
+    no floating block, each pre-dig check, the 32-dig and 60 s bounds, the
+    interrupted remainder and its supersession, the task-end launch guards (same
+    record, no newer task, unchanged `stop_epoch` and `last_action_time`, idle),
+    the mode-end trigger (uninterrupted only, next tick, no stop in flight;
+    re-checks while a hostile is near; skipped while `resume_func` is set; the
+    in-task `tidy_after_mode` sweep limited to `mode:*` entries and cleared only
+    when complete), the owner `!stop` keep from chat, whispers and MindServer
+    before any translation, a model `!stop` within 60 s of an owner message
+    counted as the owner's, `should_reprompt` false for `action:tidy`,
+    `work.tidy.enabled` and `announce`.
+- **Live acceptance (uncoached unless noted; bot invincible).**
+  1. Marker box: the owner marks a box with 8 blocks of one type, as in the cube
+     trials, and asks "clear everything inside the 8 stripped spruce wood
+     blocks". Expected: one `!taskStart` with a `clear markers=` step; the box
+     and cell count stated; cleared top-down with no further model call per
+     interruption; the markers stay; the report matches a check with
+     `!blockPositions` and the protected-block diff.
+  2. Coordinate box: "clear the box from x1 y1 z1 to x2 y2 z2". Expected: the box
+     stated, nothing dug before the owner's yes, then cleared.
+  3. Leftovers and a chest: the box holds a block the owner placed and a chest.
+     Expected: one question listing the block, and the chest on its own line; a
+     plain yes removes the block and keeps the chest. Answering the bot's
+     question is part of the trial, not coaching.
+  4. The tidy items of the design: a fight pillar with no task is removed after
+     the fight; a task ending on its own pillar pillars down; a bridge over water
+     is recorded, and a scaffold next to water is left and reported; an owner
+     `!stop` mid-sweep keeps the rest (protected afterwards); after a restart,
+     old scaffold is not tidied; `!tidy` works and is refused during a task; a
+     bridge the bot stands on is left whole; `!craftRecipe` still takes back its
+     table; a fight during `!followPlayer` resumes following before any tidy.
+     Items that need a setup (water, a restart, a stop at the right moment) are
+     owner-agreed checks.
+- **Own-blocks count (the owner's acceptance demand, DECISIONS 2026-11-11).**
+  The lean version must be shown to work. Every S2c trial counts the bot's own
+  blocks left behind, and so do a travel trial (the owner leads the bot across
+  terrain that makes it pillar and bridge, for example "follow me" over a gap and
+  up a cliff) and a night fight trial.
+  - Method: the placement attempts, sweep results and ledger changes (forget,
+    unload delete, eviction, retirement, owner keep) in the bot log (REQ-OBS-4),
+    each logged cell read after the trial, plus the protected-block diff within
+    16 of each site before and after (§2.2), which also catches non-natural
+    blocks the bot placed that the record missed. For the travel and fight
+    trials the site is every logged attempt position, plus the route the owner
+    led.
+  - Known blind spot: a dirt placement the record never saw is not counted;
+    the non-natural diff cannot see dirt.
+  - Each block left is counted with its reason: out of reach (including a
+    pillar taller than reach), travel bridge or pillar left behind, from before a
+    restart or an unloaded chunk, skipped for liquid, under a falling block,
+    a hostile ended the sweep, a sweep bound, kept by an owner stop, part of the
+    structure under the bot, evicted by the cap, or never recorded.
+  - The counts per trial and in total, with reasons, go to the owner with the
+    trial report. They set the priority of the complete-scaffold slice (§8): if
+    many are left, it moves up; the owner judges what is many.
+- **Metrics.** §2.3; the own-blocks count above; per clear: cells left by
+  reason, model calls (target: the plan call plus 0–1), interruptions resumed
+  with 0 calls; per sweep: removed and left.
+- **Size.** About 1,500–2,500 changed lines with tests for the clearing work
+  (the council's calibration against S2), plus about 450–650 production and
+  500–700 test lines for tidying (D6). Whether the first figure includes S2b's
+  share was not stated.
+- **Exit.** All trials pass; the own-blocks count is reported to the owner and
+  his ruling on the later slice's priority recorded in DECISIONS; CHANGES.md is
+  current.
+- **Not in S2c.** A walking idle sweep, scaffold out of reach and travel bridges
+  (the later slice, §8); levelling; the builder's use of `dig.js` and the ledger
+  (S3); water from `self_preservation` and torches (SPEC §16).
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
   against a hillside, in one `!build` command, without felling trees or touching
   the owner's builds. Both detail levels work.
 - **SPEC.** REQ-BLD-1, 2, 4, 6 (I1 items), 8, 9 … 12, 12a, 14 … 18, 20 … 22, 24 … 29
-  (I1 parts), 34; REQ-PLAN-4, 8; REQ-SAFE-1 … 5 applied to building; the `!build`
+  (I1 parts), 34, 35; REQ-PLAN-4, 8; REQ-SAFE-1 … 5 applied to building; the `!build`
   command (REQ-TRN-13).
+- **Depends on S2c.** The builder reuses `work/dig.js` (`digCell` and the
+  `goToGoal` configure carry from S2b), the placements ledger and its kinds
+  (blueprint cells it accepts or verifies are re-kinded `building`, REQ-BLD-35),
+  and the owner-question core.
 - **Files.**
   - `src/agent/work/`: `site.js`, `shelter.js` (the permanent shelter macro, with
     the approach cell and its Room contract), `verify.js` (Room checks; explicit
@@ -320,6 +576,8 @@ add the protected-block diff. Interventions: target 0.
     `safeToBreak`; a dig next to water or under sand is refused; a cave under a
     gravel ceiling blocks with the reason;
   - scaffolding uses dirt only;
+  - a ledger entry in a blueprint cell the builder accepts or verifies becomes
+    `building`, and the task-end tidy sweep then leaves it;
   - verifier: the `minimal` and `basic` room checks, including a door with the
     wrong facing failing and `minimal` never reported as mob-proof; a catalog
     template's explicit contract; path checks run with dig, place and scaffolding
@@ -351,8 +609,9 @@ add the protected-block diff. Interventions: target 0.
   commands) is decided. I1 is then usable for
   play.
 - **Not in S3.** Parts specs, compiler, sources `owner`, `mine` and `new`, the
-  design library, `auto` steps 1 and 4, ladders, multi-storey, scaffold cleanup,
-  `embed: avoid`.
+  design library, `auto` steps 1 and 4, ladders, multi-storey, scaffold cleanup
+  around the build (REQ-BLD-23; the S2c task-end sweep already removes scaffold
+  within reach), `embed: avoid`.
 
 ### I2 — native tools
 
@@ -440,7 +699,8 @@ add the protected-block diff. Interventions: target 0.
     and 4 with the "design needed" result), `commands.js` (`parts` on `!build` and
     the `build` tool; owner-only `!saveTemplate` built on `worldToBlueprint`),
     `compile.js` integration, `verify.js` (region recovery for owner templates),
-    `protect.js` (ledger kind `scaffold`, cleanup).
+    the cleanup around the build (REQ-BLD-23: S2c's `tidyNear` wrapped with an
+    approach walk; the `scaffold` kind itself arrives in S2c).
   - `shelter.js` stays as it is (REQ-BLD-4); S3's tests are kept as regression.
   - Carry: `npc/build_goal.js` (ladder cells, suffix parsing, access before upper
     work).
@@ -609,6 +869,7 @@ The bot's inventory is stale, so ask the owner for each kit before its slice:
 | P10 | Signature blocks | S5B | Check that every marker block name in the signature table exists in the deployed version's registry (offline); live sightings during S5B. | OQ-5 |
 | P11 | Hostile classification | S0-lite | Offline: list every entity type in the deployed version's registry with its `type` and the `mc.isHostile` result (utils/mcdata.js:113-116). Live cross-check: S2's resume-check log lines name each hostile seen. | OQ-17 |
 | P12 | `unstuck` during stationary work | S0-lite | Count firings during the shelter baseline (a log count, not a probe). | REQ-RES-11 |
+| P13 | Pathfinder placement tell | S2c (first; done 2026-11-10) | A temporary listener logged `blockPlaced`, the planned `toPlace` cells, nearby `blockUpdate`s and `blockAt` after each placement while the bot pillared up twice through `!goToCoordinates`. Results in the private diagnostics folder (`clear-council/clutter/live-probe/`): tell A held on 24 of 24 placements; `newBlock` was air on 23 of 24; about 3 events per cell; false positives not exercised. | REQ-OWN-3 |
 
 ## 5. Design experiment protocol (DX)
 
@@ -711,7 +972,8 @@ inside v1 has a named iteration (§1); this table lists what lies beyond v1.
 
 | Item | Seam |
 |---|---|
-| Clearing or levelling as an explicit task | a new `clear` step in the registry, using the protection predicate |
+| Levelling or site-hunting as an explicit task (clearing itself is S2c) | a new step in the registry, using the protection predicate and `work/dig.js` |
+| The complete scaffold record and cleanup (DECISIONS 2026-11-11): record every block the bot puts down, also those the lean S2c version cannot reach; remove out-of-reach scaffold by walking to it; travel bridges. Its own slice in a later iteration, not yet named; S2c's own-blocks count sets its priority. | the placements ledger (kinds, `by`, `dim`, the attempt wrap) and the one sweep `tidyNear`: a walking sweep is a new trigger around it with its own approach walk, as the build cleanup (REQ-BLD-23) wraps it, without a rewrite. The adversary's findings for a walking sweep (bridge stranding, creep, gates) are kept for that slice in the private diagnostics folder (`clear-council/clutter/adversary-report.md`). The lean version's recorded residuals are in SPEC §16. |
 | Furniture and decoration (`detail: full`); stairs, beds, gable roofs (yaw-dependent blocks) | exact cells with suffixes plus one builder handler: set yaw, place, verify `facing` |
 | Schematic import (`.schem`, `.litematic`, `.nbt`) | a front end emitting the template format (`by: import`); prismarine-schematic reads the files |
 | Image-to-design | a front end emitting the template format (`by: image`) |
