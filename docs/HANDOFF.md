@@ -17,12 +17,25 @@
   pillar stands at −468 73..78 1770 (pre-design, unrecorded).
 - S2b is built, reviewed (Sol plus the Opus adversary, two fix waves, final
   main-seat rulings; records in `runtime/diagnostics/i1-build/s2b-review/`) and
-  committed (`d9595e6`); tests 232 pass. Not yet deployed: the bot still runs the
-  old code until an agent-only restart (ask the owner first while he plays).
-- Exact next step: deploy S2b by an agent-only restart, run its two live checks
-  (PLAN S2b: the owner asks where 8 marker blocks are; an owner-agreed outage of
-  about 3 minutes with `work.model_outage_wait_s` set to 60 for the trial), record
-  them, then start S2c (PLAN S2c, build order D2 → dig.js → D1 → D3 → D6).
+  committed (`d9595e6`); deployed 2026-11-11 by an agent-only restart (the owner
+  allows restarts at any time; keep the bot in game while working).
+- Live checks run by the main seat alone, 2026-11-11 (the owner could not log in;
+  owner messages sent through MindServer `send-message` as the owner):
+  - Block listing: "where are the cobblestone blocks around you?" gave one
+    `!blockPositions("cobblestone", 32)` call, 52 found, the nearest being the
+    block under her; no movement from the command (self_defense moved her).
+  - Outage: the model was cut for about 4 min through a local socat relay
+    (profile url and `work.model_outage_wait_s` 60 set through MindServer
+    `set-agent-settings`, restored identical afterwards) during a walking goal.
+    The goal never paused: self_defense against phantoms called `stopLoop()`
+    every cycle and the pause check skipped interrupted loops. Fixed (the pause
+    no longer skips them; quick review SHIP); the goal itself survived and went
+    on after recovery.
+  - Still to check: the repeat outage trial on the fixed code, and that the
+    two notices show in game chat (the owner's eyes, or MindServer `bot-output`).
+- Exact next step: the repeat outage trial, then start S2c (PLAN S2c, build
+  order D2 → dig.js → D1 → D3 → D6). The owner's 8-marker ask stays for when
+  he can log in.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 

@@ -2323,7 +2323,12 @@ Recorded, not built:
     turn, as upstream does outside an outage; and a retry admitted just before
     the deadline can cross it during cooldown or prompt preparation;
   - while an owner turn retries after a recovery, the goal stays paused until
-    the next probe interval (up to `work.model_outage_probe_s`).
+    the next probe interval (up to `work.model_outage_probe_s`);
+  - while a goal is outage-paused, a mode that interrupts an action (for
+    example cowardice cutting into self_defense) can start upstream's
+    `(AUTO MESSAGE)` reprompt turn; it waits through the outage and is answered
+    first at recovery, and the goal resumes up to one probe interval later
+    (live-fix review, 2026-11-11).
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.

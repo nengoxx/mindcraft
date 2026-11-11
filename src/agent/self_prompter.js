@@ -124,10 +124,13 @@ export class SelfPrompter {
                 no_command_count = 0;
                 continue;
             }
-            if (this.agent.model_outage.wait_ended && !this.interrupt) {
+            if (this.agent.model_outage.wait_ended) {
                 // REQ-RES-18: the turn ended inside its outage wait (gave up, or was
                 // cut short by a newer message); it is not counted and the goal is
                 // paused, never stopped. A single failed call elsewhere never pauses.
+                // Also when only stopLoop() (a mode, handleUserPromptedCmd) interrupted
+                // the loop: the goal is still ACTIVE, since a stop, pause or new goal
+                // changes goal_epoch and is caught above.
                 this.pauseForOutage();
                 break;
             }

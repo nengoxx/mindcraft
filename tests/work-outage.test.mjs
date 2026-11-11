@@ -549,14 +549,18 @@ test('self-prompter: a failed background call after a successful decision does n
     assert.deepEqual(notices(agent), [outageNotice('ECONNREFUSED')]);
 });
 
-test('self-prompter: a turn whose loop was stopped (a mode, an owner action) is not turned into an outage pause', async () => {
+// Live trial 2026-11-11: self_defense fought phantoms every few seconds, so every
+// goal turn's loop had been stopped by a mode and the goal never paused.
+test('self-prompter: a turn whose loop was stopped (a mode, an owner action) still pauses the goal when it ended inside its outage wait', async () => {
     const { sp, time } = goalAgent('outageinterrupt');
     sp.start('collect wood');
     await F.until(() => pendingMs(time, 5000) === 1);
     const stopping = sp.stopLoop(); // modes.js and handleUserPromptedCmd stop the loop this way
     time.release(5000);
     await stopping;
-    assert.deepEqual([sp.state, sp.outage, pendingMs(time, 60000)], [1, false, 0]);
+    assert.deepEqual([sp.state, sp.outage, pendingMs(time, 60000)], [PAUSED, true, 1]);
+    sp.update(sp.cooldown); // a paused goal's loop is not restarted by update()
+    assert.equal(sp.loop_active, false);
 });
 
 test('self-prompter: an owner message during an outage pause is answered before the goal resumes (R6)', async () => {
