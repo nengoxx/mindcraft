@@ -1,5 +1,22 @@
 # Handoff
 
+## 2026-11-11 (night) — S2c live trials run by the main seat
+
+- The owner asked the main seat to run the S2c test card itself, as the owner (MindServer
+  helper as the owner). Results and findings: ISSUES.md "S2c live trials, 2026-11-11
+  night". Every card item passed except what the helper cannot do: "stop tidying"
+  in words needs game chat, and whispered replies (the `!tidy` refusal text) are
+  not visible from the host.
+- One crash found and fixed: `0645e3f` (scaffold settle timer gave `bot.blockAt` a
+  plain object; quick review SHIP; 317 tests). The bot runs the committed code.
+- Left in the world (unrecorded since the last restart): cobblestone at
+  −528 64..66 1749 and −528 64..67 1742 (both fill pits she dug), one block at
+  −530 72 1745; pits from `obtain cobblestone` mining under −526 64 1728. The
+  coral markers are all 8 in place; the box inside is empty.
+- Exact next step: The owner reads the findings and rules on the scaffold questions
+  (keep scaffold across a restart? tidy after plain moves? `announce`), then
+  S2d's PLAN and SPEC as below.
+
 ## 2026-11-11 (evening) — S2c deployed; S2d and S2e designed; live trials next
 
 - S2c is built, reviewed (Sol plus an Opus adversary, two fix waves per part and
