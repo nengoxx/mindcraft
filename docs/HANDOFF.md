@@ -31,11 +31,21 @@
     every cycle and the pause check skipped interrupted loops. Fixed (the pause
     no longer skips them; quick review SHIP); the goal itself survived and went
     on after recovery.
-  - Still to check: the repeat outage trial on the fixed code, and that the
-    two notices show in game chat (the owner's eyes, or MindServer `bot-output`).
-- Exact next step: the repeat outage trial, then start S2c (PLAN S2c, build
-  order D2 → dig.js → D1 → D3 → D6). The owner's 8-marker ask stays for when
-  he can log in.
+  - Repeat trial on the fixed code (`f0a0eaf`, model cut 16:22–16:25): the goal
+    paused at 16:23 although a mode had stopped its loop, saved PAUSED with the
+    outage flag, and probed once a minute. A restart then loaded the pause
+    ("before the restart", no new notice) and went on probing.
+  - Recovery was not observed: since about 16:26 the model backend itself answers
+    every request with HTTP 503 "the model's output became non-finite (NaN)
+    twice in a row" (health "ok"). Not restarted (the owner's call). The bot is
+    online on its normal settings with the walking goal paused.
+  - The notices are whispered to the owner (`only_chat_with`), so MindServer's
+    `bot-output` does not show them; the owner's eyes are needed.
+- Exact next step: once the backend answers again, check in the log that the
+  bot said it was back and resumed the walking goal, then `!stop` it; ask the
+  owner whether he saw both whispers; then start S2c (PLAN S2c, build order
+  D2 → dig.js → D1 → D3 → D6). The owner's 8-marker ask stays for when he can
+  log in.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
