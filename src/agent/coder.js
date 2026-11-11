@@ -41,13 +41,25 @@ export class Coder {
 
         let code = null;
         let no_code_failures = 0;
+        // Fork carry (REQ-RES-17): executions begun in this generation session and
+        // the last one's output, for a truthful report when the model goes away.
+        let executions = 0;
+        let last_output = null;
         for (let i=0; i<MAX_ATTEMPTS; i++) {
             if (this.agent.bot.interrupt_code)
                 return null;
             const messages_copy = JSON.parse(JSON.stringify(messages));
-            let res = await this.agent.prompter.promptCoding(messages_copy);
+            const outcome = {};
+            let res = await this.agent.prompter.promptCoding(messages_copy, outcome);
             if (this.agent.bot.interrupt_code)
                 return null;
+            if (outcome.unreachable) {
+                // An outage is not a "no code block" failure; say whether code ran.
+                console.warn('Model unreachable during code generation:', outcome.unreachable);
+                if (executions === 0)
+                    return `Action stopped: my model is unreachable (${outcome.unreachable}); no code was run.`;
+                return `Action stopped: my model became unreachable (${outcome.unreachable}); the code ran ${executions === 1 ? 'once' : executions + ' times'} before that and no further code ran. Last code output:\n${last_output}`;
+            }
             let contains_code = res.indexOf('```') !== -1;
             if (!contains_code) {
                 if (res.indexOf('!newAction') !== -1) {
@@ -90,6 +102,7 @@ export class Coder {
 
             try {
                 console.log('Executing code...');
+                executions++; // before the run, so a run that throws counts too
                 await executionModule.main(this.agent.bot);
 
                 const code_output = this.agent.actions.getBotOutputSummary();
@@ -103,6 +116,7 @@ export class Coder {
                 console.warn('trying again...');
 
                 const code_output = this.agent.actions.getBotOutputSummary();
+                last_output = code_output;
 
                 messages.push({
                     role: 'assistant',

@@ -116,6 +116,7 @@ export class History {
                 turns: this.turns,
                 self_prompting_state: this.agent.self_prompter.state,
                 self_prompt: this.agent.self_prompter.isStopped() ? null : this.agent.self_prompter.prompt,
+                self_prompt_outage: this.agent.self_prompter.outage, // fork carry (REQ-RES-18)
                 taskStart: this.agent.task.taskStartTime,
                 last_sender: this.agent.last_sender
             };

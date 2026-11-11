@@ -10,6 +10,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectAPI, createModel } from './_model_map.js';
+import { loadWorkConfig } from '../agent/work/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,7 +78,13 @@ export class Prompter {
             this.vision_model = this.chat_model;
         }
 
-        
+        // Fork carry (REQ-RES-17, OQ-21): the prompter is built before Work, so it
+        // reads the model keys of the profile's work section itself and hands the
+        // client timeout and retry count to the providers that take them.
+        this.work_config = loadWorkConfig(this.profile.work);
+        for (const model of new Set([this.chat_model, this.code_model, this.vision_model]))
+            model.configureClient?.(this.work_config);
+
         let embedding_model_profile = null;
         if (this.profile.embedding) {
             try {
@@ -211,9 +218,30 @@ export class Prompter {
     }
 
     // REQ-OBS-1: the request kind and the current task's id reach the provider
-    // in sendRequest's options.
+    // in sendRequest's options. REQ-RES-17: so does an `outcome` object, which
+    // the openai_tools provider marks `unreachable` (with the cause) when the
+    // model could not be reached; other providers ignore it.
     requestOptions(kind, extra = {}) {
-        return { ...extra, kind, task_id: this.agent.work?.taskId() ?? null };
+        return { outcome: {}, ...extra, kind, task_id: this.agent.work?.taskId() ?? null };
+    }
+
+    // REQ-RES-17: every call reports to the shared outage state, which tells the
+    // owner once when an outage begins and once when it ends. True when reachable.
+    reachable(outcome) {
+        if (outcome.unreachable) {
+            this.agent.model_outage?.down(outcome.unreachable);
+            return false;
+        }
+        this.agent.model_outage?.up();
+        return true;
+    }
+
+    // REQ-RES-18: the recovery probe of an outage-paused goal, one short request
+    // (with the profile's params, so not always a quick one: SPEC §16).
+    async probeModel() {
+        const options = this.requestOptions('probe');
+        await this.chat_model.sendRequest([{role: 'user', content: 'ping'}], 'Reply with the single word OK.', undefined, options);
+        return this.reachable(options.outcome);
     }
 
     async checkCooldown() {
@@ -224,9 +252,25 @@ export class Prompter {
         this.last_prompt_time = Date.now();
     }
 
-    async promptConvo(messages) {
+    // Fork carry (REQ-RES-17/18): every turn is registered from entry, before any
+    // await, until it ends, so the recovery probe never resumes a goal over a
+    // turn still running or waiting. `self_prompt` (handleMessage's flag): only
+    // such a turn ending inside its wait marks wait_ended for the self-prompter.
+    async promptConvo(messages, self_prompt = false) {
+        const turn = { outage_wait: this.agent.model_outage?.waiter(), self_prompt };
+        try {
+            return await this.promptConvoTurn(messages, turn);
+        } finally {
+            turn.outage_wait?.end();
+        }
+    }
+
+    async promptConvoTurn(messages, turn) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
+        // The outage wait stops for a newer message or the owner's !stop.
+        const stop_epoch = this.agent.stop_epoch;
+        const superseded = () => current_msg_time !== this.most_recent_msg_time || this.agent.stop_epoch !== stop_epoch;
 
         for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
             await this.checkCooldown();
@@ -236,10 +280,26 @@ export class Prompter {
 
             let prompt = this.profile.conversing;
             prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+            if (superseded()) // fork carry: no request after a stop or newer message (REQ-RES-17)
+                return '';
             let generation;
+            // REQ-RES-17: promptConvo is this call's one retry owner, so no SDK retries.
+            const options = this.requestOptions('decision', { maxRetries: 0 });
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt, undefined, this.requestOptions('decision'));
+                generation = await this.chat_model.sendRequest(messages, prompt, undefined, options);
+                if (!this.reachable(options.outcome)) {
+                    // Fork carry (REQ-RES-17): an unreachable model spends none of the
+                    // 3 tries and its stand-in reply ("My brain disconnected") is never
+                    // used. Wait with back-off for up to work.model_outage_wait_s, unless
+                    // a newer message supersedes this turn; then there is no reply.
+                    if (!await turn.outage_wait.next(superseded)) {
+                        if (turn.self_prompt) this.agent.model_outage.wait_ended = true;
+                        return '';
+                    }
+                    i--;
+                    continue;
+                }
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -278,7 +338,9 @@ export class Prompter {
         this.coding_abort_controller?.abort();
     }
 
-    async promptCoding(messages) {
+    // Fork carry (REQ-RES-17): the coder passes `outcome`, so it learns when the
+    // model was unreachable instead of reading the stand-in reply as "no code".
+    async promptCoding(messages, outcome = {}) {
         if (this.awaiting_coding) {
             console.warn('Already awaiting coding response, returning no response.');
             return '```//no response```';
@@ -293,7 +355,8 @@ export class Prompter {
             prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
             controller.signal.throwIfAborted();
 
-            let resp = await this.code_model.sendRequest(messages, prompt, undefined, this.requestOptions('coding', {signal: controller.signal}));
+            let resp = await this.code_model.sendRequest(messages, prompt, undefined, this.requestOptions('coding', {signal: controller.signal, outcome}));
+            this.reachable(outcome);
             controller.signal.throwIfAborted();
             await this._saveLog(prompt, messages, resp, 'coding');
             controller.signal.throwIfAborted();
@@ -308,7 +371,9 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
         prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        let resp = await this.chat_model.sendRequest([], prompt, undefined, this.requestOptions('summary'));
+        const options = this.requestOptions('summary');
+        let resp = await this.chat_model.sendRequest([], prompt, undefined, options);
+        this.reachable(options.outcome); // history.js already rejects the stand-in reply
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -323,7 +388,9 @@ export class Prompter {
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
         prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt, undefined, this.requestOptions('bot_responder'));
+        const options = this.requestOptions('bot_responder');
+        let res = await this.chat_model.sendRequest([], prompt, undefined, options);
+        this.reachable(options.outcome);
         return res.trim().toLowerCase() === 'respond';
     }
 

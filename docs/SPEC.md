@@ -328,10 +328,10 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 
 | File | Change | Status before | Iteration |
 |---|---|---|---|
-| `agent/agent.js` | I1: `this.work` init in `startEvents`, given `init_message` to tell a crash restart from a fresh start. I1 (S2b): the outage module created at init; a catch on the un-awaited `handleMessage` call in `respondFunc` (:174); a loaded self-prompter `PAUSED` state with the outage flag restarts the recovery probe (:203; REQ-RES-18). I1 (S2c): owner-answer interception in `handleMessage`, after the forced-command block (:278-300) and before the history add (:323), so a matched answer to `pending_question` never reaches the model (REQ-REC-12; Surv adds its other consumers). I2: structured tool-call branch inside the stop-epoch checks, before the empty-response break (:329-338). | fork carry | I1, I2 |
+| `agent/agent.js` | I1: `this.work` init in `startEvents`, given `init_message` to tell a crash restart from a fresh start. I1 (S2b): the outage module created at init; a catch on the un-awaited `handleMessage` call in `respondFunc` (:174); `handleMessage` passes its self-prompt flag to `promptConvo` (:338); a loaded self-prompter `PAUSED` state with the outage flag restarts the recovery probe (:203; REQ-RES-18). I1 (S2c): owner-answer interception in `handleMessage`, after the forced-command block (:278-300) and before the history add (:323), so a matched answer to `pending_question` never reaches the model (REQ-REC-12; Surv adds its other consumers). I2: structured tool-call branch inside the stop-epoch checks, before the empty-response break (:329-338). | fork carry | I1, I2 |
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
-| `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). | upstream | I1 |
+| `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). | upstream before S2b; fork carry since | I1 |
 | `agent/modes.js` | I1 (S2c): in `execute` (:306-330), `should_reprompt` gains `interrupted_action !== 'action:tidy'`, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). Retire when upstream offers a quiet-action flag and a mode-end event. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
@@ -703,14 +703,27 @@ telling the owner (ISSUES, cube analysis item 8).
     `prompter.requestOptions` adds an `outcome` object; `models/openai_tools.js`
     strips it from the request options (as it already strips `kind` and
     `task_id`) and sets `outcome.unreachable` (the cause) on a connection error
-    (timeouts included) or an HTTP status of 500 or higher.
+    (timeouts included) or an HTTP status of 500 or higher. The cause shown to
+    the owner is only an error code, "timed out", "HTTP <status>" or "connection
+    error", never an error message (which can hold the endpoint's address).
   - The OpenAI client gets an explicit `timeout` and `maxRetries` from
-    configuration (`work.model_timeout_s` 300, `work.model_max_retries` 0), so
-    `promptConvo` is the one place that retries.
+    configuration (`work.model_timeout_s` 600, the SDK's own value, above the
+    one observed 551 s request; `work.model_max_retries` 2, the SDK's). Each call
+    has one retry owner: the decision requests that `promptConvo` retries pass
+    `maxRetries: 0` per request; every other call (coding, summary,
+    bot_responder, the probe) keeps the client's retries (main-seat ruling R8,
+    2026-11-11).
   - `promptConvo` waits through an outage with back-off (5 s, doubling to 60 s)
-    for up to `work.model_outage_wait_s` (600) without spending its 3 tries. It stops
-    when a newer message supersedes the turn (the existing stale-response check)
-    and then returns no reply. Blocked-step reports wait there too.
+    for up to `work.model_outage_wait_s` (600) without spending its 3 tries; no
+    request starts once that time has run out. It stops when a newer message
+    supersedes the turn (the existing stale-response check), when the owner's
+    `!stop` changes `stop_epoch`, or when a new goal replaces the self-prompt
+    turn in flight, and then returns no reply; that check also runs just before
+    each request, after the cooldown and the prompt preparation. A recovery
+    meanwhile ends the current back-off of every waiting turn, so it retries at
+    once. Every turn is registered with the outage state from its entry (before
+    its first request) until it ends; its wait, and the wait's deadline, begin
+    at its first unreachable reply. Blocked-step reports wait there too.
   - The coder: when the model is unreachable it ends with "Action stopped: my
     model is unreachable (<cause>); no code was run" only when no execution began
     in that generation session; otherwise "my model became unreachable; the code
@@ -728,15 +741,31 @@ telling the owner (ISSUES, cube analysis item 8).
   by an outage. The pause is the existing `PAUSED` state with an `outage` flag
   (a new state would need every `isStopped()` consumer and `handleLoad`
   changed).
+  - The goal pauses only when its own `promptConvo` turn ended inside the
+    outage wait (gave up, or was cut short there by a newer message):
+    `handleMessage` passes its self-prompt flag to `promptConvo`, and only such
+    a turn marks the end. A single failed call elsewhere (a summary, coding,
+    bot_responder) or another turn's wait notifies the owner but never pauses a
+    goal through that mark.
+  - The goal starts no turn while another turn (the owner's message) is in its
+    outage wait, since that would supersede it: it pauses for the outage
+    instead.
   - After the foreground wait (REQ-RES-17), a recovery probe runs every
     `work.model_outage_probe_s` (60). On recovery it resumes the same goal (the same
-    goal epoch, not equal prompt text) if it is still the current one.
+    goal epoch, not equal prompt text) if it is still the current one, but not
+    while another turn (the owner's message) is still running, from its first
+    request on: that turn is answered first and the next interval resumes the
+    goal. Resuming sets the goal `ACTIVE`; the self-prompter's `update()`
+    restarts its loop once the agent is idle, so an action the owner's answer
+    started is not cut short.
   - An owner `!stop`, a new goal or a manual pause clears the flag, and so does
     `start()` (`!stfu` resumes a paused goal through conversation.js
     `_resumeSelfPrompter`, also with a single bot).
   - The flag is saved with the self-prompter state (history.js:115-118) and
     loaded with it (agent.js:203, self_prompter.js:39); a load of `PAUSED` with
-    the flag restarts the probe.
+    the flag restarts the probe and takes the outage as still on, with no new
+    notice, so only a probe or a request that succeeds in this process resumes
+    the goal (and then the recovery notice is posted).
 
 ## 8. Plan mode and validation
 
@@ -1856,7 +1885,10 @@ value   := token | "'" text "'"          token: letters, digits and _ - . , :
   and up to 10 positions, for example "8 stripped_spruce_wood within 32: bounds
   x −104..−93, y 62..69, z 472..486; nearest: …". It closes the observation gaps
   of the cube trials (ISSUES, cube analysis items 5 and 13). `range` is 1–64,
-  clamped (main-seat ruling, OQ-22). Output truncation (`action_manager.js`) is unchanged: the
+  clamped (main-seat ruling, OQ-22). When any cell in the radius is not loaded,
+  both the listing and the "No <type> within <range>" answer end with "(part of
+  the range is not loaded)"; the search reports that coverage to its callers
+  (S2c's marker search). Output truncation (`action_manager.js`) is unchanged: the
   listing and the clear step's report remove the need to compact action output.
 
 ### 12.1 Probe first `[I2]`
@@ -2062,8 +2094,8 @@ About 13 tools in all.
 | `work.junk_items` | dirt, cobblestone, gravel, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds, rotten_flesh | Items the junk drop may toss. | W3b (owner) |
 | `work.junk_keep` | dirt 64, cobblestone 64 | Junk kept back for scaffolding and stone tools. | W3b (owner) |
 | `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
-| `work.model_timeout_s` | 300 | OpenAI client timeout (REQ-RES-17). S2b. | clear council |
-| `work.model_max_retries` | 0 | OpenAI client retries; `promptConvo` is the one retry owner (REQ-RES-17). S2b. | clear council |
+| `work.model_timeout_s` | 600 | OpenAI client timeout (REQ-RES-17). S2b. | clear council; main-seat ruling R7 (2026-11-11) |
+| `work.model_max_retries` | 2 | OpenAI client retries of every call except decisions, which pass 0 per request because `promptConvo` retries them: one retry owner per call (REQ-RES-17). S2b. | clear council; main-seat ruling R8 (2026-11-11) |
 | `work.model_outage_wait_s` | 600 | How long `promptConvo` waits through an outage (REQ-RES-17). S2b. | clear council |
 | `work.model_outage_probe_s` | 60 | Recovery probe interval for an outage-paused goal (REQ-RES-18). S2b. | clear council |
 | `work.clear.max_cells` | 32768 | Largest clear box (32 × 32 × 32; REQ-CLR-3). S2c. | owner (2026-11-08) |
@@ -2145,7 +2177,8 @@ Data tables (not tunables): `work/data/natural_blocks.json` (I1),
 
 - **REQ-OBS-1** [I1] The provider logs one line per request to
   `$MINDCRAFT_RUNTIME_DIR/diagnostics/requests.jsonl`: time, request kind
-  (decision / summary / coding / bot_responder), prompt, cached and completion
+  (decision / summary / coding / bot_responder / probe, the outage recovery
+  probe of REQ-RES-18), prompt, cached and completion
   tokens (when the backend reports them), reasoning characters, duration, task id,
   and (I2) tool count and tool-parse result.
 - **REQ-OBS-2** [I1] Runner events (start, end, interruption cause, resume-check
@@ -2252,6 +2285,45 @@ Recorded, not built:
   task by the stall rule (REQ-RES-16).
 - Junk the bot dropped can be picked up again on contact when a later path
   crosses the spot (REQ-OBT-11).
+- Model outages (REQ-RES-17/18, S2b review rulings 2026-11-11; LOW unless
+  noted):
+  - a backend that is alive but slower than `work.model_timeout_s` (600) on a
+    decision flaps: the decision times out, the goal pauses, the quick probe
+    "recovers" it, and the same long decision times out again (one notice pair
+    per cycle);
+  - the probe uses the profile's request params (for example its `max_tokens`
+    and reasoning budget), so on a reasoning model it may take a while; that
+    only delays the recovery by its own duration;
+  - `!stfu` during an outage: on recovery the goal runs three empty turns
+    (`shut_up` still on) and stops, as upstream does with any paused goal;
+  - the outage notices go through `openChat` and so ignore `!stfu`;
+  - a response whose body fails to read after its headers is no
+    `APIConnectionError`, so it still gives gpt.js's "My brain disconnected";
+  - a decision that started before the wait ran out and succeeds after it is
+    used: the model is back;
+  - a waiting turn woken by a recovery retries even at or after its deadline:
+    the wake means another call has just succeeded, so the retry is the
+    productive path (ruling W5 of the confirm round, 2026-11-11);
+  - a provider with no client timeout whose request never returns keeps its
+    turn registered for good, so the recovery probe never resumes the goal (the
+    OpenAI-client providers time out at `work.model_timeout_s`);
+  - on a backend that accepts connections and never answers, a coding,
+    summary, bot_responder or probe call can take up to 3 × 600 s (the client's
+    retries), so recovery can be noticed up to that late; a decision takes
+    600 s per attempt, so a goal pauses only after about 20 minutes;
+  - `start()` supersedes a turn in flight by setting `most_recent_msg_time` to
+    `Date.now()`, which has millisecond resolution: a turn that began in the
+    same millisecond is not superseded;
+  - system messages (a blocked-step report, the death and restart messages)
+    count as self-prompted turns, so one that a goal turn supersedes during an
+    outage can pause a goal whose own turn succeeded (one 60 s pause and a
+    notice pair; final-confirm ruling 2026-11-11);
+  - the goal loop waits only behind a turn whose outage wait has begun: an
+    owner's first request still in flight can be superseded by the next goal
+    turn, as upstream does outside an outage; and a retry admitted just before
+    the deadline can cross it during cooldown or prompt preparation;
+  - while an owner turn retries after a recovery, the goal stays paused until
+    the next probe interval (up to `work.model_outage_probe_s`).
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.

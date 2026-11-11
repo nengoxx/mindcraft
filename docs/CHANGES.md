@@ -19,7 +19,8 @@ are deliberately absent from tracked source.
 | Runtime migration | Optional `MINDCRAFT_RUNTIME_DIR` helper moves bot outputs, and since I1 S0-lite the shared `diagnostics/requests.jsonl` (`runtimePath`; unset, the operator's default `runtime/`). History/coder/prompter/vision and the `openai_tools` provider use it; source templates remain at root. No-env storage behavior and root `settings.js` stay upstream. Native `SETTINGS_JSON`/`PROFILES` supply ignored local config. |
 | `operator/` | Shared config/control/explicit verified ViaProxy update; adapted existing Windows foreground helpers and Linux foreground ownership/cleanup. No boot service or silent updates. |
 
-`self_prompter.js`, `modes.js` and `process/agent_process.js` remain upstream.
+`modes.js` and `process/agent_process.js` remain upstream; `self_prompter.js` is
+carried since I1 S2b (the outage pause, below).
 Native retry: exit code >1 ends parent; otherwise a nonzero/non-SIGINT exit after
 at least 10 seconds reloads memory and retries; early crashes stay down. Full manual
 Start defaults to memory disabled. This is distinct from an autostart service.
@@ -220,3 +221,97 @@ existing commands when `!taskStart` answers "no method". Construction keeps its
 default examples and `!buildStructure` stays unblocked until S3 brings `!build`.
 Run the suites with
 `node --experimental-test-module-mocks --test tests/*.test.mjs`.
+
+I1 S2b (model outages, `!blockPositions`, movement settings; SPEC §7.8,
+REQ-TRN-16). Why: in the cube-clearing trials a backend outage cost the goal
+(ISSUES, cube analysis item 8): the coder counted each connection error as "no
+code block", the self-prompter stopped after three replies without a command,
+and the bot said "My brain disconnected" without telling the owner. Our own new
+files are `agent/model_outage.js` (the outage state, the owner notices, the
+back-off wait and the recovery probe loop) and the `outcome` seam in
+`models/openai_tools.js` (a connection error, timeouts included, or HTTP 5xx sets
+`outcome.unreachable`, with only an error code, "timed out", "HTTP <status>" or
+"connection error" as the cause; the client's `timeout` and `maxRetries` come
+from `work.model_timeout_s` (600) and `work.model_max_retries` (2, for every
+call but decisions, which pass `maxRetries: 0` because `promptConvo` retries
+them)); `gpt.js` is unchanged. The
+four `work.model_*` keys are in `work/config.js`. `!blockPositions` lives in
+`work/commands.js` with the complete search (`findAllBlocks`, which also reports
+whether part of the radius was not loaded) that S2c's marker search reuses. The carries into upstream files, all new in S2b except where noted:
+
+- `models/prompter.js` (grown): the constructor reads the model keys through
+  `loadWorkConfig(profile.work)`, because the prompter is built before `Work`, and
+  calls `configureClient` on the providers that have it; `requestOptions` adds an
+  `outcome` object, and every path reports it to the outage state (`reachable`);
+  `promptConvo(messages, self_prompt)` is a small wrapper that registers the
+  turn with the outage state on entry and ends that registration with the turn
+  (`try … finally`), around upstream's body, renamed `promptConvoTurn`, which
+  sends decisions with `maxRetries: 0` and waits through an outage with back-off
+  (5 s doubling to 60 s, up to `work.model_outage_wait_s` from the first
+  unreachable reply, no request after it) without spending its 3 tries; it
+  returns no reply when a newer message or the owner's `!stop` (`stop_epoch`)
+  supersedes the turn (checked in the wait and again just before each request)
+  or the wait ends, and only a self-prompted turn ending in its wait sets
+  `model_outage.wait_ended`;
+  `promptCoding` takes the coder's `outcome`; `probeModel` is the recovery probe
+  (one short request with the profile's params, logged as kind `probe`).
+  Providers that forward the options to the OpenAI client (`gpt.js`, `azure.js`)
+  pass the unused `outcome` key along with `kind`; the client ignores both, and
+  honours the decision's `maxRetries`. Reapply checks: `work-outage.test.mjs` "promptConvo
+  waits through an outage with back-off …", "promptConvo gives up with no reply
+  …", "promptConvo stops waiting when a newer message supersedes the turn",
+  "provider: the prompter builds the client with the configured timeout and
+  retries …", "promptConvo starts no request once the wait has run out …",
+  "decision requests pass maxRetries 0 …", "a stop during the retry's cooldown
+  or prompt preparation …", "a recovery while a turn's request is still in
+  flight …". Retire when upstream's prompter handles an unreachable model itself.
+- `agent/coder.js`: an unreachable model ends generation with "Action stopped: my
+  model is unreachable (<cause>); no code was run." only when no execution began
+  in that generation session; otherwise "… the code ran N times before that and
+  no further code ran", with the last execution's output. The count rises just
+  before `executionModule.main`, also for runs that throw. It never counts as a
+  "no code block" failure. Reapply checks: `work-outage.test.mjs` "coder: …"
+  (two tests). Retire with the prompter carry.
+- `agent/self_prompter.js` (new carry): a goal whose own turn ended inside its
+  outage wait (`model_outage.wait_ended`, reset before each turn) pauses as
+  `PAUSED` with an `outage` flag (a new state would need every `isStopped()`
+  consumer and `handleLoad` changed) and saves the history; a failed call
+  elsewhere never pauses it, and the loop starts no goal turn while another
+  turn is in its outage wait (it pauses instead, so the owner's waiting turn is
+  not superseded). The recovery probe (`model_outage.watch`) runs every
+  `work.model_outage_probe_s` and, if the goal's `goal_epoch` is unchanged and
+  no other turn is still running, resumes it by clearing the flag and setting
+  it `ACTIVE`: upstream's `update()` restarts the loop once the agent is idle,
+  so an owner action is not cut short. `start()`,
+  `stop()`, `pause()`, `setPromptPaused()` and `handleLoad()` clear the flag and
+  advance the epoch, so an owner `!stop`, a new goal, a manual pause and `!stfu`
+  (conversation.js `_resumeSelfPrompter` calls `start()`) end it; a turn whose
+  epoch changed is not counted, and `start()` while a turn is in flight
+  supersedes it (`prompter.most_recent_msg_time`), so a late reply for the old
+  goal never runs. A loaded outage pause marks the outage state down with no
+  notice. Reapply checks: `work-outage.test.mjs` "self-prompter: …" (nineteen
+  tests). Retire when upstream's self-prompter tells an outage from a reply
+  without a command.
+- `agent/history.js` (grown): `save()` writes `self_prompt_outage` beside the
+  self-prompter state. Reapply check: `work-outage.test.mjs` "self-prompter: the
+  flag survives a save and load …". Retire with the self-prompter carry.
+- `agent/agent.js` (grown): `start` creates `this.model_outage` after the
+  prompter; `_setupEventHandlers` passes the loaded flag to `handleLoad`, so a
+  loaded outage pause restarts the probe; `respondFunc`'s un-awaited
+  `handleMessage` call gets a `.catch` that logs the rejected turn;
+  `handleMessage` passes its self-prompt flag to `promptConvo`. Reapply
+  checks: `work-outage.test.mjs` "self-prompter: the flag survives a save and load
+  …", "a rejected handleMessage from respondFunc is caught and logged" and
+  "self-prompter: while the owner's turn waits through an outage …". Retire
+  with the self-prompter carry; the catch when upstream awaits or guards the call.
+- `agent/library/skills.js` (grown): `goToGoal(bot, goal, configure = null)`
+  applies `configure` to both of its `Movements` instances after its own
+  defaults; before, a caller's movement settings were discarded. `goToPlayer`'s
+  stray upstream third argument `true` (no such parameter existed) is dropped, as
+  it would now be called. No existing caller passes `configure` yet: S2c's dig
+  seam is the first. Reapply check: `work-positions.test.mjs` "goToGoal applies
+  configure to both of its Movements instances …". Retire when upstream's
+  `goToGoal` takes the caller's movements.
+
+The work fixture (`tests/work-fixture.mjs`) gives its agent a real
+`ModelOutage`, as agent.js does.

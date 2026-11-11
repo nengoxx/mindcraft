@@ -1,11 +1,58 @@
-// The I1 task commands (SPEC §12.0, REQ-TRN-13), registered through the
+// The I1 work commands (SPEC §12.0, REQ-TRN-13), registered through the
 // commands/index.js carry so they appear in $COMMAND_DOCS. The model's text
 // command and the owner's forced command reach the same perform.
 //
-// On success each one shows its one-line result to the owner, saves it to
-// history and returns nothing: a falsy result ends the command loop with no
+// On success each task command shows its one-line result to the owner, saves it
+// to history and returns nothing: a falsy result ends the command loop with no
 // follow-up inference and skips its history.save() (agent.js:379-382, :390), so
-// the save is explicit here (REQ-PLAN-2).
+// the save is explicit here (REQ-PLAN-2). !blockPositions is a query: it returns
+// its listing like Mindcraft's own queries.
+
+import Vec3 from 'vec3';
+
+const POSITIONS_MAX_RANGE = 64; // REQ-TRN-16: range 1–64, clamped (OQ-22)
+const POSITIONS_LISTED = 10;    // display cap
+
+// The complete search (REQ-TRN-16, REQ-CLR-2): every cell of the cube of
+// `range` around `center`, filtered by distance, never findBlocks (it misses
+// blocks inside its radius, SPEC §4.1). `positions` are nearest first;
+// `unloaded` says whether any cell in the radius was not loaded (blockAt null),
+// so the search was not complete. The clear step's marker search reuses it (S2c).
+export function findAllBlocks(bot, name, range, center = bot.entity.position.floored()) {
+    const positions = [];
+    let unloaded = false;
+    const cell = Vec3(0, 0, 0);
+    for (let x = center.x - range; x <= center.x + range; x++)
+        for (let y = center.y - range; y <= center.y + range; y++)
+            for (let z = center.z - range; z <= center.z + range; z++) {
+                cell.set(x, y, z);
+                if (cell.distanceTo(center) > range) continue;
+                const block = bot.blockAt(cell);
+                if (!block) unloaded = true;
+                else if (block.name === name) positions.push(cell.clone());
+            }
+    positions.sort((a, b) => a.distanceTo(center) - b.distanceTo(center));
+    return { positions, unloaded };
+}
+
+function span(found, axis) {
+    let min = Infinity, max = -Infinity;
+    for (const pos of found) {
+        min = Math.min(min, pos[axis]);
+        max = Math.max(max, pos[axis]);
+    }
+    return `${min}..${max}`;
+}
+
+export function blockPositions(bot, name, range) {
+    range = Math.min(Math.max(range, 1), POSITIONS_MAX_RANGE);
+    const { positions: found, unloaded } = findAllBlocks(bot, name, range);
+    const note = unloaded ? ' (part of the range is not loaded)' : '';
+    if (!found.length) return `No ${name} within ${range}${note}.`;
+    const listed = found.slice(0, POSITIONS_LISTED).map(p => `${p.x},${p.y},${p.z}`).join('; ');
+    const label = found.length > POSITIONS_LISTED ? `nearest ${POSITIONS_LISTED}` : 'nearest';
+    return `${found.length} ${name} within ${range}: bounds x ${span(found, 'x')}, y ${span(found, 'y')}, z ${span(found, 'z')}; ${label}: ${listed}${note}.`;
+}
 
 const DSL_HELP = 'Steps: one string, steps separated by ";", each "skill key=value ...": ' +
     'obtain item=<item> count=<1-256>; go_to target=here|owner|<x>,<y>,<z>; give player=<name> item=<item> count=<n>. ' +
@@ -56,4 +103,14 @@ export const workCommands = [
         work => work.resumeTask()),
     taskCommand('!taskCancel', 'Cancel the current task for good.', null,
         work => work.cancelTask()),
+    {
+        name: '!blockPositions',
+        description: 'List where the blocks of one type are within a range, without moving: their count, their bounds and up to ' +
+            `${POSITIONS_LISTED} positions, nearest first. Use it to find marker blocks or to check what is left, instead of searching or writing code.`,
+        params: {
+            type: { type: 'BlockName', description: 'The exact block name.' },
+            range: { type: 'int', description: `The search radius in blocks, 1 to ${POSITIONS_MAX_RANGE}.` },
+        },
+        perform: (agent, type, range) => blockPositions(agent.bot, type, range),
+    },
 ];

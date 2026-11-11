@@ -10,6 +10,36 @@ export class SelfPrompter {
         this.prompt = '';
         this.idle_time = 0;
         this.cooldown = 2000;
+        // Fork carry (REQ-RES-18): a goal paused by a model outage is PAUSED with
+        // this flag (a new state would need every isStopped() consumer and
+        // handleLoad changed). goal_epoch changes with every start, stop, pause or
+        // new goal, so a recovery probe resumes only the goal it paused.
+        this.outage = false;
+        this.goal_epoch = 0;
+    }
+
+    // Any start, stop, manual pause or new goal ends an outage pause.
+    clearOutage() {
+        this.outage = false;
+        this.goal_epoch++;
+    }
+
+    // REQ-RES-18: after promptConvo's foreground wait the goal pauses instead of
+    // stopping, and the recovery probe resumes this same goal once the model is
+    // reachable, if nothing replaced, stopped or resumed it meanwhile. Resuming
+    // only sets the goal ACTIVE: update() restarts the loop once the agent is
+    // idle, so an owner's action running at recovery is not cut short.
+    pauseForOutage() {
+        this.state = PAUSED;
+        this.outage = true;
+        const epoch = this.goal_epoch;
+        console.log('Self-prompting paused: the model is unreachable.');
+        this.agent.history.save().catch(err => console.error('Failed to save the outage pause:', err));
+        const current = () => this.outage && this.state === PAUSED && this.goal_epoch === epoch;
+        this.agent.model_outage.watch(current, () => {
+            this.clearOutage();
+            this.state = ACTIVE;
+        });
     }
 
     start(prompt) {
@@ -19,6 +49,11 @@ export class SelfPrompter {
                 return 'No prompt specified. Ignoring request.';
             prompt = this.prompt;
         }
+        this.clearOutage();
+        // A turn still in flight belongs to the goal this start replaces: it is
+        // superseded, so a reply that arrives late (after an outage) never runs.
+        if (this.loop_active)
+            this.agent.prompter.most_recent_msg_time = Date.now();
         this.state = ACTIVE;
         this.prompt = prompt;
         this.startLoop();
@@ -36,9 +71,10 @@ export class SelfPrompter {
         return this.state === PAUSED;
     }
 
-    async handleLoad(prompt, state) {
+    async handleLoad(prompt, state, outage = false) {
         if (state == undefined)
             state = STOPPED;
+        this.clearOutage();
         this.state = state;
         this.prompt = prompt;
         if (state !== STOPPED && !prompt)
@@ -46,9 +82,17 @@ export class SelfPrompter {
         if (state === ACTIVE) {
             await this.start(prompt);
         }
+        else if (state === PAUSED && outage) {
+            // REQ-RES-18: a loaded outage pause restarts the probe. The outage is
+            // taken as still on (no new notice), so only a probe or a request that
+            // succeeds in this process resumes the goal.
+            this.agent.model_outage.down('before the restart', false);
+            this.pauseForOutage();
+        }
     }
 
     setPromptPaused(prompt) {
+        this.clearOutage();
         this.prompt = prompt;
         this.state = PAUSED;
     }
@@ -65,7 +109,28 @@ export class SelfPrompter {
         while (!this.interrupt) {
             const msg = `You are self-prompting with the goal: '${this.prompt}'. Your next response MUST contain a command with this syntax: !commandName. Respond:`;
             
+            if (this.agent.model_outage.isWaiting()) {
+                // REQ-RES-18: another turn (the owner's) waits through an outage;
+                // a goal turn now would supersede it, so the goal pauses instead.
+                this.pauseForOutage();
+                break;
+            }
+            const epoch = this.goal_epoch;
+            this.agent.model_outage.wait_ended = false;
             let used_command = await this.agent.handleMessage('system', msg, -1);
+            if (this.goal_epoch !== epoch) {
+                // REQ-RES-18: the goal was replaced, stopped or paused during the
+                // turn; its reply does not count against the current goal.
+                no_command_count = 0;
+                continue;
+            }
+            if (this.agent.model_outage.wait_ended && !this.interrupt) {
+                // REQ-RES-18: the turn ended inside its outage wait (gave up, or was
+                // cut short by a newer message); it is not counted and the goal is
+                // paused, never stopped. A single failed call elsewhere never pauses.
+                this.pauseForOutage();
+                break;
+            }
             if (!used_command) {
                 no_command_count++;
                 if (no_command_count >= MAX_NO_COMMAND) {
@@ -118,6 +183,7 @@ export class SelfPrompter {
     }
 
     async stop(stop_action=true) {
+        this.clearOutage();
         this.interrupt = true;
         if (stop_action)
             await this.agent.actions.stop();
@@ -126,6 +192,7 @@ export class SelfPrompter {
     }
 
     async pause() {
+        this.clearOutage();
         this.interrupt = true;
         await this.agent.actions.stop();
         this.stopLoop();

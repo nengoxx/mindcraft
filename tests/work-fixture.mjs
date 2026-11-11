@@ -59,6 +59,8 @@ export const modules = {
     SelfPrompter: (await import('../src/agent/self_prompter.js')).SelfPrompter,
     initModes: (await import('../src/agent/modes.js')).initModes,
     work: await import('../src/agent/work/index.js'),
+    config: await import('../src/agent/work/config.js'),
+    outage: await import('../src/agent/model_outage.js'),
     record: await import('../src/agent/work/record.js'),
     plan: await import('../src/agent/work/plan.js'),
     resolve: await import('../src/agent/work/resolve.js'),
@@ -318,6 +320,7 @@ export function makeAgent({ bot = makeBot(), modes = {}, work = {}, replies = []
     };
     agent.openChat = message => agent.chats.push(message);
     agent.routeResponse = (to, message) => agent.chats.push(message);
+    agent.model_outage = new modules.outage.ModelOutage(agent, modules.config.loadWorkConfig(work)); // agent.js init
     agent.checkTaskDone = async () => {};
     agent.cleanKill = msg => { agent.killed = msg; };
     agent.actions = new ActionManager(agent);

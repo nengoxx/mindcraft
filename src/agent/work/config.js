@@ -1,7 +1,8 @@
 // Defaults for the work.* settings of the built iterations (SPEC §14, REQ-CFG-1).
 // The owner overrides them in the bot profile's `work` object. Only keys that
 // built code reads live here; a deferred mechanism's keys arrive with it (the
-// shelter, fit and build keys arrive with S3).
+// shelter, fit and build keys arrive with S3; the model keys are read by the
+// prompter and the outage module, outside src/agent/work/).
 export const WORK_DEFAULTS = Object.freeze({
     return_radius: 6,       // blocks from work_pos before the runner goes back
     stall_s: 15,            // idle seconds before the self-heal timer resumes (REQ-RES-10)
@@ -14,6 +15,12 @@ export const WORK_DEFAULTS = Object.freeze({
     junk_items: Object.freeze(['dirt', 'cobblestone', 'gravel', 'cobbled_deepslate', 'andesite',
         'diorite', 'granite', 'tuff', 'netherrack', 'wheat_seeds', 'rotten_flesh']),
     junk_keep: Object.freeze({ dirt: 64, cobblestone: 64 }),
+    // Model outages (REQ-RES-17/18). The prompter reads these itself: it is
+    // built before Work (OQ-21).
+    model_timeout_s: 600,       // OpenAI client timeout (the SDK's; one decision took 551 s)
+    model_max_retries: 2,       // OpenAI client retries of every call but decisions, which promptConvo retries
+    model_outage_wait_s: 600,   // how long promptConvo waits through an outage
+    model_outage_probe_s: 60,   // recovery probe interval of an outage-paused goal
 });
 
 // A profile value replaces the default whole (junk_keep included). Unknown keys

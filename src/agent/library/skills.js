@@ -1129,11 +1129,12 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     return false;
 }
 
-export async function goToGoal(bot, goal) {
+export async function goToGoal(bot, goal, configure = null) {
     /**
      * Navigate to the given goal. Use doors and attempt minimally destructive movements.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {pf.goals.Goal} goal, the goal to navigate to.
+     * @param {function} configure, optional, called with each pathfinder Movements before use, e.g. m => { m.allow1by1towers = false; }.
      **/
 
     const nonDestructiveMovements = new pf.Movements(bot);
@@ -1145,6 +1146,12 @@ export async function goToGoal(bot, goal) {
     nonDestructiveMovements.digCost = 10;
 
     const destructiveMovements = new pf.Movements(bot);
+    // Fork carry (S2b, SPEC §5.3): the caller's movement settings apply to both
+    // instances, after the defaults above; without it they were discarded.
+    if (configure) {
+        configure(nonDestructiveMovements);
+        configure(destructiveMovements);
+    }
 
     let final_movements = destructiveMovements;
 
@@ -1384,7 +1391,7 @@ export async function goToPlayer(bot, username, distance=3) {
     distance = Math.max(distance, 0.5);
     const goal = new pf.goals.GoalFollow(player, distance);
 
-    await goToGoal(bot, goal, true);
+    await goToGoal(bot, goal);
 
     log(bot, `You have reached ${username}.`);
 }

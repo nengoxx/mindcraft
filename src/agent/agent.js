@@ -18,6 +18,7 @@ import { Task } from './tasks/tasks.js';
 import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
 import { Work } from './work/index.js';
+import { ModelOutage } from './model_outage.js';
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
@@ -29,6 +30,7 @@ export class Agent {
         // Initialize components
         this.actions = new ActionManager(this);
         this.prompter = new Prompter(this, settings.profile);
+        this.model_outage = new ModelOutage(this, this.prompter.work_config); // fork carry (REQ-RES-17)
         this.name = (this.prompter.getName() || '').trim();
         console.log(`Initializing agent ${this.name}...`);
         
@@ -172,7 +174,10 @@ export class Agent {
                 }
                 else {
                     let translation = await handleEnglishTranslation(message);
-                    this.handleMessage(username, translation);
+                    // Fork carry (REQ-RES-17): not awaited, so a rejected turn is
+                    // logged here instead of being lost silently.
+                    this.handleMessage(username, translation)
+                        .catch(error => console.error('Error handling message:', error));
                 }
             } catch (error) {
                 console.error('Error handling message:', error);
@@ -200,7 +205,8 @@ export class Agent {
             if (init_message) {
                 this.history.add('system', init_message);
             }
-            await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state);
+            // Fork carry (REQ-RES-18): an outage pause is loaded with its flag.
+            await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state, save_data.self_prompt_outage);
         }
         if (save_data?.last_sender) {
             this.last_sender = save_data.last_sender;
@@ -329,7 +335,7 @@ export class Agent {
         for (let i=0; i<max_responses; i++) {
             if (checkInterrupt()) break;
             let history = this.history.getHistory();
-            let res = await this.prompter.promptConvo(history);
+            let res = await this.prompter.promptConvo(history, self_prompt);
             if (checkInterrupt()) break;
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
