@@ -1,9 +1,8 @@
 // Defaults for the work.* settings of the built iterations (SPEC §14, REQ-CFG-1).
 // The owner overrides them in the bot profile's `work` object. Only keys that
 // built code reads live here; a deferred mechanism's keys arrive with it (the
-// shelter, fit and build keys arrive with S3, the tidy keys with the tidy
-// sweep; the model keys are read by the prompter and the outage module,
-// outside src/agent/work/).
+// shelter, fit and build keys arrive with S3; the model keys are read by the
+// prompter and the outage module, outside src/agent/work/).
 export const WORK_DEFAULTS = Object.freeze({
     return_radius: 6,       // blocks from work_pos before the runner goes back
     stall_s: 15,            // idle seconds before the self-heal timer resumes (REQ-RES-10)
@@ -43,11 +42,16 @@ export const WORK_DEFAULTS = Object.freeze({
         never_remove: Object.freeze(['spawner']), // a clear always keeps these
     }),
     ledger_max: 2000,           // cap on live scaffold entries (REQ-OWN-5)
+    // Tidying the bot's own scaffold (REQ-OWN-8, 10).
+    tidy: Object.freeze({
+        enabled: true,          // the automatic sweeps after a mode and at task end; !tidy always works
+        announce: true,         // one line after a sweep that removed or left something
+    }),
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one
 // sub-key keeps the other defaults.
-const MERGED = new Set(['clear']);
+const MERGED = new Set(['clear', 'tidy']);
 
 // A profile value replaces the default whole (junk_keep included), except the
 // MERGED objects. Unknown keys are ignored (logged), so a key of a later

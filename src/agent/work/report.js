@@ -107,6 +107,16 @@ export function clearReport(args, s, { declined = false } = {}) {
     return `${s.empty}/${args.cells} cells empty${left.length ? `; left: ${left.join(', ')}` : ''}`;
 }
 
+// REQ-OWN-10: the tidy line, from a sweep's result (tidy.js). It never claims
+// drops were collected.
+export function tidyLine({ removed, left }) {
+    const blocks = `${removed.length} of my scaffold block${removed.length === 1 ? '' : 's'}`;
+    if (!left.length) return `Removed ${blocks} here.`;
+    const reasons = groups(left, l => l.reason);
+    const why = reasons.length === 1 ? reasons[0][0] : reasons.map(([reason, n]) => `${n} ${reason}`).join(', ');
+    return `Removed ${blocks}; left ${left.length} (${why}).`;
+}
+
 // A task started inside a !goal: done hands back to the goal; any other end
 // leaves the goal stopped, and the report says so.
 export function goalStopped(record) {

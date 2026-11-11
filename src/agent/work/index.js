@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { getCommand } from '../commands/index.js';
+import { getCommand, containsCommand } from '../commands/index.js';
 import settings from '../settings.js';
 import { loadWorkConfig } from './config.js';
 import { recordPath, loadRecord, saveRecord, newRecord, newStep, setStatus, isTerminal } from './record.js';
@@ -8,6 +8,7 @@ import { Runner, MAX_STEP_ATTEMPTS, updateProgress } from './runner.js';
 import { Protector, installSafeToBreakPatch, guardBot, unguardBot, installCleanStop } from './protect.js';
 import { Ledger, ledgerPath } from './ledger.js';
 import { clearScope } from './steps/clear.js';
+import { Tidy } from './tidy.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
 import { stepResult, doneReport, blockedReport, failedReport, goalStopped, chatLines } from './report.js';
@@ -40,6 +41,7 @@ export class Work {
         this.timers = timers;
         this.record = null;
         this.ledger = null;      // the placements ledger (ledger.js, REQ-OWN-1)
+        this.tidy = null;        // tidying the bot's own scaffold (tidy.js, REQ-OWN-7 … 10)
         this.planGeneration = 0;
         this.goalEpoch = 0;
         this.reportWaitMs = REPORT_WAIT_MS;
@@ -74,6 +76,8 @@ export class Work {
         const onOwnerMessage = (username, message) => this.onOwnerMessage(username, message);
         this.listen(bot, 'whisper', onOwnerMessage);
         this.listen(bot, 'chat', onOwnerMessage);
+        this.guardRespond();
+        this.guardActions();
         this.guardCommands();
         this.guardBuild();
         this.guardTurns();
@@ -97,6 +101,8 @@ export class Work {
         this.ledger.forgetScaffold();
         this.ledger.install();
         this.disposers.push(() => this.ledger.dispose());
+        this.tidy = new Tidy(this);
+        this.disposers.push(() => this.tidy.dispose());
         this.adopt(record);
         // REQ-REC-7/9: a crash restart is init_message 'Agent process restarted.'
         // with no clean_stop; anything else is a fresh start. clean_stop is
@@ -152,6 +158,11 @@ export class Work {
             // Upstream !stop always runs, even when the record cannot be written.
             const stopping = async function (agent, ...args) {
                 try {
+                    agent.work?.tidy?.onStopCommand();   // REQ-OWN-9: a !stop soon after an owner message keeps the sweep's rest
+                } catch (err) {
+                    console.error('[work] !stop: could not keep the scaffold:', err?.message ?? err);
+                }
+                try {
                     agent.work?.stopTask();
                 } catch (err) {
                     console.error('[work] !stop: could not write the cancelled task:', err?.message ?? err);
@@ -183,6 +194,41 @@ export class Work {
             ending.workGuarded = true;
             endGoal.perform = ending;
         }
+    }
+
+    // REQ-OWN-9: the owner's raw messages through MindServer reach
+    // agent.respondFunc directly (mindserver_proxy.js:66); chat and whispers
+    // reach the work layer's own listeners. Observed synchronously, before any
+    // translation or model call; this path applies only the !stop keep (it is
+    // not the last owner message). MindServer's web UI sends as 'ADMIN', which
+    // only_chat_with filters out; the operator helper sends as the owner.
+    guardRespond() {
+        const agent = this.agent;
+        const respondFunc = agent.respondFunc;
+        if (typeof respondFunc !== 'function') return;
+        const work = this;
+        const wrapped = function (username, message, ...rest) {
+            work.keepOnStop(username, message);
+            return respondFunc.call(this, username, message, ...rest);
+        };
+        agent.respondFunc = wrapped;
+        this.disposers.push(() => { if (agent.respondFunc === wrapped) agent.respondFunc = respondFunc; });
+    }
+
+    // REQ-OWN-7: the tidy sweep learns which action interrupted it (only a
+    // mode's interruption keeps a remainder). Runtime wrap; every caller
+    // (modes, commands, the runner) starts actions through runAction.
+    guardActions() {
+        const actions = this.agent.actions;
+        if (typeof actions?.runAction !== 'function') return;
+        const runAction = actions.runAction;
+        const work = this;
+        const wrapped = function (label, ...rest) {
+            work.tidy?.onActionStart(label);
+            return runAction.call(this, label, ...rest);
+        };
+        actions.runAction = wrapped;
+        this.disposers.push(() => { if (actions.runAction === wrapped) actions.runAction = runAction; });
     }
 
     // REQ-OWN-2: a !buildStructure run's placements are `building` entries,
@@ -424,11 +470,32 @@ export class Work {
 
     // --- events ---------------------------------------------------------------
 
-    onOwnerMessage(username, message) {
-        if (username === this.agent.name) return;
+    fromOwner(username) {
+        if (username === this.agent.name) return false;
         const allowed = settings.only_chat_with || [];
-        if (allowed.length && !allowed.includes(username)) return;
-        this.lastOwnerMessage = { username, message };
+        return !allowed.length || allowed.includes(username);
+    }
+
+    onOwnerMessage(username, message) {
+        if (!this.fromOwner(username)) return;
+        this.lastOwnerMessage = { username, message, at: this.now() };
+        this.keepOnStop(username, message);
+    }
+
+    // REQ-OWN-9: an owner !stop keeps the sweep's rest at once, parsed with the
+    // command parser handleMessage uses; stopping stays with !stop.
+    keepOnStop(username, message) {
+        if (!this.fromOwner(username)) return;
+        try {
+            if (typeof message === 'string' && containsCommand(message) === '!stop') this.tidy?.keep('owner !stop');
+        } catch (err) {
+            console.error('[work] could not keep the scaffold on the owner\'s !stop:', err?.message ?? err);
+        }
+    }
+
+    // REQ-OWN-8: the modes carry calls this at the end of every mode action.
+    onModeEnd(name, codeReturn) {
+        this.tidy?.onModeEnd(name, codeReturn);
     }
 
     onDeath() {
@@ -532,8 +599,14 @@ export class Work {
         this.write();
     }
 
+    // The in-task sweep flag belongs to its task (REQ-OWN-8).
+    endTidyFlag() {
+        if (this.runner) this.runner.tidyAfterMode = null;
+    }
+
     cancel(reason) {
         setStatus(this.record, 'cancelled', reason);
+        this.endTidyFlag();
         this.record.goal = null;
         this.goalEpoch++;
         this.releaseResume();
@@ -632,6 +705,7 @@ export class Work {
 
     finishDone() {
         setStatus(this.record, 'done');
+        this.endTidyFlag();
         this.releaseResume();
         this.log('done');
         this.write();
@@ -649,6 +723,7 @@ export class Work {
 
     fail(reason) {
         setStatus(this.record, 'failed', reason);
+        this.endTidyFlag();
         this.releaseResume();
         this.log(`failed: ${reason}`);
         const report = failedReport(this.record, this.agent.bot);
@@ -737,6 +812,7 @@ export class Work {
             this.log('superseded by a new task');
             this.write();
         }
+        this.endTidyFlag();
         const owner = ctx.owner;
         const request_text = this.lastOwnerMessage && this.lastOwnerMessage.username === owner ? this.lastOwnerMessage.message : null;
         const record = newRecord({

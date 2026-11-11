@@ -115,4 +115,11 @@ export const workCommands = [
         },
         perform: (agent, type, range) => blockPositions(agent.bot, type, range),
     },
+    {
+        // REQ-OWN-8: the tidy sweep on request; refused while a task is live.
+        name: '!tidy',
+        description: 'Remove my own scaffold blocks (pillars, bridges and blocks I put down to move or fight) that I can reach from where I stand, without moving. ' +
+            'Refused while a task is running: a task tidies when it ends.',
+        perform: async agent => agent.work ? agent.work.tidy.command() : 'The task layer is not ready yet.',
+    },
 ];

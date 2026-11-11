@@ -50,6 +50,9 @@ export class Runner {
         this.worldEvents = 0;
         this.executing = false;
         this.afterRun = null;
+        // REQ-OWN-8: mode labels whose scaffold the next unit sweeps (set by
+        // Tidy.afterMode during a live task); cleared when that sweep completes.
+        this.tidyAfterMode = null;
         // A stable function identity: resume_func === runFn means "ours".
         this.runFn = async () => { await this.run(); };
         const bump = () => { this.worldEvents++; };
@@ -112,6 +115,7 @@ export class Runner {
         const runGeneration = work.planGeneration;
         let step = null;
         let record = null;
+        let ran = false;   // the record was active when this run started
         // A result that arrives after the task was blocked, paused, cancelled or
         // revised meanwhile is discarded (REQ-RES-16).
         const current = () => record != null && work.record === record && record.status === 'active' && work.planGeneration === runGeneration;
@@ -122,6 +126,7 @@ export class Runner {
                 work.releaseResume();
                 return;
             }
+            ran = true;
             work.protector.newRun();
             step = record.plan[record.cursor];
             // Progress exists from the first run on, so a refusing resume check
@@ -147,6 +152,21 @@ export class Runner {
                     work.log('run bound reached; ending the run normally');
                     work.save();
                     return;
+                }
+                // REQ-OWN-8: scaffold a mode placed during the task is swept at
+                // the start of the next unit, only that (the task's own access
+                // scaffold stays until the task ends).
+                if (this.tidyAfterMode) {
+                    const labels = this.tidyAfterMode;
+                    let swept = null;
+                    try {
+                        swept = await work.tidy.run('after a mode, in the task', { only_by: labels });
+                    } catch (err) {
+                        // Not the step's failure; the flag goes, so it cannot repeat every unit.
+                        console.error('[work] the in-task tidy sweep failed:', err);
+                    }
+                    if (this.interrupted() || !current()) return;
+                    if ((!swept || !swept.ended) && this.tidyAfterMode === labels) this.tidyAfterMode = null;
                 }
                 step = record.plan[record.cursor];
                 if (step.status === 'done') {
@@ -260,6 +280,15 @@ export class Runner {
             const post = this.afterRun;
             this.afterRun = null;
             if (post) setTimeout(post, 0);
+            // REQ-OWN-8: the task-end sweep, scheduled here (every run, resumed
+            // ones too, passes through) and never awaited.
+            if (ran && work.record === record && (record.status === 'done' || record.status === 'failed')) {
+                try {
+                    work.tidy?.scheduleTaskEnd(record);
+                } catch (err) {
+                    console.error('[work] could not schedule the task-end tidy:', err);
+                }
+            }
         }
     }
 

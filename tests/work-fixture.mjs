@@ -68,6 +68,8 @@ export const modules = {
     ledger: await import('../src/agent/work/ledger.js'),
     dig: await import('../src/agent/work/dig.js'),
     clear: await import('../src/agent/work/steps/clear.js'),
+    tidy: await import('../src/agent/work/tidy.js'),
+    report: await import('../src/agent/work/report.js'),
     ask: await import('../src/agent/work/ask.js'),
     runner: await import('../src/agent/work/runner.js'),
     view: await import('../src/agent/work/view.js'),
@@ -130,7 +132,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.game = { dimension: 'overworld', gameMode: 'survival' };
     bot.output = '';
     bot.interrupt_code = false;
-    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, type: 'player', username: 'fixture' };
+    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
     bot.players = {};
     bot.entities = {};
     bot.heldItem = null;
@@ -251,14 +253,16 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     // mineflayer digging.js:216-219: death drops every diggingCompleted listener.
     bot.on('death', () => bot.removeAllListeners('diggingCompleted'));
     // mineflayer digging.js:160: the predicted air is a blockUpdate, then diggingCompleted.
-    bot.dig = async block => {
-        bot.calls.push(['dig', block.name, block.position.toString()]);
+    // digging.js:167-192: stopDigging cancels the dig in progress ('Digging aborted').
+    bot.dig = async (block, forceLook) => {
+        bot.calls.push(['dig', block.name, block.position.toString(), forceLook]);
+        bot.digStopped = false;
         if (bot.hooks.dig) await bot.hooks.dig(block);
-        if (bot.interrupt_code) throw new Error('Digging aborted');
+        if (bot.interrupt_code || bot.digStopped) throw new Error('Digging aborted');
         bot.setBlock(block.position.x, block.position.y, block.position.z, 'air');
         bot.emit('diggingCompleted', block);
     };
-    bot.stopDigging = () => {};
+    bot.stopDigging = () => { bot.digStopped = true; };
     bot.clearControlStates = () => {};
     bot.setControlState = () => {};
     bot.chat = msg => bot.calls.push(['chat', msg]);

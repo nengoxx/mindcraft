@@ -167,8 +167,39 @@ export class Ledger {
         return entry && !entry.removed_at ? entry : null;
     }
 
+    // Any entry at a position in the current dimension, live or not (the tidy
+    // sweep's structure under the bot, REQ-OWN-7).
+    entryAt(pos) {
+        return this.entries.get(cellKey(this.dim(), pos)) ?? null;
+    }
+
     list() {
         return [...this.entries.values()];
+    }
+
+    // REQ-OWN-9: an owner !stop keeps a sweep's rest for good: its candidates
+    // not yet removed become `own`, its pending attempts are marked `keep` (they
+    // settle as `own`; one already settled is re-kinded with the candidates),
+    // and the ledger is written at once.
+    keep({ candidates = [], attempts = [] }, why) {
+        let changed = false;
+        const positions = [...candidates];
+        for (const attempt of attempts) {
+            if (this.attempts.get(attempt.key) !== attempt) { positions.push(attempt.pos); continue; }
+            if (attempt.keep) continue;
+            attempt.keep = true;
+            this.log(`kept pending scaffold attempt at ${fmt(attempt.pos)}: ${why}`);
+        }
+        for (const pos of positions) {
+            const entry = this.get(pos);
+            if (entry?.kind !== 'scaffold') continue;
+            entry.kind = 'own';
+            this.log(`kept scaffold ${entry.block} at ${fmt(entry.pos)} as own: ${why}`);
+            changed = true;
+        }
+        if (!changed) return;
+        this.dirty = true;
+        this.flush();
     }
 
     add(entry) {

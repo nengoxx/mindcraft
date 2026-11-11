@@ -31,11 +31,12 @@ export function eyeDistance(bot, pos) {
 
 // Who is in the cell or standing on it: 'me' for the bot, a username for a
 // player, else null. The pathfinder's own entity check is empty outside a path
-// search (SPEC §4.2), so a dig needs this one.
-export function occupant(bot, pos) {
+// search (SPEC §4.2), so a dig needs this one. `self: false` leaves the bot out
+// (pillar-down digs the block it stands on, REQ-OWN-7).
+export function occupant(bot, pos, { self = true } = {}) {
     const entities = [bot.entity, ...Object.values(bot.players ?? {}).map(p => p.entity)];
     for (const e of new Set(entities)) {
-        if (!e?.position) continue;
+        if (!e?.position || (!self && e === bot.entity)) continue;
         const p = e.position;
         if (p.x + HALF_WIDTH <= pos.x || p.x - HALF_WIDTH >= pos.x + 1 || p.z + HALF_WIDTH <= pos.z || p.z - HALF_WIDTH >= pos.z + 1) continue;
         const inside = p.y < pos.y + 1 && p.y + (e.height ?? 1.8) > pos.y;
@@ -84,13 +85,13 @@ const refuse = (reason, extra = {}) => ({ ok: false, reason, ...extra });
 // Every check a dig needs, on the cell as it is now: {block} or a refusal.
 // Run again after each await, since the world, the task and the bot's place
 // can change meanwhile (Mineflayer's dig checks none of them).
-function ready(bot, pos, name, { container, dim }) {
+function ready(bot, pos, name, { container, dim, standing }) {
     if (bot.interrupt_code) return refuse('interrupted', { soft: true });
     if (dim && (bot.game?.dimension ?? 'overworld') !== dim) return refuse('in another dimension', { soft: true });
     if (eyeDistance(bot, pos) > REACH) return refuse('out of reach');
     const block = bot.blockAt(pos);
     if (!block || block.name !== name) return refuse('changed', { soft: true });
-    const by = occupant(bot, pos);
+    const by = occupant(bot, pos, { self: !standing });
     if (by) return refuse('occupied', { soft: true, by });
     const unsafe = safetyReason(bot, block, { container });
     if (unsafe) return refuse(unsafe);
@@ -103,9 +104,14 @@ function ready(bot, pos, name, { container, dim }) {
 // held does (the caller obtains one); `hand` digs by hand then instead
 // (removal is the goal);
 // `container` is the granted-container exception; `dim` the dimension the
-// caller's cell is in. A `soft` refusal (occupied, interrupted, changed
-// meanwhile, another dimension) says nothing about the cell itself.
-export async function digCell(bot, block, { move = true, obtain = false, hand = false, configure = null, container = false, dim = null } = {}) {
+// caller's cell is in; `standing` lets the bot dig the block it stands on
+// (other players still keep it); `final(block)` is the caller's own check, run
+// synchronously as the last thing before the dig packet (a reason refuses, soft).
+// The look comes first and the dig is sent with 'ignore', so nothing awaits
+// between the last checks and the packet (digging.js:34, :130). A `soft`
+// refusal (occupied, interrupted, changed meanwhile, another dimension) says
+// nothing about the cell itself.
+export async function digCell(bot, block, { move = true, obtain = false, hand = false, configure = null, container = false, dim = null, standing = false, final = null } = {}) {
     const pos = block.position;
     const name = block.name;
     if (eyeDistance(bot, pos) > REACH) {
@@ -116,21 +122,26 @@ export async function digCell(bot, block, { move = true, obtain = false, hand = 
             if (bot.interrupt_code) return refuse('interrupted', { soft: true });
         }
     }
-    let check = ready(bot, pos, name, { container, dim });
+    let check = ready(bot, pos, name, { container, dim, standing });
     if (!check.block) return check;
     if (bot.game?.gameMode !== 'creative') {
         await bot.tool.equipForBlock(check.block);
-        check = ready(bot, pos, name, { container, dim });
+        check = ready(bot, pos, name, { container, dim, standing });
         if (!check.block) return check;
         if (!check.block.canHarvest(bot.heldItem?.type ?? null) && !hand)
             return refuse('needs a tool', { tools: obtain ? harvestToolNames(bot, name) ?? [] : [] });
     }
+    await bot.lookAt(check.block.position.offset(0.5, 0.5, 0.5), true);
+    check = ready(bot, pos, name, { container, dim, standing });
+    if (!check.block) return check;
+    const late = final?.(check.block);
+    if (late) return refuse(late, { soft: true });
     block = check.block;
     // REQ-OWN-5: a ledger entry is marked `removing` for the dig.
     const ledger = ledgerFor(bot);
     ledger?.beginRemove(pos);
     try {
-        await bot.dig(block, true);
+        await bot.dig(block, 'ignore');
     } catch (err) {
         ledger?.endRemove(pos, false);
         if (bot.interrupt_code) return refuse('interrupted', { soft: true });

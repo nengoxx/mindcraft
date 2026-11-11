@@ -466,7 +466,9 @@ add the protected-block diff. Interventions: target 0.
     when complete), the owner `!stop` keep from chat, whispers and MindServer
     before any translation, a model `!stop` within 60 s of an owner message
     counted as the owner's, `should_reprompt` false for `action:tidy`,
-    `work.tidy.enabled` and `announce`.
+    `work.tidy.enabled` and `announce`. (As built: `tests/work-tidy.test.mjs`,
+    with a control test that a fight interrupting any other action still
+    prompts the model.)
 - **Live acceptance (uncoached unless noted; bot invincible).**
   1. Marker box: the owner marks a box with 8 blocks of one type, as in the cube
      trials, and asks "clear everything inside the 8 stripped spruce wood
