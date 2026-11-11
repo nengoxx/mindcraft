@@ -38,7 +38,7 @@ test('every grammar rule and DSL error message (REQ-TRN-14/15)', () => {
         [' ; ', 'no steps given'],
         [Array(9).fill('go_to target=here').join('; '), 'more than 8 steps'],
         ['go_to target=here; ' + 'x'.repeat(1000), 'steps text longer than 1000 characters'],
-        ['mine item=stone count=1', "step 1: unknown skill 'mine' (use obtain, go_to, give, build)"],
+        ['mine item=stone count=1', "step 1: unknown skill 'mine' (use obtain, go_to, give, clear, build)"],
         ['obtain item=stone count=1 colour=red', "step 1: unknown key 'colour' for obtain"],
         ['obtain item=stone', "step 1: missing key 'count'"],
         ['obtain item=stone item=dirt count=1', "step 1: key 'item' given twice"],
@@ -86,7 +86,7 @@ test('all errors come back together, each naming its step (REQ-PLAN-5)', async (
     const agent = setup();
     const result = await commands.executeCommand(agent,
         '!taskStart("x", "obtain item=stone count=1; mine item=stone; obtain item=cobblestone count=300; go_to target=castle")');
-    assert.equal(result, "!taskStart refused: step 1: no method for stone in this version; step 2: unknown skill 'mine' (use obtain, go_to, give, build); " +
+    assert.equal(result, "!taskStart refused: step 1: no method for stone in this version; step 2: unknown skill 'mine' (use obtain, go_to, give, clear, build); " +
         "step 3: count 300 is outside 1–256; step 4: bad position 'castle' (use here, owner or x,y,z). " +
         'For an item with no method here, use the existing commands instead (!collectBlocks, !craftRecipe, !smeltItem, or !goal for a longer job); ' +
         'crops and farmed plants (wheat, sugar cane, bamboo, cactus, berries, kelp) are protected as possible farms and cannot be collected');

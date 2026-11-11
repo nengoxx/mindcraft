@@ -21,16 +21,54 @@ export const WORK_DEFAULTS = Object.freeze({
     model_max_retries: 2,       // OpenAI client retries of every call but decisions, which promptConvo retries
     model_outage_wait_s: 600,   // how long promptConvo waits through an outage
     model_outage_probe_s: 60,   // recovery probe interval of an outage-paused goal
+    // Clearing an area (REQ-CLR-2, 3, 5).
+    clear: Object.freeze({
+        max_cells: 32768,       // largest box (32 x 32 x 32; the owner wants no tight limit)
+        max_distance: 64,       // farthest box, from the frozen anchor to its nearest cell
+        marker_radius: 32,      // the complete marker search around the anchor
+        // Every block of the 26.1 registry that holds items (their contents
+        // drop, or are lost, when it is broken): kept unless the owner's
+        // explicit answer grants them (owner ruling 2026-11-11).
+        containers: Object.freeze(['chest', 'trapped_chest',
+            ...['', 'exposed_', 'weathered_', 'oxidized_'].flatMap(age => [`${age}copper_chest`, `waxed_${age}copper_chest`]),
+            'barrel', 'shulker_box',
+            ...['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan',
+                'purple', 'blue', 'brown', 'green', 'red', 'black'].map(color => `${color}_shulker_box`),
+            'hopper', 'dispenser', 'dropper', 'furnace', 'blast_furnace', 'smoker', 'brewing_stand', 'crafter',
+            'lectern', 'chiseled_bookshelf',
+            ...['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo',
+                'crimson', 'warped'].map(wood => `${wood}_shelf`),
+            'decorated_pot', 'jukebox', 'campfire', 'soul_campfire', 'suspicious_sand', 'suspicious_gravel']),
+        never_remove: Object.freeze(['spawner']), // a clear always keeps these
+    }),
+    ledger_max: 2000,           // cap on live scaffold entries (REQ-OWN-5)
+    // Tidying the bot's own scaffold (REQ-OWN-8, 10).
+    tidy: Object.freeze({
+        enabled: true,          // the automatic sweeps after a mode and at task end; !tidy always works
+        announce: true,         // one line after a sweep that removed or left something
+    }),
 });
 
-// A profile value replaces the default whole (junk_keep included). Unknown keys
-// are ignored (logged), so a key of a later iteration does nothing until its
-// code exists.
+// Object defaults merged one level deep (SPEC §14): a profile that sets one
+// sub-key keeps the other defaults.
+const MERGED = new Set(['clear', 'tidy']);
+
+// A profile value replaces the default whole (junk_keep included), except the
+// MERGED objects. Unknown keys are ignored (logged), so a key of a later
+// iteration does nothing until its code exists.
 export function loadWorkConfig(profileWork = {}) {
     const config = { ...WORK_DEFAULTS };
     for (const [key, value] of Object.entries(profileWork || {})) {
-        if (key in WORK_DEFAULTS) config[key] = value;
-        else console.log(`[work] ignoring unknown work setting: ${key}`);
+        if (!(key in WORK_DEFAULTS)) console.log(`[work] ignoring unknown work setting: ${key}`);
+        else if (!MERGED.has(key)) config[key] = value;
+        else if (!value || typeof value !== 'object' || Array.isArray(value)) console.log(`[work] ignoring work setting ${key}: not an object`);
+        else {
+            config[key] = { ...WORK_DEFAULTS[key] };
+            for (const [sub, subValue] of Object.entries(value)) {
+                if (sub in WORK_DEFAULTS[key]) config[key][sub] = subValue;
+                else console.log(`[work] ignoring unknown work setting: ${key}.${sub}`);
+            }
+        }
     }
     return config;
 }

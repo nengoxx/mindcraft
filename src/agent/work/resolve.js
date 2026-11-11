@@ -89,10 +89,12 @@ function ensure(ctx, item) {
     return error;
 }
 
-function harvestToolNames(ctx, blockName) {
-    const tools = ctx.bot.registry.blocksByName[blockName]?.harvestTools;
+// The tools that harvest a block, cheapest tier first; null when none is needed.
+// Also the dig seam's tool choice (dig.js).
+export function harvestToolNames(bot, blockName) {
+    const tools = bot.registry.blocksByName[blockName]?.harvestTools;
     if (!tools) return null;
-    const names = Object.keys(tools).map(id => ctx.bot.registry.items[id]?.name).filter(Boolean);
+    const names = Object.keys(tools).map(id => bot.registry.items[id]?.name).filter(Boolean);
     const tier = name => { const i = TOOL_TIERS.findIndex(t => name.startsWith(t + '_')); return i < 0 ? TOOL_TIERS.length : i; };
     return names.sort((a, b) => tier(a) - tier(b));
 }
@@ -101,7 +103,7 @@ function collect(ctx, item, n, sources) {
     if (!sources.length) return `no method for ${item}`;
     const via = sources.includes(item) ? item : (sources.find(s => ctx.visible(s)) ?? sources[0]);
     let tier_req = null;
-    const tools = harvestToolNames(ctx, via);
+    const tools = harvestToolNames(ctx.bot, via);
     if (tools && !tools.some(tool => (ctx.inv[tool] || 0) + (ctx.left[tool] || 0) > 0)) {
         let error = null;
         for (const tool of tools) {

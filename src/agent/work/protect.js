@@ -10,8 +10,6 @@ const NATURAL_NAMES = new Set(natural.names);
 const NATURAL_SUFFIXES = natural.suffixes;
 const TREE_MAX_LOGS = 40;        // REQ-SAFE-4: the upward search bound
 const TREE_COMPONENT_MAX = 64;   // REQ-SAFE-4: the component cap (dark oaks reach about 50)
-const STATION_BLOCKS = ['crafting_table', 'furnace'];
-export const isStationBlock = name => STATION_BLOCKS.includes(name);
 
 export function isLogName(name) {
     return name.endsWith('_log') && !name.startsWith('stripped_');
@@ -46,14 +44,14 @@ const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -
 // trunks, branches).
 const UP = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
-// The protection predicate for one bot. `ledgerGet(pos)` returns the ledger
-// entry at a position (REQ-SAFE-2); `ledgerDrop(pos)` retires it once the
-// recorded block is no longer there.
+// The protection predicate for one bot. `ledger` is the placements ledger
+// (ledger.js: get, retire and the !buildStructure run in progress); `scope()`
+// returns the active clear step's box scope or null (REQ-CLR-5; steps/clear.js).
 export class Protector {
-    constructor(bot, { ledgerGet = () => null, ledgerDrop = () => {} } = {}) {
+    constructor(bot, { ledger = null, scope = () => null } = {}) {
         this.bot = bot;
-        this.ledgerGet = ledgerGet;
-        this.ledgerDrop = ledgerDrop;
+        this.ledger = ledger;
+        this.scope = scope;
         this.treeMemo = null;
         this.componentMemo = null;
         this.running = false;
@@ -76,21 +74,51 @@ export class Protector {
 
     isProtected(block) {
         if (!block?.name || !block.position) return false;
-        // REQ-SAFE-2: the bot's own placement, while the recorded block is still
-        // the one there; a different block at that position is not exempt.
-        const entry = this.ledgerGet(block.position);
-        if (entry) {
-            if (entry.block === block.name) return false;
-            this.ledgerDrop(block.position);
-        }
         const name = block.name;
+        // REQ-CLR-5: while a clear step is current, its kept outer layer is
+        // protected for every caller; inside its box the spawner never goes,
+        // a container only on the owner's explicit grant, and a granted
+        // position is exempt while its block still matches (REQ-CLR-9).
+        const scope = this.scope();
+        if (scope?.inShell(block.position)) return true;
+        const inBox = Boolean(scope?.inBox(block.position));
+        // REQ-SAFE-2, REQ-OWN-2: the bot's own placement, by kind, while the
+        // recorded block is still the one there; a different block retires it.
+        const entry = this.ledger?.get(block.position);
+        const recorded = entry?.block === name ? entry : null;
+        if (entry && !recorded) this.ledger.retire(block.position, `now ${name}`);
+        if (inBox) {
+            if (scope.neverRemove.has(name)) return true;
+            // A completed build's block stays before any grant or container
+            // rule: a box exempts only scaffold and own entries.
+            if (recorded?.kind === 'building' && !this.exempt(recorded, true)) return true;
+            if (scope.granted(block.position, name)) return false;
+            if (scope.containers.has(name)) return true;
+        }
+        if (recorded) return !this.exempt(recorded, inBox);
         if (isLeavesName(name)) return !naturalLeaves(block);
         if (isLogName(name)) return !this.isNaturalTree(block);
         // A task-layer harvesting policy, not owner property: inside a task run
         // I1 collects only ores with an open face (air or water); buried ores
-        // are tunnelled to only from I5. Outside runs ores are natural.
-        if (name.endsWith('_ore')) return this.running ? !this.isExposed(block) : false;
+        // are tunnelled to only from I5. Outside runs ores are natural, and a
+        // clear step digs buried ores inside its box (REQ-SAFE-1, REQ-CLR-5).
+        if (name.endsWith('_ore')) return this.running && !inBox ? !this.isExposed(block) : false;
         return !isNaturalBlockName(name);
+    }
+
+    // REQ-OWN-2, the kinds stated once: `station` and live `scaffold` are exempt
+    // everywhere; `own` (code, commands, task-time placements, owner-kept
+    // scaffold) is protected outside an active clear box whatever its
+    // material, exempt inside one; `building` is exempt only while its build
+    // runs (a !buildStructure build ends when that action returns).
+    exempt(entry, inBox) {
+        switch (entry.kind) {
+            case 'station':
+            case 'scaffold': return true;
+            case 'own': return inBox;
+            case 'building': return entry.build_id != null && entry.build_id === this.ledger.building;
+            default: return false;
+        }
     }
 
     isExposed(block) {
@@ -140,7 +168,7 @@ export class Protector {
 
     besideTree(block) {
         const name = block.name;
-        if (this.ledgerGet(block.position)?.block === name) return true;
+        if (this.ledger?.get(block.position)?.block === name) return true;
         if (isLogName(name)) return false; // another wood type: a mixed-wood build
         return OPEN.includes(name) || isLeavesName(name) || BESIDE_TRUNKS.includes(name) || isNaturalBlockName(name);
     }
@@ -177,6 +205,19 @@ export function isProtectedForBot(bot, block) {
 const guards = new WeakMap(); // bot -> {protector, taskRunning}
 let original = null;
 
+// The pathfinder's falling blocks are sand and gravel only (movements.js:64-66);
+// suspicious sand and gravel fall too and lose their loot, and a clear keeps
+// them as containers, so their support is not dug either.
+const FALLING = ['suspicious_sand', 'suspicious_gravel'];
+export function knowFallingBlocks(m) {
+    if (m.workFalling) return;
+    m.workFalling = true;
+    for (const name of FALLING) {
+        const id = m.bot.registry.blocksByName[name]?.id;
+        if (id != null) m.gravityBlocks.add(id);
+    }
+}
+
 // Installed once per process (REQ-SAFE-3). Because it is the prototype, it also
 // covers Movements instances that never reach setMovements: collectBlock's own
 // (skills.js) and the collect plugin's (CollectBlock.js:70).
@@ -187,6 +228,7 @@ export function installSafeToBreakPatch() {
     pf.Movements.prototype.safeToBreak = function (block) {
         const guard = guards.get(this.bot);
         if (!guard) return base.call(this, block);
+        knowFallingBlocks(this);
         if (guard.protector.isProtected(block)) return false;
         if (!guard.taskRunning()) return base.call(this, block);
         // REQ-FIND-16: both flags are read only inside safeToBreak, and
@@ -216,28 +258,6 @@ export function guardBot(bot, protector, taskRunning) {
 
 export function unguardBot(bot) {
     guards.delete(bot);
-}
-
-// --- placement ledger (REQ-BLD-22) -----------------------------------------
-
-export function ledgerEntry(newBlock, taskId, now) {
-    const entry = { pos: { x: newBlock.position.x, y: newBlock.position.y, z: newBlock.position.z }, block: newBlock.name, build_id: taskId, at: now };
-    if (STATION_BLOCKS.includes(newBlock.name)) entry.kind = 'permanent';
-    return entry;
-}
-
-// Entries that survive a task change as `station`: the bot's own crafting
-// tables and furnaces (placed as `permanent`, or already carried as `station`)
-// whose block still matches. Blueprint cells are tagged with a structure id,
-// not the task id, so they are never carried (REQ-BLD-22).
-export function carryStations(oldRecord, bot) {
-    if (!oldRecord) return [];
-    const structureIds = new Set((oldRecord.structures || []).map(s => s.id));
-    return (oldRecord.placements || [])
-        .filter(e => (e.kind === 'permanent' || e.kind === 'station') && STATION_BLOCKS.includes(e.block))
-        .filter(e => !structureIds.has(e.build_id))
-        .filter(e => bot.blockAt(new Vec3(e.pos.x, e.pos.y, e.pos.z))?.name === e.block)
-        .map(e => ({ ...e, kind: 'station' }));
 }
 
 // --- SIGINT clean_stop (REQ-REC-7) -------------------------------------------

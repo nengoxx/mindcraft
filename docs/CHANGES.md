@@ -19,8 +19,9 @@ are deliberately absent from tracked source.
 | Runtime migration | Optional `MINDCRAFT_RUNTIME_DIR` helper moves bot outputs, and since I1 S0-lite the shared `diagnostics/requests.jsonl` (`runtimePath`; unset, the operator's default `runtime/`). History/coder/prompter/vision and the `openai_tools` provider use it; source templates remain at root. No-env storage behavior and root `settings.js` stay upstream. Native `SETTINGS_JSON`/`PROFILES` supply ignored local config. |
 | `operator/` | Shared config/control/explicit verified ViaProxy update; adapted existing Windows foreground helpers and Linux foreground ownership/cleanup. No boot service or silent updates. |
 
-`modes.js` and `process/agent_process.js` remain upstream; `self_prompter.js` is
-carried since I1 S2b (the outage pause, below).
+`process/agent_process.js` remains upstream; `self_prompter.js` is carried since
+I1 S2b (the outage pause, below) and `modes.js` since I1 S2c (the tidy carry,
+below).
 Native retry: exit code >1 ends parent; otherwise a nonzero/non-SIGINT exit after
 at least 10 seconds reloads memory and retries; early crashes stay down. Full manual
 Start defaults to memory disabled. This is distinct from an autostart service.
@@ -315,3 +316,111 @@ whether part of the radius was not loaded) that S2c's marker search reuses. The 
 
 The work fixture (`tests/work-fixture.mjs`) gives its agent a real
 `ModelOutage`, as agent.js does.
+
+I1 S2c, part 1 (clearing an area, the placements ledger and the owner
+question; SPEC §11.9, §11.10, REQ-REC-12). Why: the cube-clearing trials
+(ISSUES, cube analysis) cleared by generated code with no record, no resume and
+a false report, and the S2 ledger recorded task-time pathfinder blocks as `air`
+(item 17), so the bot's own pillars stayed protected. Our own new files are
+`work/ledger.js` (the placements ledger `bots/<name>/placements.json`: kinds
+`station`, `scaffold`, `building`, `own`; recording from the placement attempt;
+retirement, the `work.ledger_max` cap, forgetting old scaffold at process start
+and on chunk unload, the tidy-dig `removing` / `removed_at` states),
+`work/dig.js` (`digCell`, the dig seam), `work/steps/clear.js` (the `clear`
+step), and `work/ask.js` (the owner-question core: parse and record). The
+record no longer holds `placements`: on the ledger's first load the S2
+stations migrate from `task.json` once and the key is deleted; the in-memory
+list before the first task (`loose`), the station carry (`carryStations`) and
+the `blockPlaced` listener in `work/index.js` are gone. The ledger records
+through a runtime wrap of `bot.placeBlock` and `bot._placeBlockWithOptions`
+installed at work init and removed with the module (no upstream patch). A
+`!buildStructure` run's placements are `building` entries of that run through a
+runtime wrap of the agent's `npc.build_goal.executeNext`, active only under the
+`action:buildStructure` label: the command's `perform` cannot be wrapped,
+because `runAsAction` finds its label by `perform` identity (actions.js:12).
+The open owner question is disarmed by any other bot chat to the owner and by
+an owner message that goes to the model, and posted again (armed once every
+line is sent) after the turn that caused it, through runtime wraps of the
+agent's `handleMessage` (each call a turn, carried by `AsyncLocalStorage`) and
+`openChat` (REQ-REC-12); code reports go through one owner-output queue,
+paced 1 s a line, and a question post stops once it is no longer current. The `safeToBreak`
+patch and the dig checker add suspicious sand and gravel to the pathfinder's
+falling blocks (`gravityBlocks`, movements.js:64-66), per Movements instance. The clear step's movements filter the
+pathfinder's generated moves by their placement destination (a per-instance
+`getNeighbors` wrap, not `exclusionAreasPlace`, which gets the feet cell for a
+forward bridge, movements.js:412-413). `work.clear` (merged one level deep by
+`loadWorkConfig`) and `work.ledger_max` join `work/config.js`.
+
+- `agent/agent.js` (grown): in `handleMessage`, after the forced-command block
+  and the translation and before the behaviour log and the history add, an
+  owner message that answers the task's open `pending_question`
+  (`work.answerQuestion`: owner username only, a short yes / no / "yes, chests
+  too") is consumed and never reaches the model; anything else goes on as
+  before. Why: an owner question costs no model call and the model can never
+  answer it (REQ-REC-12). Reapply check: `work-clear.test.mjs` "the answer is
+  consumed before the model; other owner chat goes to the model and the
+  question stays; …". Retire with the task layer, or when upstream offers a
+  hook before the model for code-owned replies.
+- Tell A (REQ-OWN-3, not our carry): the recording relies on Mindcraft's
+  pathfinder patch writing the predicted stone (`setBlockStateId(dest, 1)`)
+  before it calls `bot.placeBlock` (`patches/mineflayer-pathfinder+2.4.5.patch`,
+  index.js:571 → :575). Check: `work-ledger.test.mjs` "the installed pathfinder
+  writes the predicted stone before it calls bot.placeBlock (tell A guard,
+  REQ-OWN-6)", a source check of the installed file. If it fails after a merge
+  or a pathfinder bump, apply the dirt-only fallback of REQ-OWN-6 instead of
+  dropping the test.
+
+The work fixture gains `bot.setBlock` (a block change with Mineflayer's
+`blockUpdate`), a `bot.dig` that writes the predicted air as a `blockUpdate`
+first (digging.js:160), goto hooks that move the bot themselves (`'moved'`),
+and `clearRecord` also removes the placements ledger; `ownerSays` calls the
+agent's own `handleMessage` and `routeResponse` goes through `openChat` (as
+agent.js:422 does), so the work layer's wraps run.
+
+I1 S2c, part 2 (tidying the bot's own scaffold; SPEC §11.10 REQ-OWN-7 … 11,
+`!tidy`). Why: the bot's pillars and fight blocks stayed in the world
+(DECISIONS 2026-11-10, 2026-11-11: the lean version). Our own new file is
+`work/tidy.js`: the sweep `tidyNear` (reachable live scaffold, no movement,
+digs through `digCell`) and `Tidy`, which holds the active sweep, the
+interrupted remainder, the launch checks of the three triggers and the owner's
+`!stop` keep. The task-end sweep is scheduled from the runner's `finally`; the
+in-task sweep of mode-placed scaffold runs at the start of the runner's next
+unit (`runner.tidyAfterMode`). `!tidy` joins `work/commands.js`, `work.tidy`
+(`enabled`, `announce`; merged one level deep) joins `work/config.js`, the
+tidy line joins `work/report.js` and goes through the owner-output queue
+(`postReport`). `digCell` gains `standing` (pillar-down digs the block the bot
+stands on; other players still keep a cell), and the ledger gains `entryAt` and
+`keep`. The owner's raw messages through MindServer are observed by a runtime
+wrap of `agent.respondFunc` installed at work init (no upstream change); it
+applies only the `!stop` keep (MindServer's web UI sends as `ADMIN`, filtered by
+`only_chat_with`; the operator helper sends as the owner) and restores the
+original only while it is still the installed function. A second runtime wrap,
+of `agent.actions.runAction`, only records the label of each action started, so
+a sweep knows whether a mode interrupted it (only then it keeps a remainder, for
+at most 5 minutes). The `!stop` command wrapper keeps the sweep's rest when the
+stop comes within 60 s of an owner message; a keep cancels the sweep's dig in
+progress (`bot.stopDigging()`). `digCell` also gains `final` (the caller's
+synchronous check right before the dig packet), and it now looks at the block
+first and digs with Mineflayer's `'ignore'` look (digging.js:34), so nothing
+awaits between the last checks and the packet; this applies to the clear
+step's digs too, whose dig packet face is unchanged (the default top face, as
+`dig(block, true)` already sent). A keep generation, raised by every owner keep
+(also with nothing to keep), is captured when the mode-end and task-end triggers
+are scheduled, so a raw `!stop` before their first check cancels them.
+Retirement: the `respondFunc` wrap when upstream offers a raw-message hook; the
+`runAction` wrap when upstream reports which action interrupted another.
+
+- `agent/modes.js` (new carry): in `execute`, `should_reprompt` gains
+  `interrupted_action !== 'action:tidy'`, and one line at its end,
+  `agent.work?.onModeEnd(mode.name, code_return)`. Why: a fight that interrupts
+  a tidy sweep must not cost a model call, and the scaffold a mode placed is
+  tidied after it (REQ-OWN-8). Reapply check: `work-tidy.test.mjs` "a fight that
+  interrupts a sweep prompts no model call; …" and "a fight pillar with no task
+  is removed after the fight: …" (with its control, "a fight that interrupts
+  another action does prompt the model"). Retire when upstream offers a quiet
+  action flag and a mode-end event.
+
+The work fixture's bot has `entity.onGround` (true), its `stopDigging` aborts
+the dig in progress as Mineflayer's does (digging.js:167-192), its dig call
+records the look argument, and the fixture loads `work/tidy.js` and
+`work/report.js`.

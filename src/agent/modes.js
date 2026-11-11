@@ -316,6 +316,7 @@ async function execute(mode, agent, func, timeout=-1) {
 
     let should_reprompt = 
         interrupted_action && // it interrupted a previous action
+        interrupted_action !== 'action:tidy' && // fork carry (REQ-OWN-8): an interrupted tidy sweep needs no model call
         !agent.actions.resume_func && // there is no resume function
         !agent.self_prompter.isActive() && // self prompting is not on
         !code_return.interrupted; // this mode action was not interrupted by something else
@@ -327,6 +328,7 @@ async function execute(mode, agent, func, timeout=-1) {
         agent.handleMessage(role, `(AUTO MESSAGE)Your previous action '${interrupted_action}' was interrupted by ${mode.name}.
         Your behavior log: ${logs}\nRespond accordingly.`);
     }
+    agent.work?.onModeEnd(mode.name, code_return); // fork carry (REQ-OWN-8): tidy the scaffold the mode placed
 }
 
 let _agent = null;

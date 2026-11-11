@@ -1,12 +1,17 @@
-import { getCommand } from '../commands/index.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { getCommand, containsCommand } from '../commands/index.js';
 import settings from '../settings.js';
 import { loadWorkConfig } from './config.js';
 import { recordPath, loadRecord, saveRecord, newRecord, newStep, setStatus, isTerminal } from './record.js';
 import { planFromText, resolvePosition, STEPS } from './plan.js';
 import { Runner, MAX_STEP_ATTEMPTS, updateProgress } from './runner.js';
-import { Protector, installSafeToBreakPatch, guardBot, unguardBot, ledgerEntry, carryStations, installCleanStop, posKey, isStationBlock } from './protect.js';
+import { Protector, installSafeToBreakPatch, guardBot, unguardBot, installCleanStop } from './protect.js';
+import { Ledger, ledgerPath } from './ledger.js';
+import { clearScope } from './steps/clear.js';
+import { Tidy } from './tidy.js';
+import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
-import { stepResult, doneReport, blockedReport, failedReport, goalStopped } from './report.js';
+import { stepResult, doneReport, blockedReport, failedReport, goalStopped, chatLines } from './report.js';
 
 // The work module (SPEC §5): task record, runner, resume, protection and the
 // hooks into Mindcraft. One instance per agent process (agent.work).
@@ -16,6 +21,9 @@ export const TASK_ACTIVE = 'a task is active — use !taskRevise or !taskCancel'
 const TICK_MS = 1000;
 const STALL_WRITE_MS = 10000; // how often the self-heal timer persists stall time
 const REPORT_WAIT_MS = 15000; // how long a timer block's report waits for a run that does not return
+const LINE_GAP_MS = 1000;     // between the chat lines of one report, under the server's chat-spam kick
+const turns = new AsyncLocalStorage();   // the handleMessage call (turn) code runs in
+const QUESTION = Symbol('question');     // the store while code posts the open question
 
 // Items the task layer cannot make in this iteration go back to the existing
 // commands (smelting, mob drops, crops, food).
@@ -32,8 +40,8 @@ export class Work {
         this.now = now;
         this.timers = timers;
         this.record = null;
-        this.ledger = new Map(); // posKey -> placement entry (REQ-SAFE-2)
-        this.loose = [];         // the bot's placements while no record exists
+        this.ledger = null;      // the placements ledger (ledger.js, REQ-OWN-1)
+        this.tidy = null;        // tidying the bot's own scaffold (tidy.js, REQ-OWN-7 … 10)
         this.planGeneration = 0;
         this.goalEpoch = 0;
         this.reportWaitMs = REPORT_WAIT_MS;
@@ -41,6 +49,12 @@ export class Work {
         this.lastWrite = 0;
         this.idleSince = null;
         this.lastOwnerMessage = null;
+        this.armed = null;          // the id of the open question while it takes an answer (REQ-REC-12)
+        this.disarming = new Set(); // the turns that disarmed it and have not finished
+        this.postings = 0;          // the question's post generation
+        this.lineGapMs = LINE_GAP_MS;
+        this.outbox = Promise.resolve();   // the owner-output queue (deliver)
+        this.nextSend = 0;
         this.disposers = [];
     }
 
@@ -52,21 +66,43 @@ export class Work {
         this.config = loadWorkConfig(agent.prompter?.profile?.work);
         this.file = recordPath(agent.name);
         this.runner = new Runner(this);
-        this.protector = new Protector(bot, { ledgerGet: pos => this.ledger.get(posKey(pos)) ?? null, ledgerDrop: pos => this.dropPlacement(pos) });
+        this.ledger = new Ledger(bot, { file: ledgerPath(agent.name), max: this.config.ledger_max, now: this.now,
+            label: () => agent.actions?.currentActionLabel || null });
+        this.protector = new Protector(bot, { ledger: this.ledger, scope: () => this.clearScope() });
         installSafeToBreakPatch();
         guardBot(bot, this.protector, () => this.record?.status === 'active');
         this.disposers.push(() => unguardBot(bot));
-        this.listen(bot, 'blockPlaced', (oldBlock, newBlock) => this.onBlockPlaced(newBlock));
         this.listen(bot, 'death', () => this.onDeath());
         const onOwnerMessage = (username, message) => this.onOwnerMessage(username, message);
         this.listen(bot, 'whisper', onOwnerMessage);
         this.listen(bot, 'chat', onOwnerMessage);
+        this.guardRespond();
+        this.guardActions();
         this.guardCommands();
-        this.disposers.push(installCleanStop(() => this.writeCleanStop()));
+        this.guardBuild();
+        this.guardTurns();
+        this.disposers.push(installCleanStop(() => {
+            try {
+                this.ledger.flush();
+            } catch (err) {
+                console.error('[work] could not write the placements ledger:', err?.message ?? err);
+            }
+            this.writeCleanStop();
+        }));
 
         const { record, state } = loadRecord(this.file);
         if (state === 'unknown_version' || state === 'unreadable')
             console.warn(`[work] ${this.file}: ${state}; left untouched, starting with no task`);
+        // REQ-OWN-1: the ledger is its own file; on its first load the stations
+        // of the S2 record migrate once, and the record's placements key goes.
+        this.ledger.load(record?.placements ? { placements: record.placements, structures: record.structures } : null);
+        // REQ-OWN-4: old scaffold is forgotten at process start (here, not at
+        // the runner's per-run reload).
+        this.ledger.forgetScaffold();
+        this.ledger.install();
+        this.disposers.push(() => this.ledger.dispose());
+        this.tidy = new Tidy(this);
+        this.disposers.push(() => this.tidy.dispose());
         this.adopt(record);
         // REQ-REC-7/9: a crash restart is init_message 'Agent process restarted.'
         // with no clean_stop; anything else is a fresh start. clean_stop is
@@ -75,6 +111,7 @@ export class Work {
         const crash = init_message === RESTART_MESSAGE && Boolean(record) && !record.clean_stop;
         let changed = Boolean(record?.clean_stop);
         if (record) record.clean_stop = false;
+        if (record && 'placements' in record) { delete record.placements; changed = true; }
         // A goal kept for a handback belongs to the old session (REQ-RES-9).
         if (!crash && record?.goal) { record.goal = null; changed = true; }
         if (record?.status === 'active') {
@@ -88,6 +125,9 @@ export class Work {
             }
         }
         if (changed) this.write();
+        // REQ-REC-12: an open question is not armed after a restart until it
+        // is posted again, which also tells the owner it is still open.
+        if (record?.pending_question && record.status === 'blocked') setTimeout(() => this.postQuestion(), 0);
         if (this.timers) {
             const timer = setInterval(() => this.tick(), TICK_MS);
             this.disposers.push(() => clearInterval(timer));
@@ -117,6 +157,11 @@ export class Work {
             const perform = stop.perform;
             // Upstream !stop always runs, even when the record cannot be written.
             const stopping = async function (agent, ...args) {
+                try {
+                    agent.work?.tidy?.onStopCommand();   // REQ-OWN-9: a !stop soon after an owner message keeps the sweep's rest
+                } catch (err) {
+                    console.error('[work] !stop: could not keep the scaffold:', err?.message ?? err);
+                }
                 try {
                     agent.work?.stopTask();
                 } catch (err) {
@@ -151,6 +196,151 @@ export class Work {
         }
     }
 
+    // REQ-OWN-9: the owner's raw messages through MindServer reach
+    // agent.respondFunc directly (mindserver_proxy.js:66); chat and whispers
+    // reach the work layer's own listeners. Observed synchronously, before any
+    // translation or model call; this path applies only the !stop keep (it is
+    // not the last owner message). MindServer's web UI sends as 'ADMIN', which
+    // only_chat_with filters out; the operator helper sends as the owner.
+    guardRespond() {
+        const agent = this.agent;
+        const respondFunc = agent.respondFunc;
+        if (typeof respondFunc !== 'function') return;
+        const work = this;
+        const wrapped = function (username, message, ...rest) {
+            work.keepOnStop(username, message);
+            return respondFunc.call(this, username, message, ...rest);
+        };
+        agent.respondFunc = wrapped;
+        this.disposers.push(() => { if (agent.respondFunc === wrapped) agent.respondFunc = respondFunc; });
+    }
+
+    // REQ-OWN-7: the tidy sweep learns which action interrupted it (only a
+    // mode's interruption keeps a remainder). Runtime wrap; every caller
+    // (modes, commands, the runner) starts actions through runAction.
+    guardActions() {
+        const actions = this.agent.actions;
+        if (typeof actions?.runAction !== 'function') return;
+        const runAction = actions.runAction;
+        const work = this;
+        const wrapped = function (label, ...rest) {
+            work.tidy?.onActionStart(label);
+            return runAction.call(this, label, ...rest);
+        };
+        actions.runAction = wrapped;
+        this.disposers.push(() => { if (actions.runAction === wrapped) actions.runAction = runAction; });
+    }
+
+    // REQ-OWN-2: a !buildStructure run's placements are `building` entries,
+    // exempt while the run lasts and protected once it returns. The context is
+    // entered inside the executed action, after the previous action stopped:
+    // the instance's build_goal.executeNext under the action:buildStructure
+    // label. The command's perform stays as it is, since runAsAction finds its
+    // label by perform identity (actions.js:12).
+    guardBuild() {
+        const goal = this.agent.npc?.build_goal;
+        if (!goal) return;
+        const work = this;
+        const executeNext = goal.executeNext;
+        goal.executeNext = async function (...args) {
+            if (work.agent.actions?.currentActionLabel !== 'action:buildStructure') return executeNext.apply(this, args);
+            const id = work.ledger.beginBuild();
+            try {
+                return await executeNext.apply(this, args);
+            } finally {
+                work.ledger.endBuild(id);
+            }
+        };
+        this.disposers.push(() => { goal.executeNext = executeNext; });
+    }
+
+    // REQ-REC-12: the open question takes an answer only while it is armed:
+    // once every line of its latest post is out, and while the bot has said
+    // nothing else to the owner since. Any other bot chat (a model reply,
+    // whatever started its turn) and an owner message that goes on to the
+    // model disarm it, with a token of the turn that caused it; when every
+    // such turn has finished and its chat is sent, code posts the question
+    // again, which arms it. Runtime wraps of this agent's handleMessage (each
+    // call is a turn, carried through its awaits) and openChat; no upstream
+    // change.
+    guardTurns() {
+        const agent = this.agent;
+        const work = this;
+        const handleMessage = agent.handleMessage;
+        agent.handleMessage = function (...args) {
+            const turn = { done: false, chats: 0 };
+            return turns.run(turn, async () => {
+                try {
+                    return await handleMessage.apply(this, args);
+                } finally {
+                    turn.done = true;
+                    work.settle(turn);
+                }
+            });
+        };
+        const openChat = agent.openChat;
+        agent.openChat = function (...args) {
+            const token = work.onChat();
+            let sent;
+            try {
+                sent = openChat.apply(this, args);
+            } finally {
+                if (token) Promise.resolve(sent).catch(() => {}).finally(() => { token.chats--; work.settle(token); });
+            }
+            return sent;
+        };
+        this.disposers.push(() => { agent.handleMessage = handleMessage; agent.openChat = openChat; });
+    }
+
+    // Disarms the open question for the current turn (or, outside a live
+    // turn, for a token that is already finished) and returns the token.
+    disarm() {
+        const store = turns.getStore();
+        const token = store && store !== QUESTION && !store.done ? store : { done: true, chats: 0 };
+        this.armed = null;
+        this.disarming.add(token);
+        return token;
+    }
+
+    // A bot chat to the owner: anything but the question's own lines disarms it.
+    onChat() {
+        if (turns.getStore() === QUESTION || !this.record?.pending_question) return null;
+        const token = this.disarm();
+        token.chats++;
+        return token;
+    }
+
+    settle(token) {
+        if (!token.done || token.chats || !this.disarming.delete(token) || this.disarming.size) return;
+        if (this.record?.pending_question) this.log(`asking the owner again (${this.record.pending_question.kind})`);
+        this.postQuestion();
+    }
+
+    // Posts the open question, and arms it once every line is sent, if it is
+    // still the current question and post and nothing disarmed it meanwhile.
+    async postQuestion() {
+        const record = this.record;
+        const question = record?.pending_question;
+        if (this.disposed || !question || record.status !== 'blocked') return;
+        const posting = ++this.postings;
+        this.armed = null;
+        // Checked before every line: a replaced task or question, or a newer
+        // post of the same one, stops this post (its lines could otherwise
+        // ask the owner about the task that replaced it).
+        const current = () => {
+            const now = this.record;
+            return posting === this.postings && now?.id === record.id && now.pending_question?.id === question.id && now.status === 'blocked';
+        };
+        let sent;
+        try {
+            sent = await turns.run(QUESTION, () => this.deliver(question.text, current));
+        } catch (err) {
+            console.error('[work] could not post the owner question:', err?.message ?? err);
+            return;
+        }
+        if (sent && current() && !this.disarming.size) this.armed = question.id;
+    }
+
     // The goal a task was started in is not handed back once the owner ended,
     // stopped or replaced it (REQ-RES-9). goalEpoch invalidates a pending handback.
     clearGoal() {
@@ -168,17 +358,6 @@ export class Work {
 
     adopt(record) {
         this.record = record;
-        this.ledger = new Map([...(record?.placements || []), ...this.loose].map(e => [posKey(e.pos), e]));
-    }
-
-    // A ledger entry whose block is gone or replaced is retired (persisted with
-    // the next write).
-    dropPlacement(pos) {
-        const key = posKey(pos);
-        this.ledger.delete(key);
-        const keep = e => posKey(e.pos) !== key;
-        if (this.record?.placements) this.record.placements = this.record.placements.filter(keep);
-        this.loose = this.loose.filter(keep);
     }
 
     reload() {
@@ -190,6 +369,27 @@ export class Work {
         if (this.disposed) return;
         saveRecord(this.file, this.record, this.now());
         this.lastWrite = this.now();
+        // REQ-OWN-1: the ledger is flushed at task changes (a new task or a
+        // status change), between them at most once per 2 s.
+        const state = `${this.record?.id}:${this.record?.status}`;
+        if (state === this.writtenState) return;
+        this.writtenState = state;
+        try {
+            this.ledger?.flush();
+        } catch (err) {
+            console.error('[work] could not write the placements ledger:', err?.message ?? err);
+        }
+    }
+
+    // The active clear step's box scope for the Protector (REQ-CLR-5): only
+    // while the task is active and its current step is a clear step.
+    clearScope() {
+        const record = this.record;
+        if (record?.status !== 'active') return null;
+        // The box and its grants hold in the anchor's dimension only.
+        if (record.anchor?.dim && (this.agent.bot.game?.dimension ?? 'overworld') !== record.anchor.dim) return null;
+        const step = record.plan[record.cursor];
+        return step?.skill === 'clear' ? clearScope(step, this.config) : null;
     }
 
     resetStallClock() {
@@ -270,28 +470,32 @@ export class Work {
 
     // --- events ---------------------------------------------------------------
 
-    onOwnerMessage(username, message) {
-        if (username === this.agent.name) return;
+    fromOwner(username) {
+        if (username === this.agent.name) return false;
         const allowed = settings.only_chat_with || [];
-        if (allowed.length && !allowed.includes(username)) return;
-        this.lastOwnerMessage = { username, message };
+        return !allowed.length || allowed.includes(username);
     }
 
-    // REQ-BLD-22: every block the bot places while a task is active, from
-    // Mineflayer's blockPlaced event (pathfinder pillars included). Otherwise
-    // (no task, or one paused, blocked or ended) only its stations (crafting table, furnace), so a one-off !craftRecipe takes back
-    // the table it placed while anything else it builds stays protected. Such
-    // an entry goes into the finished record, or, before the first task, stays
-    // in memory until a record exists.
-    onBlockPlaced(newBlock) {
-        if (!newBlock?.position) return;
-        const active = this.record?.status === 'active';
-        if (!active && !isStationBlock(newBlock.name)) return;
-        const entry = ledgerEntry(newBlock, active ? this.record.id : null, this.now());
-        this.ledger.set(posKey(entry.pos), entry);
-        if (!this.record) { this.loose.push(entry); return; }
-        this.record.placements.push(entry);
-        this.write();
+    onOwnerMessage(username, message) {
+        if (!this.fromOwner(username)) return;
+        this.lastOwnerMessage = { username, message, at: this.now() };
+        this.keepOnStop(username, message);
+    }
+
+    // REQ-OWN-9: an owner !stop keeps the sweep's rest at once, parsed with the
+    // command parser handleMessage uses; stopping stays with !stop.
+    keepOnStop(username, message) {
+        if (!this.fromOwner(username)) return;
+        try {
+            if (typeof message === 'string' && containsCommand(message) === '!stop') this.tidy?.keep('owner !stop');
+        } catch (err) {
+            console.error('[work] could not keep the scaffold on the owner\'s !stop:', err?.message ?? err);
+        }
+    }
+
+    // REQ-OWN-8: the modes carry calls this at the end of every mode action.
+    onModeEnd(name, codeReturn) {
+        this.tidy?.onModeEnd(name, codeReturn);
     }
 
     onDeath() {
@@ -395,8 +599,14 @@ export class Work {
         this.write();
     }
 
+    // The in-task sweep flag belongs to its task (REQ-OWN-8).
+    endTidyFlag() {
+        if (this.runner) this.runner.tidyAfterMode = null;
+    }
+
     cancel(reason) {
         setStatus(this.record, 'cancelled', reason);
+        this.endTidyFlag();
         this.record.goal = null;
         this.goalEpoch++;
         this.releaseResume();
@@ -440,8 +650,62 @@ export class Work {
         } else setTimeout(post, 0);
     }
 
+    // REQ-REC-12: code asks the owner; the task is blocked(awaiting_owner) with
+    // no model call and no timeout. The question goes to the owner directly and
+    // into history, so the model knows it is open.
+    askOwner(step, ask) {
+        const record = this.record;
+        record.pending_question = newQuestion(ask, this.now());
+        setStatus(record, 'blocked', 'awaiting_owner');
+        step.status = 'blocked';
+        this.releaseResume();
+        this.log(`asked the owner (${ask.kind}): ${ask.text}`);
+        this.write();
+        this.disarming.clear();   // a turn that spoke before this question is not why it is re-posted
+        this.postQuestion();
+    }
+
+    // The agent.js interception, before the model (REQ-REC-12): true when the
+    // owner's message answered the open question and was consumed. Only the
+    // owner's own chat answers; anything else goes on to the model and the
+    // question stays open.
+    answerQuestion(source, message) {
+        const record = this.record;
+        const question = record?.pending_question;
+        if (!question || record.status !== 'blocked') return false;
+        const owner = record.requested_by ?? this.owner();
+        if (!owner || source !== owner) return false;
+        // Only an armed question takes an answer: until code has posted it
+        // again after the bot's last other words, a yes may answer those
+        // (guardTurns).
+        if (this.armed !== question.id) return false;
+        const answer = parseAnswer(message, question.options);
+        if (!answer) {
+            this.settle(this.disarm());   // goes to the model; re-posted after this turn
+            return false;
+        }
+        const step = record.plan[record.cursor];
+        const outcome = STEPS[step.skill].answer?.(this.runner.ctx(), step, question, answer) ?? {};
+        record.pending_question = null;
+        this.log(`the owner answered ${question.kind}: ${answer}`);
+        const line = `Asked the owner: "${question.text}" The owner answered: ${answer}.`;
+        this.agent.history.add('system', line).then(() => this.agent.history.save())
+            .catch(err => console.error('[work] could not save the answered question:', err?.message ?? err));
+        if (outcome.cancel) {
+            this.cancel(outcome.cancel);
+            return true;
+        }
+        step.status = 'pending';
+        setStatus(record, 'active');
+        this.activate();
+        this.write();
+        this.scheduleRun();
+        return true;
+    }
+
     finishDone() {
         setStatus(this.record, 'done');
+        this.endTidyFlag();
         this.releaseResume();
         this.log('done');
         this.write();
@@ -459,6 +723,7 @@ export class Work {
 
     fail(reason) {
         setStatus(this.record, 'failed', reason);
+        this.endTidyFlag();
         this.releaseResume();
         this.log(`failed: ${reason}`);
         const report = failedReport(this.record, this.agent.bot);
@@ -467,18 +732,52 @@ export class Work {
         this.postReport(report);
     }
 
-    // A fact report needs no model call: it goes to the owner and into history.
+    // A fact report needs no model call: it goes into history and to the
+    // owner, whole, as chat lines (report.js chatLines).
     postReport(report, then = null) {
         setTimeout(async () => {
-            this.agent.openChat(report);
-            await this.agent.history.add('system', report);
-            await this.agent.history.save();
+            try {
+                await this.deliver(report);
+            } catch (err) {
+                console.error('[work] could not post a report:', err?.message ?? err);
+            }
             then?.();
         }, 0);
     }
 
-    planContext() {
-        return { bot: this.agent.bot, owner: this.owner(), config: this.config };
+    // Lines of one report are paced, so a long one does not trip the
+    // server's chat-spam kick (vanilla: +20 a message, -1 a tick, kick above 200).
+    // All of it goes through one queue with one next-send time, so two
+    // deliveries never interleave or send faster than one line a gap. False
+    // when `current` stopped it.
+    async deliver(report, current = () => true) {
+        await this.agent.history.add('system', report);
+        await this.agent.history.save();
+        const lines = chatLines(report);
+        const job = this.outbox.then(async () => {
+            for (const line of lines) {
+                const wait = this.nextSend - Date.now();
+                if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+                if (this.disposed || !current()) return false;
+                await this.agent.openChat(line);
+                this.nextSend = Date.now() + this.lineGapMs;
+            }
+            return true;
+        });
+        this.outbox = job.catch(() => {});
+        return job;
+    }
+
+    // REQ-PLAN-8: the anchor is frozen before validation, which uses it.
+    planContext(anchor = null) {
+        const ctx = { bot: this.agent.bot, owner: this.owner(), config: this.config };
+        ctx.anchor = anchor ?? resolvePosition(ctx, 'here');
+        return ctx;
+    }
+
+    // What the steps state about themselves in the confirmation (REQ-CLR-4).
+    statements(steps) {
+        return steps.map(s => STEPS[s.skill].describe?.(s.args)).filter(Boolean).map(text => ` ${text}`).join('');
     }
 
     activate() {
@@ -513,20 +812,19 @@ export class Work {
             this.log('superseded by a new task');
             this.write();
         }
+        this.endTidyFlag();
         const owner = ctx.owner;
         const request_text = this.lastOwnerMessage && this.lastOwnerMessage.username === owner ? this.lastOwnerMessage.message : null;
-        const placements = carryStations({ structures: old?.structures, placements: [...(old?.placements || []), ...this.loose] }, this.agent.bot);
-        this.loose = [];
         const record = newRecord({
             objective: String(objective), request_text, requested_by: owner,
-            anchor: resolvePosition(ctx, 'here'), steps, placements, now: this.now(),
+            anchor: ctx.anchor, steps, now: this.now(),
         });
         this.adopt(record);
         this.activate();
         this.write();
         this.log(`started: "${record.objective}" with ${steps.length} step(s)`);
         this.scheduleRun();
-        return { ok: true, message: `Task started: "${record.objective}" (${steps.length} step${steps.length === 1 ? '' : 's'}).` };
+        return { ok: true, message: `Task started: "${record.objective}" (${steps.length} step${steps.length === 1 ? '' : 's'}).${this.statements(steps)}` };
     }
 
     // !taskRevise (REQ-PLAN-6): replace the steps from from_step on; done steps
@@ -539,13 +837,23 @@ export class Work {
         if (!Number.isInteger(fromStep) || fromStep < firstEditable || fromStep > record.plan.length + 1)
             return { ok: false, message: `!taskRevise refused: from_step must be ${firstEditable === record.plan.length + 1 ? firstEditable : `${firstEditable} to ${record.plan.length + 1}`} (earlier steps are done)` };
         const kept = record.plan.slice(0, fromStep - 1);
-        const ctx = this.planContext();
+        const ctx = this.planContext(record.anchor);
         const { steps, errors } = planFromText(ctx, stepsText, { offset: fromStep - 1, maxSteps: Infinity });
         if (kept.length + steps.length > this.config.max_steps) errors.push(`more than ${this.config.max_steps} steps`);
         if (errors.length) return { ok: false, message: refusal('!taskRevise', errors) };
+        // REQ-REC-12: a revision that keeps the step that asked the owner leaves
+        // the question open and the task blocked(awaiting_owner); one that
+        // replaces that step drops the question (a new clear step asks its own).
+        const waiting = Boolean(record.pending_question) && fromStep - 1 > record.cursor;
         record.plan = [...kept, ...steps.map((s, i) => newStep(fromStep + i, s.skill, s.args))];
+        if (waiting) {
+            this.write();
+            this.log(`revised from step ${fromStep}; still waiting for the owner's answer`);
+            return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} steps. Still waiting for the owner's yes or no.${this.statements(steps)}` };
+        }
         record.cursor = record.plan.findIndex(s => s.status !== 'done');
         if (record.cursor === -1) record.cursor = record.plan.length;
+        record.pending_question = null;
         if (record.status !== 'active') setStatus(record, 'active');
         this.activate();
         this.write();
@@ -554,7 +862,7 @@ export class Work {
         // plan generation changed) and a run of the new plan starts.
         if (this.runner.executing && this.agent.actions.currentActionLabel === 'action:task') await this.agent.actions.stop();
         this.scheduleRun();
-        return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} step${record.plan.length === 1 ? '' : 's'}.` };
+        return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} step${record.plan.length === 1 ? '' : 's'}.${this.statements(steps)}` };
     }
 
     async pauseTask() {
@@ -568,6 +876,9 @@ export class Work {
         const record = this.record;
         if (record?.status !== 'paused' && record?.status !== 'blocked')
             return { ok: false, message: record?.status === 'active' ? 'The task is already running.' : 'No paused or blocked task to resume.' };
+        // REQ-REC-12: no command answers an owner question, from the model or
+        // the owner alike.
+        if (record.pending_question) return { ok: false, message: "!taskResume refused: waiting for the owner's yes or no; only the owner can answer" };
         const step = record.plan[record.cursor];
         if (step) {
             step.status = 'pending';

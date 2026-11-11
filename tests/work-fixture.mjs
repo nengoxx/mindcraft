@@ -65,6 +65,12 @@ export const modules = {
     plan: await import('../src/agent/work/plan.js'),
     resolve: await import('../src/agent/work/resolve.js'),
     protect: await import('../src/agent/work/protect.js'),
+    ledger: await import('../src/agent/work/ledger.js'),
+    dig: await import('../src/agent/work/dig.js'),
+    clear: await import('../src/agent/work/steps/clear.js'),
+    tidy: await import('../src/agent/work/tidy.js'),
+    report: await import('../src/agent/work/report.js'),
+    ask: await import('../src/agent/work/ask.js'),
     runner: await import('../src/agent/work/runner.js'),
     view: await import('../src/agent/work/view.js'),
     pf: (await import('mineflayer-pathfinder')).default,
@@ -126,7 +132,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.game = { dimension: 'overworld', gameMode: 'survival' };
     bot.output = '';
     bot.interrupt_code = false;
-    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, type: 'player', username: 'fixture' };
+    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
     bot.players = {};
     bot.entities = {};
     bot.heldItem = null;
@@ -164,6 +170,12 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     for (const [name, count] of Object.entries(inventory)) bot.give(name, count);
 
     bot.blockAt = pos => world.block(pos);
+    // A block change the client sees: Mineflayer's blockUpdate (old, new).
+    bot.setBlock = (x, y, z, name, props) => {
+        const old = world.block(new Vec3(x, y, z));
+        world.set(x, y, z, name, props);
+        bot.emit('blockUpdate', old, world.block(new Vec3(x, y, z)));
+    };
     bot.findBlocks = ({ matching, maxDistance = 16, count = 1, point }) => {
         const origin = point ?? bot.entity.position;
         const test = typeof matching === 'function' ? matching
@@ -240,8 +252,17 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     };
     // mineflayer digging.js:216-219: death drops every diggingCompleted listener.
     bot.on('death', () => bot.removeAllListeners('diggingCompleted'));
-    bot.dig = async block => { world.set(block.position.x, block.position.y, block.position.z, 'air'); bot.emit('diggingCompleted', block); };
-    bot.stopDigging = () => {};
+    // mineflayer digging.js:160: the predicted air is a blockUpdate, then diggingCompleted.
+    // digging.js:167-192: stopDigging cancels the dig in progress ('Digging aborted').
+    bot.dig = async (block, forceLook) => {
+        bot.calls.push(['dig', block.name, block.position.toString(), forceLook]);
+        bot.digStopped = false;
+        if (bot.hooks.dig) await bot.hooks.dig(block);
+        if (bot.interrupt_code || bot.digStopped) throw new Error('Digging aborted');
+        bot.setBlock(block.position.x, block.position.y, block.position.z, 'air');
+        bot.emit('diggingCompleted', block);
+    };
+    bot.stopDigging = () => { bot.digStopped = true; };
     bot.clearControlStates = () => {};
     bot.setControlState = () => {};
     bot.chat = msg => bot.calls.push(['chat', msg]);
@@ -269,8 +290,10 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
         getPathTo: () => ({ status: bot.hooks.noPath ? 'noPath' : 'success', path: [] }),
         goto: async goal => {
             bot.calls.push(['goto', goal.constructor.name]);
-            if (bot.hooks.goto) await bot.hooks.goto(goal);
+            // A hook that moved the bot itself returns 'moved'.
+            const moved = bot.hooks.goto ? await bot.hooks.goto(goal) : null;
             if (bot.interrupt_code) { const err = new Error('Path was stopped'); err.name = 'PathStopped'; throw err; }
+            if (moved === 'moved') return;
             if (goal.entity) bot.entity.position = goal.entity.position.clone();
             else if (goal.goal) bot.entity.position = bot.entity.position.offset(10, 0, 0); // GoalInvert: move away
             else if (goal.x !== undefined) bot.entity.position = new Vec3(goal.x + 0.5, goal.y, goal.z + 0.5);
@@ -319,7 +342,7 @@ export function makeAgent({ bot = makeBot(), modes = {}, work = {}, replies = []
         cancelCoding: () => {},
     };
     agent.openChat = message => agent.chats.push(message);
-    agent.routeResponse = (to, message) => agent.chats.push(message);
+    agent.routeResponse = (to, message) => agent.openChat(message);   // agent.js:422: replies to a player go through openChat
     agent.model_outage = new modules.outage.ModelOutage(agent, modules.config.loadWorkConfig(work)); // agent.js init
     agent.checkTaskDone = async () => {};
     agent.cleanKill = msg => { agent.killed = msg; };
@@ -373,13 +396,23 @@ export function readRecord(agent) {
     return JSON.parse(fs.readFileSync(recordFile(agent), 'utf8'));
 }
 
+// A fresh start: no task record and no placements ledger.
 export function clearRecord(agent) {
     fs.rmSync(recordFile(agent), { force: true });
+    fs.rmSync(ledgerFile(agent), { force: true });
+}
+
+export function ledgerFile(agent) {
+    return modules.ledger.ledgerPath(agent.name);
+}
+
+export function readLedger(agent) {
+    return JSON.parse(fs.readFileSync(ledgerFile(agent), 'utf8'));
 }
 
 // Run the agent's command parser on an owner-typed (forced) command.
 export async function ownerSays(agent, message, source = OWNER) {
-    return modules.Agent.prototype.handleMessage.call(agent, source, message);
+    return agent.handleMessage(source, message);   // the work layer may wrap it (Work.guardTurns)
 }
 
 // Dispose every work instance and release hooks that wait for an interrupt.

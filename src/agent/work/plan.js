@@ -1,6 +1,7 @@
 import obtain from './steps/obtain.js';
 import go_to from './steps/go_to.js';
 import give from './steps/give.js';
+import clear, { parseBox } from './steps/clear.js';
 
 // The step DSL of the I1 text commands (SPEC §12.0, REQ-TRN-14/15) and plan
 // validation (§8.3). Errors are collected, never thrown, and come back together
@@ -11,7 +12,7 @@ export const DSL_MAX_CHARS = 1000; // a constant, SPEC §14
 // The step registry (REQ-PLAN-3): a new skill is a new entry, the record keeps
 // only `skill` + `args`. `build` is known to the grammar so its keys parse, but
 // it has no handler until the shelter slice (S3) registers one.
-export const STEPS = { obtain, go_to, give };
+export const STEPS = { obtain, go_to, give, clear };
 const BUILD_KEYS = {
     what: { type: 'words', required: true },
     source: { type: 'source' },
@@ -25,6 +26,7 @@ const GRAMMAR = {
     obtain: obtain.keys,
     go_to: go_to.keys,
     give: give.keys,
+    clear: clear.keys,
     build: BUILD_KEYS,
 };
 const SKILL_NAMES = Object.keys(GRAMMAR);
@@ -155,6 +157,17 @@ function convert(ctx, n, key, spec, value, errors) {
         case 'item':
             if (!knownName(ctx.bot, value)) { errors.push(`step ${n}: unknown item or block '${value}'`); return undefined; }
             return value;
+        case 'block':
+            if (!has(ctx.bot.registry.blocksByName, value)) { errors.push(`step ${n}: unknown item or block '${value}'`); return undefined; }
+            return value;
+        case 'box': {
+            const box = parseBox(value);
+            if (!box) errors.push(`step ${n}: bad box '${value}' (use x1,y1,z1:x2,y2,z2)`);
+            return box ?? undefined;
+        }
+        case 'shell':
+            if (value !== 'keep' && value !== 'clear') { errors.push(`step ${n}: unknown shell '${value}' (use keep or clear)`); return undefined; }
+            return value;
         case 'count': {
             if (!INTEGER.test(value)) { errors.push(`step ${n}: '${value}' is not a number`); return undefined; }
             const count = Number(value);
@@ -192,7 +205,8 @@ function convert(ctx, n, key, spec, value, errors) {
 }
 
 // Typed arguments, frozen positions and each step's own checks (REQ-PLAN-4).
-// ctx: {bot, owner, config}.
+// ctx: {bot, owner, config, anchor}; `anchor` is the task's frozen anchor
+// (REQ-PLAN-8), which the clear step's marker search and distance cap use.
 export function validateSteps(ctx, parsed) {
     const errors = [];
     const steps = [];

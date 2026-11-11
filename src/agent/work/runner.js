@@ -50,6 +50,9 @@ export class Runner {
         this.worldEvents = 0;
         this.executing = false;
         this.afterRun = null;
+        // REQ-OWN-8: mode labels whose scaffold the next unit sweeps (set by
+        // Tidy.afterMode during a live task); cleared when that sweep completes.
+        this.tidyAfterMode = null;
         // A stable function identity: resume_func === runFn means "ours".
         this.runFn = async () => { await this.run(); };
         const bump = () => { this.worldEvents++; };
@@ -64,7 +67,7 @@ export class Runner {
     get config() { return this.work.config; }
 
     ctx() {
-        return { bot: this.bot, agent: this.agent, config: this.config, call: (label, fn) => this.call(label, fn),
+        return { bot: this.bot, agent: this.agent, config: this.config, anchor: this.work.record?.anchor ?? null, call: (label, fn) => this.call(label, fn),
             checkpoint: () => this.work.write() };
     }
 
@@ -112,6 +115,7 @@ export class Runner {
         const runGeneration = work.planGeneration;
         let step = null;
         let record = null;
+        let ran = false;   // the record was active when this run started
         // A result that arrives after the task was blocked, paused, cancelled or
         // revised meanwhile is discarded (REQ-RES-16).
         const current = () => record != null && work.record === record && record.status === 'active' && work.planGeneration === runGeneration;
@@ -122,6 +126,7 @@ export class Runner {
                 work.releaseResume();
                 return;
             }
+            ran = true;
             work.protector.newRun();
             step = record.plan[record.cursor];
             // Progress exists from the first run on, so a refusing resume check
@@ -148,6 +153,21 @@ export class Runner {
                     work.save();
                     return;
                 }
+                // REQ-OWN-8: scaffold a mode placed during the task is swept at
+                // the start of the next unit, only that (the task's own access
+                // scaffold stays until the task ends).
+                if (this.tidyAfterMode) {
+                    const labels = this.tidyAfterMode;
+                    let swept = null;
+                    try {
+                        swept = await work.tidy.run('after a mode, in the task', { only_by: labels });
+                    } catch (err) {
+                        // Not the step's failure; the flag goes, so it cannot repeat every unit.
+                        console.error('[work] the in-task tidy sweep failed:', err);
+                    }
+                    if (this.interrupted() || !current()) return;
+                    if ((!swept || !swept.ended) && this.tidyAfterMode === labels) this.tidyAfterMode = null;
+                }
                 step = record.plan[record.cursor];
                 if (step.status === 'done') {
                     record.cursor++;
@@ -162,7 +182,9 @@ export class Runner {
                 if (handler.needsFreeSlots) {
                     const slots = await this.ensureFreeSlots(step);
                     if (this.interrupted() || !current()) return;
-                    if (slots.blocked) { work.blockStep(step, slots.blocked); return; }
+                    // 'drop-only' (the clear step): the junk drop runs, but a dig
+                    // needs no free slot, so a full inventory never blocks it.
+                    if (slots.blocked && handler.needsFreeSlots !== 'drop-only') { work.blockStep(step, slots.blocked); return; }
                 }
                 if (step.skill === 'obtain') {
                     if (!step.work_pos) step.work_pos = floored(this.bot.entity.position, this.bot.game?.dimension);
@@ -199,6 +221,20 @@ export class Runner {
                 }
                 if (result.blocked) {
                     work.blockStep(step, result.blocked);
+                    return;
+                }
+                if (result.ask) {
+                    // REQ-REC-12: blocked(awaiting_owner), no model call.
+                    work.askOwner(step, result.ask);
+                    return;
+                }
+                if (result.wait) {
+                    // The step cannot work here now: the run ends as a refusing
+                    // resume check does, with no model call; the next idle
+                    // retries it and the stall rule bounds it.
+                    step.progress.last_cause = result.wait;
+                    work.log(`step ${step.n} waits: ${result.wait}`);
+                    work.save();
                     return;
                 }
                 if (result.failed) {
@@ -244,6 +280,15 @@ export class Runner {
             const post = this.afterRun;
             this.afterRun = null;
             if (post) setTimeout(post, 0);
+            // REQ-OWN-8: the task-end sweep, scheduled here (every run, resumed
+            // ones too, passes through) and never awaited.
+            if (ran && work.record === record && (record.status === 'done' || record.status === 'failed')) {
+                try {
+                    work.tidy?.scheduleTaskEnd(record);
+                } catch (err) {
+                    console.error('[work] could not schedule the task-end tidy:', err);
+                }
+            }
         }
     }
 
