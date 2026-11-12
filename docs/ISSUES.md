@@ -117,13 +117,27 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2d fix slice, 2026-11-12 (probes and F1 fix)
+
+Two live probes with temporary logging in Mineflayer's placement plugin (untracked
+`node_modules`, restored afterwards), on the real routine. Receipts:
+`runtime/diagnostics/i1-build/s2dfix-review/probe-receipts.txt`.
+
+| Finding | Result |
+|---|---|
+| F1 | **Root cause proven and fixed.** `placeBlock` resolved on the foot cell's update at +724 ms; `place()` ran its whole-bed check at once and failed; the head cell's update arrived at +725 ms. Fix: `place()` waits for the whole bed for up to `SLEEP.lateMs` before failing the try. The test fixture now sends the head after the foot, as the server does (the old code then failed 6 of 42 sleep tests). |
+| F2 | **Not reproduced; the first theory is false.** Two pickups by day and after a night: the item spawned at the head cell at +83–89 ms, `getDroppedItem()` named it `white_bed` at +101 ms, and contact pickup took it at +543 and +936 ms. On N3 the routine's action output shows two walks, so `drop()` did see the item and she walked to it; after the 1 s settle it was not in her bag, and minutes later standing in the foot cell picked nothing up: the item had gone. Cause open (a mob taking it at dawn is one rival); no fix without evidence. |
+| F3 | Closed with F1: its trigger was the failed first try that left the bed placed. A genuinely non-whole bed still stays placed (the pickup's `not whole` veto, by design a soft refusal). |
+
+Residual (review, LOW): the head wait does not check for an interrupt, so a `!stop` right after a malformed placement waits up to 2 s more before the pickup (far inside the 10 s stop watchdog); checking it would bring the failed first try back on an interrupt.
+
 ### S2d live trials, 2026-11-12 morning (an Opus trial lane acting as the owner)
 
 Deployed `17ebb09` by an agent restart. Six nights, stopped early on night 6 by an
 agent crash (F4). Report and receipts:
 `runtime/diagnostics/i1-build/s2d-review/s2d-live-trials-report.md`. On every night
 the sleep made 0 model calls and the night skipped about 5 s after she lay down.
-**S2d does not pass its live acceptance yet: a fix slice comes first (F1, F2).**
+**S2d does not pass its live acceptance yet: a fix slice comes first (F1, F2).** (F1 fixed and F2 probed in the fix slice above.)
 
 | Trial | Result |
 |---|---|
