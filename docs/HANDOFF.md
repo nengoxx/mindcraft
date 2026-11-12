@@ -28,8 +28,10 @@
 - **The owner's gear** (copies, ours to use): she wears his epic leather chestplate, leggings and boots (diamond-level
   armour values, Protection V, unbreakable) and carries his epic iron axe (damage 9 + Sharpness VII, attack speed 4,
   Looting III, unbreakable). His epic iron pickaxe (tool speed 9 on all pickaxe blocks, Efficiency V, Silk Touch,
-  unbreakable) stays in his chest at -475 71 1800 with her diamond sword (it may be thrown away). He will give her a
-  copy without Silk Touch (a `/give` was suggested to him). Item dump: `~/.cache/tmp/s2efu/probe/chest.txt`.
+  unbreakable) stays in his chest at -475 71 1800 with her diamond sword (it may be thrown away). He gave her a copy
+  without Silk Touch (epic, unbreakable, Efficiency V, tool speed 9); a second copy went to the chest. Her own tools,
+  for the ranking: diamond pickaxe unbreakable, no enchantments (his earlier gift); diamond axe Sharpness V,
+  Efficiency V, Mending, Unbreaking III (not unbreakable). Item dump: `~/.cache/tmp/s2efu/probe/chest.txt`.
 - **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): the private profile's
   `modes.sleeping` is `false` (backup `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Back on only on
   his word.
