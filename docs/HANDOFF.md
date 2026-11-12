@@ -13,8 +13,13 @@
   profile's `modes.sleeping` is `false` (applied live with `live.mjs set`; backup
   `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Turn it back on only on his word (`true`, then
   `live.mjs settings`/`set`).
-- Her bag is at 33 of 36 slots with nothing left on the list to drop, so a task that needs slots blocks as "full of
-  things I keep" until something goes (the chest, part B, is parked).
+- **One stack for now** (the owner's ask, temporary, no code change): the private profile's `work.inventory.items`
+  sets `gunpowder`, `ender_pearl`, `iron_ingot`, `carrot`, `grass_block` to `"stack"` (applied live); which items get
+  more than one stack is for later. The trial clutter was discarded; she is at 21 of 36 slots.
+- Owner asks still open: prefer his own gear (epic rarity, unbreakable, enchanted, with lore) when she picks a weapon
+  or tool, with nuance (silk touch not for stone); his axe has the highest attack speed, not the highest damage, so
+  today's choice by attack damage would not pick it. Coming back after a far respawn ("come to me" needs him within
+  sight range; the End needs portal coordinates) is not built: a survival/navigation topic.
 - The operator is running (a background job of this session, log `runtime/logs/operator-start-20261112c.log`); the
   running agent process still holds the P16 probe hook in memory (inert; the file is restored, it goes at the next
   restart). In the world: a one-deep pit at -480 69 1815 and a two-deep hole at -473 68..69 1814 (trials and P16).
