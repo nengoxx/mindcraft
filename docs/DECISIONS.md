@@ -256,3 +256,8 @@ The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials
   B stays parked until the owner's word; this need goes with it.
 - **Best one, period.** Of bows and of crossbows she keeps exactly one, the best; every other
   one is dropped, enchanted or not.
+- **Idle in a deeper pit** (2026-11-12, later). An idle pass's walk places no blocks: idle in a two-deep pit she waits
+  until something moves her (rare). In a task she may climb out.
+- **One slot of the best** for ominous bottles and banners: of their variants that do not stack together (bottle
+  strengths, banner patterns) she keeps one slot, the best (for bottles the strongest), and drops the rest. Other
+  items keep the count rule.
