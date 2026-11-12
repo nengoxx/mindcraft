@@ -117,6 +117,12 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2e build (inventory upkeep), 2026-11-12
+
+| Finding | Status |
+|---|---|
+| G1 (junk design r7 §3, found by the adversary in code): the shipped in-task junk drop looked with `bot.lookAt(…, true)`, which only sets the yaw to be sent with the next physics tick (mineflayer physics.js:345-371), and its toss clicks could go out first, so a toss could fly the way she was already looking (not every toss). | **Open until S2e is deployed and its trial passes** (design r7 §8; S2e review ruling 12). Fixed offline by the S2e look fix: the shared dropper looks level at a point 3 blocks out along a free cardinal at her eye height, waits 2 ticks and re-checks before the first toss (`work/inventory.js` `dropItems`; test "the look, then 2 ticks, then the first toss …"). Probe P15 (PLAN §4, `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) confirmed the cause and the fix with `bot.toss`: without the wait the toss flew the old way; with it 3.1–3.2 blocks ahead. The one-slot `bot.transfer` path the dropper uses is checked by the trial. |
+
 ### Operator: the proxy after a server restart, 2026-11-12
 
 | Finding | Effect | Idea |

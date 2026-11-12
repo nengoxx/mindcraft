@@ -13,6 +13,7 @@ import { Ledger, ledgerPath } from './ledger.js';
 import { clearScope } from './steps/clear.js';
 import { Tidy } from './tidy.js';
 import { Sleeper, SLEEP_LABELS } from './sleep.js';
+import { Upkeep, ITEMS_LABEL } from './inventory.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
 import { stepResult, doneReport, doneLine, blockedReport, blockedAgainLine, deathLine, failedReport, goalStopped, chatLines } from './report.js';
@@ -55,7 +56,10 @@ export class Work {
         this.ledger = null;      // the placements ledger (ledger.js, REQ-OWN-1)
         this.tidy = null;        // tidying the bot's own scaffold (tidy.js, REQ-OWN-7 … 10)
         this.sleeper = null;     // sleeping through the night (sleep.js, REQ-SLP-1 … 10)
+        this.items = null;       // the idle inventory cleanup (inventory.js, REQ-OBT-11)
         this.lastStart = null;   // {label, voice, goal}: the last action started (the runAction wrap)
+        this.liveTurns = new Set();  // every handleMessage call in flight (guardTurns; the cleanup's turn count)
+        this.ownerGeneration = 0;    // bumped by every owner message (the cleanup's currency)
         this.stallHeld = false;  // the stall clock's hold while she sleeps (REQ-RES-16)
         this.planGeneration = 0;
         this.goalEpoch = 0;
@@ -124,6 +128,9 @@ export class Work {
         this.disposers.push(() => this.tidy.dispose());
         this.sleeper = new Sleeper(this);
         this.disposers.push(() => this.sleeper.dispose());
+        // REQ-OBT-11: the item names against the registry; a bad list is told once.
+        this.items = new Upkeep(this);
+        this.items.check();
         this.adopt(record);
         // REQ-REC-7/9: a crash restart is init_message 'Agent process restarted.'
         // with no clean_stop; anything else is a fresh start. clean_stop is
@@ -229,6 +236,7 @@ export class Work {
         if (typeof respondFunc !== 'function') return;
         const work = this;
         const wrapped = function (username, message, ...rest) {
+            if (work.fromOwner(username)) work.ownerGeneration++;
             work.keepOnStop(username, message);
             return respondFunc.call(this, username, message, ...rest);
         };
@@ -313,10 +321,14 @@ export class Work {
             const model = owner && !(typeof message === 'string' && containsCommand(message))
                 && Boolean(agent.self_prompter?.isActive());
             const turn = { done: false, chats: 0, voice, ownerTask: alert && handoff.ownerTask, shown: 0, model };
+            // REQ-OBT-11: every turn in flight, counted synchronously on entry;
+            // `turn.action` is the last action started inside it (onActionStart).
+            work.liveTurns.add(turn);
             return turns.run(turn, async () => {
                 try {
                     return await handleMessage.apply(this, args);
                 } finally {
+                    work.liveTurns.delete(turn);
                     turn.done = true;
                     if (voice === 'owner') work.answerPending = turn.model && turn.shown === 0;
                     work.settle(turn);
@@ -574,16 +586,21 @@ export class Work {
 
     onOwnerMessage(username, message) {
         if (!this.fromOwner(username)) return;
+        this.ownerGeneration++;
         this.lastOwnerMessage = { username, message, at: this.now() };
         this.keepOnStop(username, message);
     }
 
     // REQ-OWN-9: an owner !stop keeps the sweep's rest at once, parsed with the
     // command parser handleMessage uses; stopping stays with !stop.
+    // REQ-OBT-11: during an item pass it also holds the idle cleanup.
     keepOnStop(username, message) {
         if (!this.fromOwner(username)) return;
         try {
-            if (typeof message === 'string' && containsCommand(message) === '!stop') this.tidy?.keep('owner !stop');
+            if (typeof message === 'string' && containsCommand(message) === '!stop') {
+                this.items?.onOwnerStop();
+                this.tidy?.keep('owner !stop');
+            }
         } catch (err) {
             console.error('[work] could not keep the scaffold on the owner\'s !stop:', err?.message ?? err);
         }
@@ -597,6 +614,9 @@ export class Work {
     // Every action start (the runAction wrap, guardActions).
     onActionStart(label, fn, opts) {
         this.lastStart = { label, voice: this.turnVoice(), goal: Boolean(this.agent.self_prompter?.isActive()) };
+        // REQ-OBT-11 (C-F1): the turn an action starts in stays open while it runs.
+        const store = turns.getStore();
+        if (store && store !== QUESTION && !store.done) store.action = { label, fn };
         this.tidy?.onActionStart(label);
         try {
             this.sleeper?.onActionStart(label, fn, opts);
@@ -606,9 +626,10 @@ export class Work {
     }
 
     // The actions a mode may cut without a model call (the modes carry,
-    // REQ-OWN-8, REQ-SLP-9): the tidy sweep, the sleep routine, the bed pickup.
+    // REQ-OWN-8, REQ-SLP-9, REQ-OBT-11): the tidy sweep, the sleep routine,
+    // the bed pickup, the item cleanup.
     isQuietAction(label) {
-        return label === 'action:tidy' || SLEEP_LABELS.has(label);
+        return label === 'action:tidy' || SLEEP_LABELS.has(label) || label === ITEMS_LABEL;
     }
 
     // REQ-CHAT-2: her death is one code `alert` line; the model's turn for it
@@ -685,6 +706,12 @@ export class Work {
             this.sleeper?.reconcile();
         } catch (err) {
             console.error('[sleep] the bed check failed:', err);
+        }
+        // REQ-OBT-11: the idle item cleanup, after the bed (bed pickup > tidy > items).
+        try {
+            this.items?.tick();
+        } catch (err) {
+            console.error('[items] the cleanup check failed:', err);
         }
         const record = this.record;
         if (record?.status !== 'active') { this.idleSince = null; return; }

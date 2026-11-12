@@ -70,6 +70,7 @@ export const modules = {
     clear: await import('../src/agent/work/steps/clear.js'),
     tidy: await import('../src/agent/work/tidy.js'),
     sleep: await import('../src/agent/work/sleep.js'),
+    inventory: await import('../src/agent/work/inventory.js'),
     report: await import('../src/agent/work/report.js'),
     ask: await import('../src/agent/work/ask.js'),
     runner: await import('../src/agent/work/runner.js'),
@@ -143,7 +144,8 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.game = { dimension: 'overworld', gameMode: 'survival', hashedSeed: i64(0x123456789abcdef0n) };
     bot.output = '';
     bot.interrupt_code = false;
-    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
+    bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, eyeHeight: 1.62, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
+    bot.quickBarSlot = 0;   // the selected hotbar slot: inventory slot 36
     bot.players = {};
     bot.entities = {};
     bot.heldItem = null;
@@ -235,8 +237,24 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
         bot.heldItem = bot.inventory.items().find(s => block.harvestTools?.[s.type]) || null;
     } };
     bot.armorManager = { equipAll() {} };
-    bot.lookAt = async (pos) => { bot.calls.push(['lookAt', pos.clone()]); };
+    bot.lookAt = async (pos, force) => { bot.calls.push(['lookAt', pos.clone(), force]); bot.looking = pos.clone(); };
     bot.look = async () => {};
+    bot.waitForTicks = async ticks => { bot.calls.push(['waitForTicks', ticks]); await new Promise(resolve => setTimeout(resolve, 0)); };
+    // Mineflayer's transfer to slot -999 from one source slot (a toss of that
+    // slot only; inventory.js:279-372): the item lands where she looks, at her feet.
+    bot.transfer = async ({ itemType, count, sourceStart, sourceEnd, destStart }) => {
+        if (destStart !== -999 || sourceEnd !== sourceStart + 1) throw new Error('fixture: only a one-slot toss');
+        const s = slots[sourceStart];
+        if (!s || s.type !== itemType || s.count < count) throw new Error(`Can't find item ${itemType} in slots [${sourceStart} - ${sourceEnd}]`);
+        const name = s.name;
+        s.count -= count;
+        if (!s.count) slots[sourceStart] = null;
+        bot.calls.push(['toss', name, count, sourceStart]);
+        const id = entityIds++;
+        const at = bot.looking ? new Vec3(bot.looking.x, bot.entity.position.y, bot.looking.z) : bot.entity.position.offset(1, 0, 0);
+        bot.entities[id] = { id, name: 'item', type: 'object', position: at, getDroppedItem: () => ({ name, count }) };
+        if (bot.hooks.toss) bot.hooks.toss(name, count, bot.entities[id]);
+    };
     bot.toss = async (type, meta, count) => {
         const name = registry.items[type].name;
         bot.take(name, count);

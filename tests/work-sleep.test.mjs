@@ -864,7 +864,7 @@ test('the pickup is launched only with 2 free slots: fewer, the bed stays placed
     const { bot } = agent;
     const runs = timeouts(agent);
     placedBed(agent, 2, 64, 3);
-    for (let i = 0; i < 35; i++) bot.give('dirt', 64);   // 1 free slot
+    for (let i = 0; i < 35; i++) bot.give('oak_planks', 64);   // 1 free slot (kept items: the item cleanup frees nothing)
     stops.push(F.drive(agent));
     const line = 'My bag is too full to take my bed back (2 free slots needed); it stays at 2, 64, 3.';
     await F.until(() => agent.chats.includes(line));
@@ -874,15 +874,52 @@ test('the pickup is launched only with 2 free slots: fewer, the bed stays placed
     assert.equal(myBeds(agent).length, 1);
     assert.equal(agent.actions.currentActionLabel, '');
     assert.equal(agent.chats.filter(c => c === line).length, 1);
-    bot.take('dirt', 64);   // 2 free slots
+    bot.take('oak_planks', 64);   // 2 free slots
     await F.until(() => bot.count('black_bed') === 1, { timeout: 4000 });
     assert.equal(myBeds(agent).length, 0);
+});
+
+test('S2e: a bag full of junk by day: the same tick runs the item cleanup instead, which frees the room, and the bed pickup follows', async () => {
+    const agent = setup({ inventory: {}, server: { time: DAY }, drive: false });
+    const { bot } = agent;
+    placedBed(agent, 2, 64, 3);
+    for (let i = 0; i < 35; i++) bot.give('dirt', 64);   // 1 free slot; dirt keeps one stack
+    stops.push(F.drive(agent));
+    await F.until(() => bot.count('black_bed') === 1, { timeout: 6000 });
+    assert.equal(bot.count('dirt'), 64);
+    assert.equal(myBeds(agent).length, 0);
+    const order = bot.calls.filter(c => c[0] === 'toss' || c[0] === 'dig').map(c => c[0]);
+    assert.equal(order[0], 'toss', 'the cleanup ran first');
+    assert.equal(order.at(-1), 'dig');
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('S2e: one maintenance latch: the bed pickup does not launch while an item pass is in flight, and follows it', async () => {
+    const agent = setup({ inventory: {}, server: { time: DAY }, drive: false });
+    const { bot } = agent;
+    for (let i = 0; i < 33; i++) bot.give('oak_planks', 64);
+    bot.give('gravel', 10);   // 2 free: the cleanup is wanted and the bed pickup has room
+    let release;
+    const wait = bot.waitForTicks;
+    bot.waitForTicks = () => new Promise(resolve => { release = resolve; });
+    agent.work.items.launch(agent.work.items.admit());
+    await F.until(() => release);
+    placedBed(agent, 2, 64, 3);
+    agent.work.sleeper.reconcile();
+    assert.equal(agent.work.sleeper.latch, false, 'no bed launch under the item latch');
+    assert.equal(agent.actions.currentActionLabel, 'action:items');
+    bot.waitForTicks = wait;
+    release();
+    await F.until(() => !agent.work.items.latch);
+    assert.equal(bot.count('gravel'), 0);
+    agent.work.sleeper.reconcile();
+    await F.until(() => bot.count('black_bed') === 1, { timeout: 6000 });
 });
 
 test('the routine\'s own pickup needs only the bed\'s own slot: a full bag (P14\'s 36/36) still sleeps and takes the bed back; with that slot filled meanwhile the bed stays, told once', async () => {
     const agent = setup({ drive: false });
     const { bot } = agent;
-    for (let i = 0; i < 35; i++) bot.give('dirt', 64);   // 0 free; placing the bed frees its slot
+    for (let i = 0; i < 35; i++) bot.give('oak_planks', 64);   // 0 free; placing the bed frees its slot
     stops.push(F.drive(agent));
     await F.until(() => night(agent).done && !agent.work.sleeper.running, { timeout: 4000 });
     assert.equal(night(agent).why, 'slept');
@@ -891,8 +928,8 @@ test('the routine\'s own pickup needs only the bed\'s own slot: a full bag (P14\
     assert.equal(agent.chats.some(c => /too full/.test(c)), false);
     // The freed slot fills while she sleeps (an item picked up): the bed stays.
     const second = setup({ drive: false });
-    for (let i = 0; i < 35; i++) second.bot.give('dirt', 64);
-    second.bot.hooks.sleep = async () => { second.bot.give('cobblestone', 64); };
+    for (let i = 0; i < 35; i++) second.bot.give('oak_planks', 64);
+    second.bot.hooks.sleep = async () => { second.bot.give('stone', 64); };
     stops.push(F.drive(second));
     await F.until(() => night(second).done && !second.work.sleeper.running, { timeout: 4000 });
     assert.equal(calls(second.bot, 'dig').length, 0);
@@ -1148,7 +1185,7 @@ test('a receipt needs the launch\'s 2 free slots too; a collection with no room 
     const { bot } = agent;
     const runs = timeouts(agent);
     const sleeper = agent.work.sleeper;
-    for (let i = 0; i < 35; i++) bot.give('dirt', 64);   // 1 free
+    for (let i = 0; i < 35; i++) bot.give('oak_planks', 64);   // 1 free (kept items)
     droppedBed(bot, 3, 64, 3);
     const receipt = { pos: { x: 3, y: 64, z: 3 }, dim: 'overworld', item: 'black_bed', at: Date.now(), count: 0, ob: 'overworld:3 64 3:7' };
     sleeper.receipt = receipt;
@@ -1158,11 +1195,11 @@ test('a receipt needs the launch\'s 2 free slots too; a collection with no room 
     assert.equal(runs.some(([label]) => label === 'action:bed'), false, 'not launched');
     assert.equal(sleeper.receipt, receipt);
     // A collection that runs out of room (the bag fills meanwhile) keeps it.
-    bot.give('cobblestone', 64);   // 0 free
+    bot.give('stone', 64);   // 0 free
     assert.equal(await sleeper.collect(), 'soft');
     assert.equal(sleeper.receipt, receipt);
     assert.equal(agent.chats.some(c => /lost/.test(c)), false);
-    bot.take('dirt', 128);   // 2 free
+    bot.take('oak_planks', 128);   // 2 free
     await F.until(() => bot.count('black_bed') === 1, { timeout: 4000 });
     assert.equal(sleeper.receipt, null);
 });

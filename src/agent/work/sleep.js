@@ -5,6 +5,7 @@ import * as mc from '../../utils/mcdata.js';
 import { digCell, eyeDistance, REACH } from './dig.js';
 import { fullCube } from './tidy.js';
 import { bedLine } from './report.js';
+import { ITEMS_LABEL } from './inventory.js';
 
 // Sleeping through the night (SPEC §7.9, REQ-SLP-1 … 10; design
 // sleep-council/recommended-design.md r3 and its §14, amended by the junk
@@ -315,7 +316,9 @@ export class Sleeper {
         if (!actions.executing) return !(goal && sp.loop_active);
         const label = actions.currentActionLabel;
         if (!label || label.startsWith('mode:') || label === 'action:tidy' || label === BED_LABEL) return false;
-        if (label === 'action:task') return true;
+        // The item cleanup (S2e) is cut by sleep; the bed pickup never meets
+        // it: they share the maintenance latch (reconcile).
+        if (label === 'action:task' || label === ITEMS_LABEL) return true;
         if (actions.resume_func && label === actions.resume_name) return !goal;
         const start = this.work.lastStart;
         return goal && start?.label === label && start.goal && start.voice === 'own';
@@ -848,7 +851,7 @@ export class Sleeper {
     // is taken back. Either runs as action:bed, cutting only what sleep may
     // cut. A bed beyond 16 (loaded or not) is told once and kept.
     reconcile() {
-        if (this.disposed || this.latch || this.running) return;
+        if (this.disposed || this.latch || this.running || this.work.items?.latch) return;
         const bot = this.bot;
         const r = this.receipt;
         if (r) {

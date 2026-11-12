@@ -170,12 +170,16 @@ with its reapply check (a test in `tests/`) and retirement trigger:
   1,000, instead of the literal 500 (REQ-REC-11). Reapply check:
   `work-record.test.mjs` "summary cap honours memory_max_chars (default 1000)".
   Retire when upstream makes the cap configurable.
-- `agent/library/skills.js`: `pickupNearbyItems` skips item entities of a type the
-  task layer dropped as junk within 3 blocks of the drop point, for 5 minutes
-  (REQ-OBT-11); the `item_collecting` mode calls the same function. Without it the
-  bot picks its junk straight back up. Reapply check: `work-resolve.test.mjs`
-  "pickupNearbyItems skips junk near a drop point, still picks up other items
-  there, and junk again after 5 minutes". Retire when upstream's pickup can
+- `agent/library/skills.js`: `pickupNearbyItems` skips item entities of a name
+  the task layer dropped at a drop point, within 3 blocks of it and in its
+  dimension, for 5 minutes (REQ-OBT-11); the `item_collecting` mode calls the
+  same function. Without it the bot picks its drops straight back up. Changed in
+  I1 S2e (one import line and its comment): the predicate `isGuardedJunk` moved
+  from `work/resolve.js` to `work/inventory.js` and is keyed per drop point on the
+  names dropped there (no global junk types); the call is unchanged. Reapply
+  check: `work-resolve.test.mjs` "pickupNearbyItems skips junk near a drop point,
+  still picks up other items there, and junk again after 5 minutes" (and
+  `work-inventory.test.mjs` "the guard: …"). Retire when upstream's pickup can
   exclude items.
 - `agent/library/skills.js`, `placeBlock` (S2 fix wave 1) and `breakBlockAt`
   (I1 cube-clearing trial, 2026-11-08): `placeBlock`'s break-in-the-way branch
@@ -576,3 +580,31 @@ The work fixture loads `work/sleep.js`, and `MODES_OFF` includes `sleeping`
 (so the older suites keep their behaviour). The runner test's night check now
 also asserts that `sleep` is the only night key and that she places and digs
 nothing at night with no bed.
+
+I1 S2e (inventory upkeep, part A; SPEC §9.4 REQ-OBT-11). Why: one item list
+replaces the two junk keys, tasks and an idle cleanup share one planner and
+one dropper, and the shipped in-task drop could toss the way she was already
+looking (DECISIONS 2026-11-11 "Inventory upkeep (slice S2e, after S2d)";
+design `runtime/diagnostics/i1-build/junk-council/recommended-design.md` r7).
+Our own new file is `work/inventory.js` (the planner `planRemoval`, the
+dropper `dropItems` with the look fix, the guard `isGuardedJunk`, the idle
+cleanup `Upkeep` as the quiet action `action:items`, `!itemList`'s text, the
+constants `INVENTORY`). In our own files: `work.inventory` (`items`, `idle`)
+replaces `work.junk_items`/`work.junk_keep` in `work/config.js`, merged by item
+name and validated (`mergeInventory`, `validKeep`); the runner's
+`ensureFreeSlots` calls the shared planner and dropper (the old
+`planJunkDrop`/`recordJunkDrop` and the global guard types are gone from
+`work/resolve.js`); `Work` counts every `handleMessage` turn in flight
+(`liveTurns`), records the action a turn starts (`turn.action`), bumps an
+owner-message generation, holds the cleanup on the owner's raw `!stop`, lists
+`action:items` in `isQuietAction` and runs the cleanup from `Work.tick` after
+the bed; `Sleeper.mayCut` lets sleep cut `action:items` and the bed reconcile
+waits for its latch (the shared maintenance latch); the owner lines join
+`work/report.js` (`itemLine`); `!itemList` joins `work/commands.js`. No new
+upstream carry: the `skills.js` guard carry changed (above), and the modes
+carry's quiet-action check picks `action:items` up through `isQuietAction`.
+
+The work fixture gains `bot.transfer` (a one-slot toss to −999, recorded as a
+`toss` call), `bot.waitForTicks`, `bot.quickBarSlot` (0: slot 36 is held) and
+`bot.entity.eyeHeight`, and loads `work/inventory.js`. The S2d full-bag tests
+fill the bag with kept planks, so the item cleanup leaves them full.

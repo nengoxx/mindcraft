@@ -3,7 +3,7 @@ import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { STEPS } from './plan.js';
 import { clipResult } from './record.js';
-import { planJunkDrop, recordJunkDrop, largestStacks, JUNK_MAX_RERUNS } from './resolve.js';
+import { planRemoval, dropItems, largestStacks, ownerNear, INVENTORY } from './inventory.js';
 
 // The runner (SPEC §7): one run is one Mindcraft action. It never throws out of
 // run(), because an exception would clear resume_func (REQ-RES-4,
@@ -292,9 +292,11 @@ export class Runner {
         }
     }
 
-    // REQ-OBT-11: below min_free_slots, drop junk-list items where the bot
-    // stands, facing away from the work, before moving to the work. A refill
-    // re-runs the drop at most twice per step.
+    // REQ-OBT-11: below min_free_slots, drop the item list's surplus where the
+    // bot stands, facing away from the work, before moving to the work: the
+    // shared planner and dropper (work/inventory.js). A refill re-runs the
+    // drop at most twice per step; a bad item list drops nothing, so the step
+    // blocks on slots as before.
     async ensureFreeSlots(step) {
         const { bot } = this;
         const config = this.config;
@@ -303,36 +305,19 @@ export class Runner {
         p.junk_drops = p.junk_drops || 0;
         const full = () => ({ blocked: `inventory full: ${bot.inventory.emptySlotCount()} free slots, ${config.min_free_slots} needed; largest stacks: ` +
             largestStacks(bot).map(s => `${s.name} ${s.count}`).join(', ') });
-        if (p.junk_drops > JUNK_MAX_RERUNS) return full();
-        const drops = planJunkDrop(bot, config, this.work.neededItems());
-        if (drops.length) {
-            const here = bot.entity.position.clone();
-            const work = step.work_pos ?? this.work.record.anchor;
-            let dx = 1, dz = 0;
-            if (work && Math.hypot(here.x - work.x, here.z - work.z) > 0.5) {
-                const len = Math.hypot(here.x - work.x, here.z - work.z);
-                dx = (here.x - work.x) / len;
-                dz = (here.z - work.z) / len;
-            }
-            await bot.lookAt(here.offset(dx * 3, 1.6, dz * 3), true);
-            // The drop point and the attempt are recorded before the first toss,
-            // so an interruption mid-drop keeps the guard and uses up the attempt.
-            recordJunkDrop(bot, config, here, Date.now());
+        if (p.junk_drops > INVENTORY.maxReruns) return full();
+        const plan = planRemoval(bot, config.inventory, { needed: this.work.neededItems(), minFree: config.min_free_slots });
+        if (plan.length) {
+            // The attempt is recorded before the first toss, so an
+            // interruption mid-drop uses it up (the dropper records the guard).
             p.junk_drops++;
             this.work.write();
-            this.work.log(`junk drop ${p.junk_drops}: ${drops.map(d => `${d.count} ${d.name}`).join(', ')}`);
-            // One observed inventory stack per toss, so an interruption stops
-            // the drop between any two stacks.
-            for (const drop of drops) {
-                for (let left = drop.count; left > 0;) {
-                    if (this.interrupted()) return {};
-                    const stack = bot.inventory.findInventoryItem(drop.name);
-                    if (!stack) break;
-                    const n = Math.min(left, stack.count);
-                    await skills.discard(bot, drop.name, n);
-                    left -= n;
-                }
-            }
+            this.work.log(`junk drop ${p.junk_drops}: ${plan.map(op => `${op.count} ${op.name}`).join(', ')}`);
+            // Away from the work first, then not toward the owner within 16 (R1-10).
+            const result = await dropItems(bot, plan, { awayFrom: step.work_pos ?? this.work.record.anchor ?? null,
+                avoid: ownerNear(bot, this.work.owner()) });
+            if (result.outcome === 'interrupted') return {};
+            if (result.outcome !== 'done') this.work.log(`junk drop ${p.junk_drops} ${result.outcome}: ${result.reason}`);
         }
         if (bot.inventory.emptySlotCount() < config.min_free_slots) return full();
         return {};
