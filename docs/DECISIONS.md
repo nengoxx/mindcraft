@@ -282,3 +282,12 @@ The owner gave her his own gear (copies: ours to use) and ruled, for the next sl
 - **The cap covers listed items too** (the owner, 2026-11-12 night: "Yes gunpowder is also capped, lets cap all items
   for now"): for now every stackable item keeps at most one stack, an `"all"` item such as gunpowder included; a lower
   count on the list still applies. Non-stackables stay outside the cap (gear has its own rule).
+- **Tools: capability first** (the owner, same night: "unbreakable first if they are from the same tier or I guess
+  capabilities. So yeah, your recommendation is better"): a tool is ranked first by what it can mine, then
+  unbreakable, then real speed; weapons and armour keep unbreakable first.
+- **When spares go** (same night): "by default, when there's 2 spares, the 3rd one gets dropped, and if anything,
+  when she has fewer than 4 free slots, then yeah, definitely." The main seat's reading, to confirm with the design:
+  up to 2 surplus slots (spare gear beyond the best of its kind, or stacks over the cap) may wait; a third starts a
+  pass that drops the worst until 2 are left (the number a setting); below 4 free slots all surplus goes, as today.
+- **Her diamond pickaxe and diamond axe** were placeholders: "I don't care about [them], since the ones that I gave
+  her are better." They go as spares.
