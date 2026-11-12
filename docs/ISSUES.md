@@ -117,6 +117,24 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Owner report, 2026-11-13: combat starts late against skeletons
+
+The owner: "sometimes the combat takes a bit to start, like sometimes some skeleton would fire a bunch of arrows into
+her before she literally moves." Quick audit (main seat, code read; not reproduced live: it was day):
+- Trigger: a skeleton shooting from more than 8 blocks away, or from a spot she cannot walk to without digging or
+  placing.
+- Defect: `self_defense` (`src/agent/modes.js`, update) looks for a hostile only within 8 blocks and fights only when
+  `world.isClearPath` finds a path with no digging, placing or doors within a 100 ms search; `defendSelf` also scans
+  8 blocks. Vanilla skeletons shoot from up to about 15 blocks. Nothing reacts to being hurt by an arrow, so between
+  9 and 15 blocks (or on a ledge) she stands and takes arrows until the skeleton walks inside 8.
+- Evidence: read (modes.js self_defense radius 8 and the clear-path gate; the mode loop runs every 300 ms, agent.js,
+  so cadence is not the delay). A live check: a skeleton at 10–15 blocks at night, her health and the
+  `Fighting skeleton!` line timed against the arrows.
+- Siblings: `cowardice` scans 16 (off in her profile); `hunting` 8 (off). Weapon choice in the fight is the gear
+  slice's (`equipHighestAttack` ranks by a value missing on 26.1).
+- Idea (not scheduled; the owner decides): engage ranged hostiles (skeleton, stray, bogged, pillager) up to about
+  16 blocks, and react when hurt by a projectile; keep the clear-path gate for melee mobs only.
+
 ### S2e-fu live trials, 2026-11-12 evening (an Opus trial lane acting as the owner)
 
 After the deploy (`13b7b86`), PLAN S2e-fu trials 1–5, report `runtime/diagnostics/i1-build/s2efu/live-trials-report.md`.
