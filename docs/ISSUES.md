@@ -123,6 +123,26 @@ and later, not yet scheduled.
 |---|---|---|
 | The server shut down while she was connected (`multiplayer.disconnect.server_shutdown`, 11:01 local, after 45 min online) and came back on its own. The agent had given up ("exited too quickly"); `restart-agent` does nothing then (it goes to the dead agent's socket), but `start-agent` does. Her login then failed every time in the still-running ViaProxy (`ERROR IN Protocol26_2To26_1 IN REMAP OF LOGIN 0x02`, `readerIndex(24) + length(8) exceeds writerIndex(24)`; the bot says "[LoginGuard] Version Mismatch") although the server still reported 26.3 (protocol 777). A full operator Stop/Start (a fresh proxy) logged her in at once. | She stays offline after a server restart until someone restarts the operator. | Cause in the proxy unknown (state kept across the server's restart). Recovery: full Stop/Start. Whether the operator should retry by itself is the owner's call. |
 
+### S2d re-run trials after both fixes, 2026-11-12 midday (an Opus trial lane acting as the owner)
+
+Deployed `8b7bba4` (F1 and F2 fixes) by a full operator Stop/Start. Six nights (478–483), 0 model calls for the whole
+run. Report: `runtime/diagnostics/i1-build/s2dfix-review/live-trials-report-2.md`.
+
+| Trial | Result |
+|---|---|
+| Idle at dusk (F2 check), 2 nights | pass: every pickup walked into the drop's cell and took the bed 523–545 ms after the dig (in 5 of 6 pickups the old goal was already met where she stood) |
+| `!stop` in bed | pass: up within ~1 s, the night done, the bed taken back ~0.8 s later once idle |
+| A clear at dusk (bed outside the box) | pass: sleep cut it; the same step resumed and finished 9/9 cells |
+| Crash in bed (one agent restart) | pass: back in ~1 s, found her bed in the ledger, slept again and took it back |
+| F1 | holds: every bed whole on the first try (the head 1–13 ms after the foot) |
+| Phantoms, full bag | not run (no phantoms came; a full bag was not cheap) |
+| Following the owner; a follow cut still on 10+ min later | not run (needs the owner online) |
+
+Seen, not sleep code: the world's time was changed twice from outside (a night ended a minute after the `!stop`; an
+extra night began ~20 s after dawn). Each start of the clear's task dropped 32 dirt and 2 wheat seeds and picked
+them up again, three times (the in-task junk drop and pickup; S2e's guard and facing). A full operator Start begins
+with empty memory (`load_memory: false` in the private settings; only an agent restart reloads it).
+
 ### S2d fix slice, 2026-11-12 (probes and F1 fix)
 
 Two live probes with temporary logging in Mineflayer's placement plugin (untracked
