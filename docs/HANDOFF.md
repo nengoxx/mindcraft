@@ -1,5 +1,16 @@
 # Handoff
 
+## 2026-11-12 (midday) — S2d fix: F1 fixed and deployed; re-run trials in progress
+
+- The operator was restarted under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112.log`).
+- F1 fixed (merge `65fce4a`, quick review SHIP), deployed by an agent restart; the first night after it passed.
+  F2 probed: the dropped bed is recognised; the one loss is unexplained (ISSUES "S2d fix slice, 2026-11-12").
+- Running: an Opus trial lane on the remaining S2d trials (brief and report in
+  `runtime/diagnostics/i1-build/s2dfix-review/`).
+- **If this session ends now:** the untracked `node_modules/mineflayer/lib/plugins/place_block.js` carries temporary
+  `[probe]` logging. Restore it with `cp -p ~/.cache/tmp/s2dfix/place_block.js.orig node_modules/mineflayer/lib/plugins/place_block.js`
+  (sha256 `6d9941df…37d1b`), then do an agent restart with her idle.
+
 ## 2026-11-12 (later) — S2c-fu done; S2d built but its live trials failed; next: the S2d fix slice
 
 Work on this repo now runs in the persistent agent session `mindcraft` (cwd this repo, pinned Opus, effort high,
