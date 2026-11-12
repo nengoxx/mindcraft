@@ -1,5 +1,29 @@
 # Handoff
 
+## 2026-11-12 — S2c follow-up designed (quiet chat, remembered scaffold, pit escape)
+
+- Agreed order (the owner: "sounds good"): this follow-up slice, then S2d (sleep), then
+  S2e (inventory). Walking back to tidy out-of-reach scaffold stays a later slice.
+- Design closed: `runtime/diagnostics/i1-build/quiet-council/recommended-design.md`
+  r4 (sha256 in `recommended-r4.sha256`; council lanes, adversary, Sol review and
+  two waves beside it; r1–r3 kept). The owner's answers: DECISIONS 2026-11-12. §10 (the
+  per-world ledger) is a main-seat specification the build review must cover.
+- Pit escape (a bug per the owner): unresolved. Evidence in ISSUES "S2c live trials":
+  the failing placement is usually the *last* of a 2–4 block tower, in pits and
+  in the open (each "placement … no entry (the cell shows air)" line). The
+  pathfinder places only by jumping (`movements.js` getMoveUp, `index.js:560-590`);
+  a ceiling stops the move from being planned. Next probe (daytime, with ~10
+  cobblestone): dig a 1-wide, 4-deep pit in the open with a clear box, walk her
+  in, send her out, and log the state (`firstBlockAboveHead`) and each attempt.
+- Exact next step: write PLAN (one slice: quiet chat, remembered per-world
+  scaffold, the pit probe and its fix) and the SPEC edits (REQ-OWN-4/5/10, a new
+  chat REQ, §14 keys, §16 residuals, CHANGES carries for agent.js and mcdata.js),
+  then a builder brief and the build in a worktree; review (Sol + Opus adversary);
+  deploy; live card: restart with a pillar recorded ("kept N"), a night of fights
+  counting chat lines, the marker statement, a raw `!tidy`, a death line.
+- Out of scope, flagged to the owner: task records, structures and memory are not per
+  world yet.
+
 ## 2026-11-11 (night) — S2c live trials run by the main seat
 
 - The owner asked the main seat to run the S2c test card itself, as the owner (MindServer
@@ -13,9 +37,9 @@
   −528 64..66 1749 and −528 64..67 1742 (both fill pits she dug), one block at
   −530 72 1745; pits from `obtain cobblestone` mining under −526 64 1728. The
   coral markers are all 8 in place; the box inside is empty.
-- Exact next step: The owner reads the findings and rules on the scaffold questions
-  (keep scaffold across a restart? tidy after plain moves? `announce`), then
-  S2d's PLAN and SPEC as below.
+- The owner ruled on the findings the same night (DECISIONS 2026-11-11 "After the S2c
+  live trials" and 2026-11-12 "Quiet chat and remembered scaffold"); see the
+  2026-11-12 block above.
 
 ## 2026-11-11 (evening) — S2c deployed; S2d and S2e designed; live trials next
 
