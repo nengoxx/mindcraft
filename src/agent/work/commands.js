@@ -128,4 +128,11 @@ export const workCommands = [
             'Refused while a task is running: a task tidies when it ends.',
         perform: async agent => agent.work ? agent.work.tidy.command() : 'The task layer is not ready yet.',
     },
+    {
+        // REQ-OBT-11 (design r7 §6): a query, rendered by code.
+        name: '!itemList',
+        description: 'Show my item list: how many of each item I keep (the rest I drop by myself when my bag is nearly full; anything not listed I keep), ' +
+            'what I hold of them, my free slots, whether that cleanup is on, and the last time I dropped things. The list is edited in my profile.',
+        perform: agent => agent.work ? agent.work.items.render() : 'The task layer is not ready yet.',
+    },
 ];

@@ -122,15 +122,16 @@ test('the corner test passes 4 markers on three axes that leave an inside, and t
     assert.deepEqual([steps[0].args.bounds, steps[0].args.box], [BOUNDS, BOX]);
 });
 
-test('work.clear merges one level deep: one sub-key keeps the other defaults; other objects still replace the default whole', () => {
-    const config = K.loadWorkConfig({ clear: { max_cells: 1000, colour: 'red' }, junk_keep: { dirt: 8 }, ledger_max: 50 });
+test('work.clear merges one level deep: one sub-key keeps the other defaults; the retired junk keys are ignored', () => {
+    const config = K.loadWorkConfig({ clear: { max_cells: 1000, colour: 'red' }, junk_keep: { dirt: 8 }, junk_items: ['dirt'], ledger_max: 50 });
     assert.equal(config.clear.max_cells, 1000);
     assert.equal(config.clear.max_distance, 64);
     assert.equal(config.clear.marker_radius, 32);
     assert.ok(config.clear.containers.includes('chest') && config.clear.containers.includes('lime_shulker_box'));
     assert.deepEqual(config.clear.never_remove, ['spawner']);
     assert.equal('colour' in config.clear, false);
-    assert.deepEqual(config.junk_keep, { dirt: 8 });
+    assert.equal('junk_keep' in config, false);   // S2e: replaced by work.inventory
+    assert.equal('junk_items' in config, false);
     assert.equal(config.ledger_max, 50);
     assert.equal(K.loadWorkConfig().ledger_max, 2000);
 });

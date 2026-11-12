@@ -4,7 +4,7 @@ import * as F from './work-fixture.mjs';
 
 // S2: the obtain resolver (SPEC §9.1, REQ-OBT-1..5) and the inventory rules
 // (§9.4, REQ-OBT-11): junk drop and the pickupNearbyItems re-pickup guard.
-const { resolve, skills, work: W } = F.modules;
+const { resolve, skills, work: W, inventory: I } = F.modules;
 const agents = [];
 const stops = [];
 after(() => { stops.forEach(stop => stop()); F.cleanup(agents); });
@@ -96,14 +96,19 @@ test('"make me a stone pickaxe" from an empty inventory completes through the ru
 
 // --- junk drop -------------------------------------------------------------
 
-const config = { min_free_slots: 4, junk_items: ['dirt', 'cobblestone', 'gravel', 'cobbled_deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'netherrack', 'wheat_seeds', 'rotten_flesh'], junk_keep: { dirt: 64, cobblestone: 64 } };
+// S2e: the item list (work.inventory) replaces junk_items and junk_keep; the
+// planner, dropper and guard are work/inventory.js (work-inventory.test.mjs).
+const policy = F.modules.config.loadWorkConfig().inventory;
+const disposable = name => Number.isFinite(I.keepOf(F.makeBot(), policy, name));
 
-test('planJunkDrop tosses only junk-list items beyond junk_keep, never what the task needs', () => {
-    const bot = F.makeBot({ inventory: { dirt: 200, cobblestone: 100, gravel: 30, andesite: 64, diamond: 3, oak_sapling: 20, rotten_flesh: 5 } });
-    assert.deepEqual(resolve.planJunkDrop(bot, config, new Set()), [
-        { name: 'dirt', count: 136 }, { name: 'cobblestone', count: 36 }, { name: 'gravel', count: 30 }, { name: 'andesite', count: 64 }, { name: 'rotten_flesh', count: 5 }]);
-    assert.deepEqual(resolve.planJunkDrop(bot, config, new Set(['cobblestone', 'gravel'])).map(d => d.name), ['dirt', 'andesite', 'rotten_flesh']);
-});
+// One drop through the shared dropper: `name` given and dropped where she stands.
+async function dropHere(bot, name, count = 1) {
+    bot.give(name, count);
+    const slot = bot.inventory.slots.findIndex(s => s?.name === name);
+    const result = await I.dropItems(bot, [{ slot, name, count, have: count, whole: true }]);
+    assert.equal(result.outcome, 'done');
+    return Object.values(bot.entities).find(e => e.name === 'item' && e.getDroppedItem().name === name);
+}
 
 function fullBot(extra = {}) {
     // 33 stacks: 3 free slots, one short of work.min_free_slots.
@@ -136,18 +141,20 @@ test('junk drop: below min_free_slots, toss junk where it stands facing away fro
     assert.equal(agent.work.record.status, 'done');
     const tosses = bot.calls.filter(c => c[0] === 'toss');
     assert.ok(tosses.length > 0);
-    assert.ok(tosses.every(([, name]) => config.junk_items.includes(name)), JSON.stringify(tosses)); // nothing off the list
+    assert.ok(tosses.every(([, name]) => disposable(name)), JSON.stringify(tosses)); // nothing off the list
     assert.equal(bot.count('dirt'), 64);
     assert.equal(bot.count('cobblestone'), 64);
+    assert.equal(bot.count('gravel'), 0);
     for (const [name, count] of [['diamond', 5], ['oak_sapling', 16], ['iron_ingot', 9]]) assert.equal(bot.count(name), count);
     const firstToss = bot.calls.findIndex(c => c[0] === 'toss');
-    const look = bot.calls.slice(0, firstToss).reverse().find(c => c[0] === 'lookAt')[1];
+    const [, look, force] = bot.calls.slice(0, firstToss).reverse().find(c => c[0] === 'lookAt');
     const workPos = agent.work.record.plan[0].work_pos;
-    assert.ok(look.x > 20.5, `faces away from the work at x=${workPos.x}`);
+    // A level look along a cardinal away from the work, 3 blocks out at eye height (S2e).
+    assert.deepEqual([look.x, look.y, look.z, force], [23.5, 64 + 1.62, 0.5, true], `faces away from the work at x=${workPos.x}`);
     const returnTrip = bot.calls.findIndex((c, i) => i > firstToss && c[0] === 'goto');
     assert.ok(returnTrip > firstToss, 'drops before moving to the work');
     assert.equal(bot.junk_guard.drops.length, 1);
-    assert.deepEqual(bot.junk_guard.drops[0].pos, { x: 20.5, y: 64, z: 0.5 });
+    assert.deepEqual(bot.junk_guard.drops[0].pos, { x: 23.5, y: 64, z: 0.5 });   // the landing spot
 });
 
 function dropped(bot, name, offset) {
@@ -160,14 +167,15 @@ test('pickupNearbyItems skips junk near a drop point, still picks up other items
     const bot = F.makeBot();
     const agent = F.makeAgent({ bot, name: 'picker' });
     bot.hooks.goto = goal => { if (goal.entity) delete bot.entities[goal.entity.id]; }; // contact pickup
-    resolve.recordJunkDrop(bot, config, bot.entity.position.clone());
-    const junk = dropped(bot, 'cobblestone', [2, 0, 0]);
-    const far = dropped(bot, 'cobblestone', [6, 0, 0]);  // a junk type, but beyond 3 blocks of the drop point
-    const gem = dropped(bot, 'diamond', [1, 0, 1]);
+    const junk = await dropHere(bot, 'cobblestone');           // lands 3 blocks out, at the drop point
+    const far = dropped(bot, 'cobblestone', [0, 0, 7]);        // a dropped name, but 4 blocks past the drop point
+    const other = dropped(bot, 'gravel', [0, 0, 3]);           // at the drop point, but not a name dropped there
+    const gem = dropped(bot, 'diamond', [1, 0, 3]);
     await skills.pickupNearbyItems(bot);
     assert.ok(bot.entities[junk.id], 'junk next to the drop point stays');
     assert.equal(bot.entities[gem.id], undefined);
     assert.equal(bot.entities[far.id], undefined);
+    assert.equal(bot.entities[other.id], undefined, 'the guard is per name dropped, not a global junk type');
     bot.junk_guard.drops[0].at -= 5 * 60 * 1000;
     await skills.pickupNearbyItems(bot);
     assert.equal(bot.entities[junk.id], undefined);
@@ -178,8 +186,7 @@ test('the item_collecting mode, which calls pickupNearbyItems, skips the junk to
     const bot = F.makeBot();
     const agent = F.makeAgent({ bot, name: 'collector', modes: { item_collecting: true } });
     bot.hooks.goto = goal => { if (goal.entity) delete bot.entities[goal.entity.id]; };
-    resolve.recordJunkDrop(bot, config, bot.entity.position.clone());
-    const junk = dropped(bot, 'dirt', [1, 0, 0]);
+    const junk = await dropHere(bot, 'dirt');
     const gem = dropped(bot, 'diamond', [2, 0, 0]);
     const stop = F.drive(agent, 50);
     try {
@@ -259,13 +266,32 @@ test('junk drop: the drop point and the attempt are recorded before the first to
     assert.equal(F.readRecord(agent).plan[0].progress.junk_drops, 1);
 });
 
+test('S2e R1-11: an in-task drop interrupted before its first toss returns to the step; it does not block "inventory full"', async () => {
+    const bot = F.makeBot({ world: landscape() });
+    F.player(bot);
+    const agent = F.makeAgent({ bot, name: 'junkwait', work: { stall_s: 0.05 } });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    stops.push(F.drive(agent));
+    const full = fullBot();
+    bot.inventory.slots.splice(0, 46, ...full.inventory.slots);
+    const wait = bot.waitForTicks;
+    let waits = 0;
+    bot.waitForTicks = async t => { await wait(t); if (++waits === 1) agent.requestInterrupt(); };
+    agent.work.startTask('3 oak logs', 'obtain item=oak_log count=3');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    assert.equal(agent.work.record.plan[0].progress.junk_drops, 2, 'the interrupted drop, then the one that ran');
+});
+
 test('junk drop tosses one observed inventory stack per call: an interruption stops it between any two stacks (G5)', async () => {
     const bot = fullBot();
     // The same full inventory, but dirt in 32-item stacks is the only junk:
     // 64 to keep, the rest to drop, so one stack-size quantity spans two stacks.
     for (const s of bot.inventory.slots) {
         if (s?.name === 'dirt') s.count = 32;
-        else if (s && config.junk_items.includes(s.name)) Object.assign(s, { name: 'stone', type: F.registry.itemsByName.stone.id });
+        else if (s && disposable(s.name)) Object.assign(s, { name: 'stone', type: F.registry.itemsByName.stone.id });
     }
     F.player(bot);
     const agent = F.makeAgent({ bot, name: 'stacks', idleDelay: 5000 });

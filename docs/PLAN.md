@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -36,6 +36,11 @@ slices go before S3: S2b, then S2c. Next: S2b.
 live trials. S2d is built and deployed, but its live trials failed on the bed's
 placement check and one lost bed (ISSUES "S2d live trials"). Next: the S2d fix,
 then S2e (inventory upkeep, DECISIONS 2026-11-11), then S3.
+
+**Status (2026-11-12, later):** S2e part A (inventory upkeep: the item list,
+the shared planner and dropper, the idle cleanup) is built offline; probe P15
+ran live the same day and kept the design's values (§4). Part B (the chest)
+is parked until his word after S2e's trials.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -72,6 +77,10 @@ nothing the owner can see is retired.
   - S2d: sleeping through the night with a bed from her inventory, picked
     straight back up, without hurting the resume (DECISIONS 2026-11-11
     "Sleeping through the night (slice S2d)", 2026-11-12).
+  - S2e: inventory upkeep, part A: one item list (keep 0, a count, a stack or
+    all), the shared drop for tasks, and dropping the surplus by herself when
+    idle or following (DECISIONS 2026-11-11 "Inventory upkeep (slice S2e,
+    after S2d)"); part B, a chest instead of dropping, waits for the owner.
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -270,7 +279,7 @@ add the protected-block diff. Interventions: target 0.
     replacement, a still-present `permanent` table or furnace outside any
     blueprint is carried into the new record as a `station` entry and stays
     collectable, while other entries are dropped;
-  - junk drop: below `work.min_free_slots` the bot tosses only `work.junk_items`,
+  - junk drop (S2e replaces the two junk keys with the item list, `work.inventory`): below `work.min_free_slots` the bot tosses only `work.junk_items`,
     keeps `work.junk_keep` and anything the task needs, drops before moving to the
     work while facing away from the work position, records the drop point for 5
     minutes, and `pickupNearbyItems` (also as called by `item_collecting`) skips
@@ -740,6 +749,87 @@ add the protected-block diff. Interventions: target 0.
   fetching a bed left far away, daytime thunderstorms, restoring the respawn
   point (design §12); inventory upkeep (S2e); the chest.
 
+#### S2e — Inventory upkeep
+
+- **Goal.** One item list in her config says per item how many she keeps: 0
+  (junk: she drops all), a number, one stack, or all; anything not listed she
+  keeps. When she is idle or following the owner and has fewer than 4 free
+  slots, she drops the surplus by herself, with no model call and no chat, in
+  a spot she won't walk over at once; tasks use the same list. Chat stays
+  quiet unless he must act (a bad list, the pass cap, a bag full of things she
+  keeps). (Owner ruling: DECISIONS 2026-11-11 "Inventory upkeep (slice S2e,
+  after S2d)". Design: `runtime/diagnostics/i1-build/junk-council/recommended-design.md`
+  r7 §1–§6 and §8–§10, the owner's answers in §11; part B, §7, parked until
+  his word after S2e's trials. Order: built first, P15 before the deploy, the
+  owner's ruling of 2026-11-12; P15 done, §4.)
+- **SPEC.** §9.4 REQ-OBT-11 (rewritten: the list, the planner and dropper, the
+  guard, the look fix, the idle cleanup, `!itemList`); REQ-SAFE-7; §14
+  (`work.inventory.items`, `work.inventory.idle`, the `INVENTORY` constants;
+  `work.junk_items`, `work.junk_keep` retired); §5.2 (`work/inventory.js`),
+  §5.3 (the `skills.js` guard carry, the runtime wraps); §7.9 REQ-SLP-2 (sleep
+  cuts `action:items`); §15.1 (the three `alert` lines); §16.
+- **Files.**
+  - `src/agent/work/`: `inventory.js` (new: `planRemoval`, `dropItems`,
+    `isGuardedJunk`, `largestStacks`, `Upkeep`, `INVENTORY`); `config.js`
+    (`work.inventory` and `mergeInventory`; the junk keys gone); `runner.js`
+    (`ensureFreeSlots` calls the shared planner and dropper); `resolve.js`
+    (the junk drop and guard moved out); `index.js` (`Work.items`, the turn
+    count and the turn's action, the owner-message generation, the `!stop`
+    hold, `isQuietAction`, `Work.tick`); `sleep.js` (sleep may cut
+    `action:items`; the bed reconcile waits for its latch); `report.js`
+    (`itemLine`); `commands.js` (`!itemList`).
+  - Carry: `library/skills.js` (the `pickupNearbyItems` guard now reads
+    `work/inventory.js`: per name and dimension).
+  - CHANGES.md: the carry change, our new file; ISSUES.md: G1 closed.
+- **Offline tests.** `tests/work-inventory.test.mjs` (new): the merge by name,
+  `"all"` over a default, fresh maps; structure and entry validation (fail
+  safe: tasks block, idle does nothing, told once); the registry check; every
+  default in the registry; the planner table (tier-0 first, smallest first,
+  the partial remainder not counted, the held slot, needed, unlisted and
+  `"all"` items); the per-toss slot re-check; the facing (free = no collision
+  box and not a liquid; none free: `unavailable`); the look, the 2-tick wait,
+  then the toss, and an interruption in the wait; the guard per name, landing
+  spot, dimension, 32 points; a throwing toss as `failed`; an idle pass
+  standing still with no call and no chat; the admission table (each
+  condition); the turn count; the resume gap and the dead-follow exception;
+  an owner-typed follow cut by a pass and resumed with −1; the follow
+  admission's exclusions; currency (stop and owner message, pending and
+  between tosses); the holds (cooldown, nothing removed, `!stop`, the cap and
+  its one line); quiet when a fight cuts a pass, and sleep's cut rule; a
+  throw inside the pass (latch released, resume kept); the kept-items note;
+  `!itemList`; in-task parity with the old defaults. `work-sleep.test.mjs`: a
+  full bag of junk by day (the cleanup first, then the bed pickup); the S2d
+  full-bag tests now fill with kept items. `work-resolve.test.mjs`: the in-task
+  drop's level look and landing spot, the guard per name.
+  `work-clear.test.mjs`: the junk keys are ignored. Review round 1 (the
+  `R1-` tests): the cursor and an open container refuse the click; the live
+  selected slot; the empty-plan memory's key and expiry; a hostile or a
+  turn ending the pass; prototype names; floors lower than a full block; no
+  launch or cut without a free direction; never toward a follow's target; a
+  task's drop not toward the owner; the owner radius, the follow re-read, the
+  work check between tosses, no hold after an interruption, and an
+  interrupted in-task drop returning to its step.
+- **Probe P15** (§4): done 2026-11-12, before the deploy; it kept the
+  `INVENTORY` values.
+- **Live acceptance (the test card; bot invincible; uncoached, request log
+  on).** The design §8 trials:
+  1. The owner's case: fill her bag, leave her idle: within seconds she drops
+     the surplus (nothing he keeps), with no chat; a placed bed by day is then
+     picked up.
+  2. A night ending: cleanup at the first quiet moment after the bed.
+  3. Following him with a full bag: she drops behind her, follows again within
+     a second or two, and still follows more than 10 minutes later.
+  4. A task with a full bag: the drop before the step, the task goes on.
+  5. Walk her across a fresh pile (a residual) and the hold after repeated
+     passes (4 in 10 minutes, one line).
+  - Pass: 0 model calls for the cleanup, nothing off the list dropped, no
+    owner line unless one of the three applies.
+- **Metrics.** §2.3; passes and what they dropped (the `[items]` console
+  lines), re-pickups seen, holds and owner lines.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in S2e.** The chest (part B, design §7); a manual `!cleanItems`;
+  walking to a pile; any change to the clear step beyond the shared dropper.
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
@@ -1086,6 +1176,7 @@ The bot's inventory is stale, so ask the owner for each kit before its slice:
 | P12 | `unstuck` during stationary work | S0-lite | Count firings during the shelter baseline (a log count, not a probe). | REQ-RES-11 |
 | P13 | Pathfinder placement tell | S2c (first; done 2026-11-10) | A temporary listener logged `blockPlaced`, the planned `toPlace` cells, nearby `blockUpdate`s and `blockAt` after each placement while the bot pillared up twice through `!goToCoordinates`. Results in the private diagnostics folder (`clear-council/clutter/live-probe/`): tell A held on 24 of 24 placements; `newBlock` was air on 23 of 24; about 3 events per cell; false positives not exercised. | REQ-OWN-3 |
 | P14 | Sleep through ViaProxy | S2d (first; done 2026-11-11) | With a bed the owner gave and a spot he agreed to, at night: place the bed from a stand cell (halves, facing against yaw), `bot.sleep`, the `sleep`/`wake` events, when the night skips with one sleeper, the server's sleep text, breaking the foot (drop, pickup). Results in the private diagnostics folder (`sleep-council/p14-live-20261111.md`): `bot.sleep` works through ViaProxy and the night skipped about 3 s after she lay down (she was the only player online; one sleeper skipping with others awake is the owner's statement). `bot.wake()` timing not measured yet (SPEC §16). | REQ-SLP-3, 4 |
+| P15 | Item toss through ViaProxy | S2e (before its deploy; done 2026-11-12: `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) | The toss direction with and without the 2-tick wait: G1 confirmed (without it the toss flies the way she looked before); with it a level toss 3 blocks out at eye height lands 3.1–3.2 blocks ahead on flat ground (2.38 onto a one-block step, a direction the facing rule excludes); standing still she picked nothing up in 6 s; an operator Stop/Start rereads the profile (`main.js:76-78`). The design's values hold. Not probed (the S2e trials cover them): an obstacle within 3 blocks (excluded by the facing rule), the guard against `pickupNearbyItems` (offline tests), and the one-slot `bot.transfer` path with whole-stack tosses through ViaProxy (P15 tossed with `bot.toss`). | REQ-OBT-11 |
 
 ## 5. Design experiment protocol (DX)
 

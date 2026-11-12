@@ -11,10 +11,22 @@ export const WORK_DEFAULTS = Object.freeze({
     run_deadline_s: 300,    // run bound (REQ-RES-6)
     max_steps: 8,
     max_obtain_count: 256,
-    min_free_slots: 4,      // junk drop threshold (REQ-OBT-11)
-    junk_items: Object.freeze(['dirt', 'cobblestone', 'gravel', 'cobbled_deepslate', 'andesite',
-        'diorite', 'granite', 'tuff', 'netherrack', 'wheat_seeds', 'rotten_flesh']),
-    junk_keep: Object.freeze({ dirt: 64, cobblestone: 64 }),
+    min_free_slots: 4,      // below this many free slots she drops surplus, in a task and when idle (REQ-OBT-11)
+    // The item list (REQ-OBT-11): per item how many she keeps, 0 (junk: all
+    // dropped), a count, "stack" (its stack size) or "all" (never removed);
+    // anything not listed is kept. Merged by item name (mergeInventory). A new
+    // default needs the owner's approval: it makes a kept item disposable.
+    // `idle`: the idle cleanup on or off.
+    inventory: Object.freeze({
+        items: Object.freeze({
+            rotten_flesh: 0, spider_eye: 0, gravel: 0, leaf_litter: 0, cobbled_deepslate: 0, andesite: 0,
+            diorite: 0, granite: 0, tuff: 0, netherrack: 0, wheat_seeds: 0,
+            dirt: 'stack', cobblestone: 'stack', bone: 'stack', string: 'stack', phantom_membrane: 'stack',
+            arrow: 'stack', flint: 'stack', coal: 'stack',
+            gunpowder: 'all',
+        }),
+        idle: true,
+    }),
     // Model outages (REQ-RES-17/18). The prompter reads these itself: it is
     // built before Work (OQ-21).
     model_timeout_s: 600,       // OpenAI client timeout (the SDK's; one decision took 551 s)
@@ -66,13 +78,49 @@ export const WORK_DEFAULTS = Object.freeze({
 // sub-key keeps the other defaults.
 const MERGED = new Set(['clear', 'tidy', 'sleep']);
 
-// A profile value replaces the default whole (junk_keep included), except the
-// MERGED objects. Unknown keys are ignored (logged), so a key of a later
-// iteration does nothing until its code exists.
+// An item's keep value: 0 or another non-negative safe integer, "stack" or "all".
+export const validKeep = value => value === 'stack' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
+
+// REQ-OBT-11 (design r7 §2): work.inventory merged by item name over the
+// defaults, into fresh maps (the defaults are never mutated). The supplied
+// structure and every entry are checked before the merge; any error is kept
+// as `error` and turns automatic removal off (it never widens it). Item names
+// are checked against the registry in Work.init (no bot exists here).
+function mergeInventory(value) {
+    // A map with no prototype: a "__proto__" entry stays an entry (and fails
+    // the registry check) instead of vanishing in the merge (R1-6).
+    const inventory = { items: Object.assign(Object.create(null), WORK_DEFAULTS.inventory.items), idle: WORK_DEFAULTS.inventory.idle, error: null };
+    if (value === undefined) return inventory;
+    const fail = why => {
+        console.log(`[work] work.inventory has an error (${why}); automatic removal is off`);
+        inventory.error ??= why;
+    };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        fail('inventory is not an object');
+        return inventory;
+    }
+    for (const [sub, subValue] of Object.entries(value)) {
+        if (sub === 'items') {
+            if (!subValue || typeof subValue !== 'object' || Array.isArray(subValue)) { fail('items is not an object'); continue; }
+            const bad = Object.entries(subValue).find(([, keep]) => !validKeep(keep));
+            if (bad) fail(`${bad[0]}: ${JSON.stringify(bad[1])}`);
+            else Object.assign(inventory.items, subValue);
+        } else if (sub === 'idle') {
+            if (typeof subValue === 'boolean') inventory.idle = subValue;
+            else fail(`idle: ${JSON.stringify(subValue)}`);
+        } else console.log(`[work] ignoring unknown work setting: inventory.${sub}`);
+    }
+    return inventory;
+}
+
+// A profile value replaces the default whole, except the MERGED objects and
+// work.inventory (merged by item name). Unknown keys are ignored (logged), so
+// a key of a later iteration does nothing until its code exists.
 export function loadWorkConfig(profileWork = {}) {
-    const config = { ...WORK_DEFAULTS };
+    const config = { ...WORK_DEFAULTS, inventory: mergeInventory(profileWork?.inventory) };
     for (const [key, value] of Object.entries(profileWork || {})) {
         if (!(key in WORK_DEFAULTS)) console.log(`[work] ignoring unknown work setting: ${key}`);
+        else if (key === 'inventory') continue;
         else if (!MERGED.has(key)) config[key] = value;
         else if (!value || typeof value !== 'object' || Array.isArray(value)) console.log(`[work] ignoring work setting ${key}: not an object`);
         else {

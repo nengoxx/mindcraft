@@ -4,7 +4,7 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { format } from 'node:util';
-import { isGuardedJunk } from "../work/resolve.js";
+import { isGuardedJunk } from "../work/inventory.js";
 import { isProtectedForBot } from "../work/protect.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
@@ -586,7 +586,7 @@ export async function pickupNearbyItems(bot) {
      * await skills.pickupNearbyItems(bot);
      **/
     const distance = 8;
-    // Fork carry: skip junk the task layer dropped nearby (REQ-OBT-11).
+    // Fork carry: skip the items the task layer dropped at a drop point nearby (REQ-OBT-11).
     const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' && bot.entity.position.distanceTo(entity.position) < distance && !isGuardedJunk(bot, entity));
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;

@@ -168,6 +168,18 @@ export function bedLine(what, pos, slots = 2) {
     }
 }
 
+// The inventory upkeep's owner lines (REQ-OBT-11, design r7 §2, §4): only
+// when he must act. `data`: the bad entry, the kept items, or the cap's
+// {passes, window, hold} (minutes).
+export function itemLine(what, data = '') {
+    switch (what) {
+        case 'error': return `My item list has an error (${data}); I won't drop anything until it's fixed.`;
+        case 'cap': return `I've cleaned my bag ${data.passes} times in ${data.window} minutes, so I'm pausing that for ${data.hold} minutes.`;
+        case 'kept': return `My bag is full of things I keep: ${data}; add some to my item list?`;
+        default: return '';
+    }
+}
+
 export function failedReport(record, bot) {
     return `Task failed: "${record.objective}": ${record.reason}. ${inventoryFacts(record, bot)}`.trim() + goalStopped(record);
 }

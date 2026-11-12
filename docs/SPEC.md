@@ -196,7 +196,7 @@ Status: **works** = usable as is; **partly** = usable with stated gaps; **missin
 | Area | Command → skill (file:line) | Status | Facts and gaps | Design use |
 |---|---|---|---|---|
 | Gather blocks | `!collectBlocks` (commands/actions.js:292-301) → `collectBlock` (agent/library/skills.js:432-554) | partly | Searches only 64 blocks (:489). Collects N **more**, not "up to N" (:471). Aliases ores, dirt→grass_block, cobblestone→stone (:447-455). Tool check (:509-513). Reports net inventory change (:548-553, fork C09). 10-minute timeout. Its target filter uses its own `Movements` (:461, :488), and it sets `dontMineUnderFallingBlock=false` (:462). | Inner loop of `obtain`'s `collect`/`mine` nodes, called in bounded chunks; protected targets are excluded by the `safeToBreak` patch (REQ-OBT-9, REQ-SAFE-3). Not offered as a tool. |
-| Pick up items | `pickupNearbyItems` (skills.js:556) | works | Walks to every item entity within 8 blocks; called after manual digging (:522) and by the `item_collecting` mode (modes.js:189-211). | After digging; a small carry skips junk the bot tossed (REQ-OBT-11). |
+| Pick up items | `pickupNearbyItems` (skills.js:580) | works | Walks to every item entity within 8 blocks; called after manual digging and by the `item_collecting` mode (modes.js:189-211). | After digging; a small carry skips the names the bot dropped at a recorded drop point (REQ-OBT-11). |
 | Use tool on block/entity | `!useOn` (actions.js:528-537) → `useToolOn` (skills.js:2007) | partly | Generic right-click. | Not used in v1 (buckets, shears deferred). |
 | Farming | `tillAndSow` (skills.js:1600) | partly | Skill only, no command. | Deferred method. |
 | Craft | `!craftRecipe` (actions.js:303-312) → `craftRecipe` (skills.js:37-131) | works | Counts recipe runs, not items. Uses the first recipe (:97). Places a crafting table from inventory and picks it back up (:57-91). Reports before/after counts (fork C09). | `craft` nodes of the resolver. Not offered as a tool. |
@@ -303,6 +303,7 @@ Why (details in RESEARCH.md):
 | `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep, the bed pickup (S2d, `ownBed`) and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
 | `agent/work/tidy.js` | The tidy sweep `tidyNear` and its triggers' launch checks (REQ-OWN-7 … 9). | I1 (S2c) |
 | `agent/work/sleep.js` | Sleeping through the night (§7.9): `Sleeper` with `next()` (when she sleeps, what sleep may cut), the `mode:sleeping` routine (spot, placement, sleep, the guarded wake), the bed pickup in the routine and as `action:bed` from `Work.tick`, the in-memory night record and collection receipt, the owner lines. | I1 (S2d) |
+| `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where), the dropper `dropItems` (facing, the look fix, per-slot tosses) and its re-pickup guard `isGuardedJunk`, and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. | I1 (S2e) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -335,13 +336,13 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
 | `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). I1 (S2c-fu): the "did not use command … Stopping auto-prompting" line is an `alert` (:141; REQ-CHAT-1). | upstream before S2b; fork carry since | I1 |
-| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself. | upstream | I1 |
+| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself. | upstream | I1 |
 | `agent/action_manager.js` | I1 (S2d): `_executeResume` stores the timeout of a new resumable action beside `resume_func` (`resume_timeout`) and uses it on every resume (two lines), so a resumed follow keeps "no timeout" (§4.2; junk design r7 §5, amendment 2). Retire when upstream passes the original timeout on resume. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
 | `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). | fork carry | I1 |
-| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips junk-type item entities within 3 blocks of a recorded junk drop point (REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -361,7 +362,9 @@ those slices (PLAN §3). These hooks need no core edit:
   work init, beside the existing `chat` and `whisper` listeners (REQ-OWN-9);
 - the label of each action started: a runtime wrap of `actions.runAction`
   (REQ-OWN-7); from S2d it also records the turn's voice and whether a goal was
-  ACTIVE at the start, and tells the sleeper (REQ-SLP-2, 7);
+  ACTIVE at the start, and tells the sleeper (REQ-SLP-2, 7); from S2e it also
+  records the action on the turn it starts in, and the `handleMessage` wrap
+  counts every turn in flight (the item cleanup's admission, REQ-OBT-11);
 - the provider's `outcome` seam in our own `models/openai_tools.js`; upstream
   `gpt.js` is unchanged (REQ-RES-17).
 
@@ -862,6 +865,8 @@ owner lines are `alert`s).
   `isHostile`); no stop in progress; and what runs may be cut:
   - `always`: the agent idle, unless a goal is ACTIVE with its loop running
     (its model call is in flight: she fires at its next action); `action:task`;
+    from S2e the item cleanup `action:items` (REQ-OBT-11; the bed pickup never
+    cuts it: they share the maintenance latch);
     the pending resumable owner action (`label === resume_name`) unless a goal
     is ACTIVE (upstream would not resume it, action_manager.js:63; it is waited
     out); a goal's own action (started in her own turn while the goal was
@@ -1236,37 +1241,166 @@ owner lines are `alert`s).
 
 ### 9.4 Inventory
 
-- **REQ-OBT-11 No automatic discarding of the owner's items.** [I1] Code never
-  discards an item that is not on the junk list. (The owner approved using the
-  bot as a disposable trash can for common junk, W3b.)
-  - **Junk drop.** Before a step that needs free slots (`obtain`, `give`, a
-    `build`'s materials), if `bot.inventory.emptySlotCount()` is below
-    `work.min_free_slots` (4), code drops items on `work.junk_items` with no model
-    call: by default dirt, cobblestone, gravel, cobbled_deepslate, andesite,
-    diorite, granite, tuff, netherrack, wheat_seeds, rotten_flesh. It keeps
-    `work.junk_keep` (by default one stack, 64, each of dirt and cobblestone, for
-    scaffolding and stone tools), anything the current task's steps or resolver
-    need, and everything not on the list. It reuses `skills.discard`
-    (skills.js:877, `bot.toss`), one observed inventory stack per call, so an
-    interruption stops the drop between any two stacks.
-  - **Re-pickup guard.** Vanilla picks up an item on contact once its throw delay
-    ends, and upstream also walks to items: `pickupNearbyItems` (skills.js:556,
-    8 blocks; called after manual digging at :522) and the `item_collecting` mode
-    (modes.js:189-211, which calls it; off in the deployed profile). So the bot
-    drops junk where it stands before it moves to the work, facing away from the
-    work position, and records each drop point for 5 minutes (vanilla's despawn
-    time). `bot.toss` returns no entity ids, so the guard is keyed on drop points:
-    a small carry in `pickupNearbyItems` skips item entities of a junk type within
-    3 blocks of a recorded drop point. Contact pickup when a path crosses the spot
-    is accepted. If junk refills the slots during the same step, the drop
-    runs again, at most twice.
-  - **Failure.** If the drop cannot reach the minimum, the step blocks with a
-    fact report naming the five largest stacks in the inventory. The owner frees
-    space himself (the chest commands keep working).
-  - **Auto-deposit and surplus drop.** [Surv] Instead of blocking, deposit to a
-    chest the owner has authorised (a named place), or drop surplus picked up
-    during this task that no step needs, only if `work.allow_drop_task_surplus`
-    (false) is true.
+- **REQ-OBT-11 Inventory upkeep: no automatic discarding of the owner's
+  items.** [I1] (S2e, part A.) Owner ruling: DECISIONS 2026-11-11 "Inventory
+  upkeep (slice S2e, after S2d)". Design:
+  `runtime/diagnostics/i1-build/junk-council/recommended-design.md` r7 §2–§6,
+  §8–§10, with the owner's answers in §11. Code removes only what the item list
+  makes disposable. (The owner approved using the bot as a disposable trash can
+  for common junk, W3b, and the list on 2026-11-11.)
+  - **The item list.** `work.inventory.items` (§14) gives per item name how many
+    she keeps: `0` (junk: all of it goes), a non-negative integer (that many
+    stay), `"stack"` (the item's registry stack size) or `"all"` (never removed;
+    it also overrides a default). Anything not listed is kept. A profile writes
+    only the items it changes: the list merges by item name over the defaults
+    (`work/config.js` `mergeInventory`, into fresh maps; the defaults are never
+    mutated). Defaults: `0` for rotten_flesh, spider_eye, gravel, leaf_litter,
+    cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds;
+    `"stack"` for dirt, cobblestone, bone, string, phantom_membrane, arrow,
+    flint, coal; `"all"` for gunpowder. Any new default needs the owner's
+    approval (it makes a kept item disposable).
+  - **Fail safe.** `loadWorkConfig` checks the supplied structure (`inventory`
+    and `items` objects, not null or arrays; `idle` a boolean) and every entry
+    before merging; `Work.init` checks every name against the connected
+    registry. Any error turns automatic removal off (tasks then block on slots
+    as before, the idle cleanup does nothing), is logged, and is told to the
+    owner once as an `alert`: "My item list has an error (rotten_fleshh); I
+    won't drop anything until it's fixed." An error never widens removal.
+  - **What may go.** Never an unlisted or `"all"` item, never one needed by
+    any live, paused or blocked task (`work.neededItems()`, which has no status
+    check, so a cancelled or failed task's remaining items stay protected until
+    the next task: the safe direction), never equipped: armour and the offhand
+    are outside the 36 slots used, and the selected hotbar slot is never a
+    source (its count still counts toward the keep).
+  - **One planner, one dropper** (`work/inventory.js`). `planRemoval(bot,
+    policy, { needed, minFree })` returns slot operations `[{ slot, name,
+    count }]`, what to remove and never where (the seam a chest destination,
+    part B, adds to). Order: every tier-0 stack, whole; then each limited
+    item's surplus as whole stacks smallest first within its budget; a
+    remainder below a whole stack comes from the smallest stack left and may
+    free no slot, so it never counts toward `minFree` (phantom membrane 64 +
+    55, keep 64 → the 55 stack; keep 100 → 19 from the 55). The planner
+    simulates the freed slots; the caller re-reads the real free slots.
+    `dropItems(bot, plan, { awayFrom, avoid, never, current })` removes them
+    where she stands: a cardinal free from her feet to her eyes for 3 blocks
+    (free = not a liquid and no collision box more than half a block above her
+    feet, so short grass, leaf litter and cave air are free, and so are a floor
+    lower than a full block, a path, farmland, soul sand, mud, a bottom slab or
+    a carpet, the grass edge beside a path and a slab ahead: S2e review R1-7;
+    the toss leaves 1.32 up, P15). Never a direction toward
+    `never` (a follow's target); among the rest the first, most opposite
+    `awayFrom`, that is toward neither `awayFrom` nor `avoid` (in a task the
+    owner within 16), else the most opposite; none: no drop (`unavailable`).
+    She looks level (pitch 0) at a point 3 blocks out at her
+    eye height, waits 2 ticks and re-checks before the first toss (the look
+    fix: a forced `bot.lookAt` sends no packet of its own, so a toss could fly
+    the way she was already looking, G1). Each slot operation is one toss of
+    exactly that slot (`bot.transfer` from that slot to −999), re-checked
+    right before it: a tier-0 stack needs the same item with at least the
+    planned count (a contact pickup may have merged into it) and goes whole,
+    any other the same item with the planned count, and neither the live
+    selected hotbar slot (the server may select another slot meanwhile);
+    anything else is skipped for the next pass. Nothing is clicked with an
+    item on the cursor (a one-slot transfer would swap it in and toss it as a
+    leftover) or a container window open (the click would act on it): the
+    pass ends `unavailable`. Interrupt and currency checks run after the wait
+    and between tosses. She stands still afterwards (no walk). Outcomes carry the
+    counts removed per name: `done`, `interrupted`, `unavailable`, `failed`;
+    every expected failure is a returned outcome, never a throw. Console
+    `[items]` lines; `behavior_log` "Dropped junk.".
+  - **Re-pickup guard.** Vanilla picks up an item on contact once its throw
+    delay ends, and upstream also walks to items: `pickupNearbyItems`
+    (skills.js:580, 8 blocks; called after manual digging) and the
+    `item_collecting` mode (modes.js:189-211, which calls it; off in the
+    deployed profile). Each pass records one drop point at the landing spot
+    (her position + 3 blocks along the facing) with the dimension and the
+    time; each name is added to it just before its first toss. A small carry
+    in `pickupNearbyItems` skips item entities of those names within 3 blocks
+    of a drop point of this dimension for 5 minutes (vanilla's despawn time).
+    At most 32 drop points are kept (the oldest goes): an approximate guard.
+    `bot.toss` returns no entity ids, so the guard is keyed on drop points.
+    The level throw lands about 3 blocks out, beyond contact pickup (about
+    1.4 blocks), so standing still is enough: probe P15 (PLAN §4,
+    `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) measured
+    3.1–3.2 blocks on flat ground with the 2-tick wait, the toss flying the
+    old way without it (G1), and no pickup standing still for 6 s (P15 tossed
+    with `bot.toss`). Not proven live until the S2e trials (design r7 §8): an
+    obstacle within 3 blocks (the facing rule excludes it), the guard against
+    `pickupNearbyItems` (offline tests), and the one-slot `bot.transfer` path
+    with whole-stack tosses through ViaProxy.
+  - **In a task.** Before a step that needs free slots (`obtain`, `give`, a
+    `build`'s materials; the `clear` step's `drop-only`), if
+    `bot.inventory.emptySlotCount()` is below `work.min_free_slots` (4), the
+    runner's `ensureFreeSlots` plans with the task's needed items and drops,
+    with no model call, where she stands before she moves to the work, facing
+    away from the work position and, among those directions, not toward the
+    owner within 16 blocks (design r7 §3). If the slots refill during the same step, the
+    drop runs again, at most twice (`progress.junk_drops`). If it cannot reach
+    the minimum (also with no free facing, or a bad item list), the step
+    blocks with a fact report naming the five largest stacks; the clear step
+    digs on. Never a chest walk in a task.
+  - **Idle cleanup** (`action:items`, `work.inventory.idle`, default true).
+    `Work.tick` checks it after the bed reconcile and before its active-task
+    guard; a pass runs as a quiet, non-resumable action with no model call
+    and no chat, under the maintenance latch (bed pickup > tidy > items: the
+    bed pickup launches first, and none launches while another is in flight).
+    Two admissions:
+    - *Idle:* nothing executing at launch, and nothing else started by entry;
+      it never stops another action. A pending resume blocks it only within
+      3 s after an action last ended normally (the 1 s resume gap, after a
+      mode such as `unstuck` cut a follow), except a follow whose target
+      player is not visible (it re-runs every second).
+    - *While following* (owner, 2026-11-11: "she can drop things while it's
+      following"): the running action is the pending resumable owner action
+      `action:followPlayer` (`label === resume_name`) and its target player is
+      visible. The pass cuts it through the S2d maintenance launcher and the
+      follow resumes by the existing idle resume (about 1 s later, keeping "no
+      timeout", §4.2). She always faces away from the follow target, never
+      toward it (re-read at the pass's entry); with no such direction free
+      the follow is not cut. Only this label is cut; any other running action blocks. The turn that started the
+      follow stays open while it runs, so the turn count ignores the one turn
+      whose recorded action is the running follow.
+    Both need: removal enabled and free slots below `work.min_free_slots`, a
+    non-empty plan (an empty one is remembered per inventory, selected slot
+    and task state for at most 5 minutes, so a bag of kept items is not
+    re-planned every second) and a free direction to drop into (no launch
+    without one); no task running (`status === 'active'`) and no open
+    owner question (a paused or blocked task does not exclude it; its needed
+    items stay protected); the goal stopped (`isStopped()`: neither active nor
+    paused); no message turn in flight (every `agent.handleMessage` call,
+    counted synchronously on entry in the S2c turn wrapper); no stop in
+    progress, no mode running and no hostile within 16 blocks for 5 s; not
+    held: 30 s since the last pass; a pass that removed nothing is not retried
+    until the inventory or her position (> 8 blocks) changes, or 5 minutes
+    pass (the config changes only with a restart); an owner `!stop` during a
+    pass holds the cleanup 10 minutes; a 4th pass that removed something
+    within 10 minutes holds it 10 minutes and tells the owner once: "I've
+    cleaned my bag 4 times in 10 minutes, so I'm pausing that for 10
+    minutes." Currency: the pass captures `stop_epoch` and the owner-message
+    generation at admission and re-checks them, with the task, question and
+    goal conditions, the hostile check (16 blocks, 5 s) and the message-turn
+    count (only the turn parked on a cut follow may stay open), at entry,
+    after the tick wait and between tosses, so a stop, an owner message, a
+    hostile or a new turn ends a pending or running pass. Anything cuts a
+    pass (modes, commands, `!stop`, owner messages, sleep: REQ-SLP-2); a mode
+    that cuts it prompts no model call. A pass cut before it removed anything
+    is not held.
+  - **The full bag of kept items.** When the admission finds the slots low and
+    the plan empty, she tells the owner once per session the five largest
+    kept items, totalled by name: "My bag is full of things I keep: arrow 192,
+    gunpowder 64, …; add some to my item list?" (`alert`).
+  - **`!itemList`** (a query, code-rendered): the effective list by tier with
+    what she holds, the free slots, whether the idle cleanup is on or held and
+    why, and the last pass ("dropped 86 rotten_flesh, 41 gravel, 3 min ago").
+    The list is edited in the profile; a full operator Stop/Start reloads it
+    (main.js reads every profile file at start).
+  - **Gifts.** An item the owner hands her that is on the 0 list is dropped at
+    the next pass when she is nearly full; the cure is `"all"` or a count for
+    that item.
+  - **Chest destination.** Part B (design r7 §7: `!itemChest`, a single bound
+    chest or barrel, idle passes only), parked until the owner's word after
+    S2e's trials. The `[Surv]` surplus drop of task pickups no step needs stays
+    `[Surv]`, behind `work.allow_drop_task_surplus` (false).
 - **REQ-OBT-12** (retired: merged into resolver failure, REQ-OBT-1. Nether, End,
   trade-only, structure-loot and animal-only items get "no method for X in this
   version".)
@@ -1863,7 +1997,7 @@ analysis).
   example "772/780 cells empty; left: 5 next to water, 2 under falling blocks,
   1 chest (a container, kept)". The owner gets the whole report (the step's
   stored result is clipped to 160 characters). Drops are picked up
-  opportunistically; the runner's junk drop (REQ-OBT-11) runs before a unit,
+  opportunistically; the runner's free-slot drop (REQ-OBT-11) runs before a unit,
   but a full inventory never blocks a clear (a dig needs no free slot; drops
   stay on the ground). The report never claims drops were collected.
 - **REQ-CLR-9 Leftovers: one owner question.** [I1] (DECISIONS 2026-11-08: a box
@@ -2508,7 +2642,10 @@ About 13 tools in all.
   deferred with the owner-question bundle).
   Whether the bot may use operator powers is the owner's call. Permission is
   probed only when enabled.
-- **REQ-SAFE-7 No automatic discarding** [I1] of anything off the junk list (REQ-OBT-11).
+- **REQ-SAFE-7 No automatic discarding** [I1] of anything the item list does
+  not make disposable: never an unlisted or `"all"` item, one a live, paused
+  or blocked task needs, or an equipped one (the selected hotbar slot, armour,
+  the offhand); a bad item list turns automatic removal off (REQ-OBT-11).
 - **REQ-SAFE-8** [I4] Discovery never loots, breaks supports or enters traps; finding
   creatures never harms them (REQ-FIND-14, REQ-FIND-19).
 - **REQ-SAFE-9** [I1] Danger: the resume check, the modes and the death rule (§7).
@@ -2557,9 +2694,9 @@ About 13 tools in all.
 | `work.build.auto_keywords` | shelter words: hut, house, shelter, shed, cabin, cave, base room; embed words: cave, into the hill | `auto` and `embed` matching table (§11.8). | E1.1 |
 | `work.build.max_foundation` | 3 | Foundation depth. | E1 |
 | `work.build.material_margin` | — | Extra material in the bill. | open (OQ-7) |
-| `work.min_free_slots` | 4 | Free inventory slots a step needs before the junk drop runs (REQ-OBT-11). | W3b (owner) |
-| `work.junk_items` | dirt, cobblestone, gravel, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds, rotten_flesh | Items the junk drop may toss. | W3b (owner) |
-| `work.junk_keep` | dirt 64, cobblestone 64 | Junk kept back for scaffolding and stone tools. | W3b (owner) |
+| `work.min_free_slots` | 4 | Below this many free inventory slots she drops the item list's surplus: before a step that needs free slots, and when idle or following (REQ-OBT-11). | W3b (owner); S2e (owner, 2026-11-11) |
+| `work.inventory.items` | `0`: rotten_flesh, spider_eye, gravel, leaf_litter, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds; `"stack"`: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal; `"all"`: gunpowder | Per item name how many she keeps (`0`, a count, `"stack"` or `"all"`); unlisted items are kept. Merged by item name over the defaults; a bad structure, value or name turns automatic removal off, told once (REQ-OBT-11). A new default needs the owner's approval. S2e. | W3b (owner); owner (2026-11-11); junk council r7 |
+| `work.inventory.idle` | true | The idle cleanup (`action:items`) on or off; tasks use the list either way (REQ-OBT-11). S2e. | owner (2026-11-11); junk council r7 |
 | `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
 | `work.model_timeout_s` | 600 | OpenAI client timeout (REQ-RES-17). S2b. | clear council; main-seat ruling R7 (2026-11-11) |
 | `work.model_max_retries` | 2 | OpenAI client retries of every call except decisions, which pass 0 per request because `promptConvo` retries them: one retry owner per call (REQ-RES-17). S2b. | clear council; main-seat ruling R8 (2026-11-11) |
@@ -2583,10 +2720,21 @@ one-level merge never drops one of them; S2b adds them to the defaults in
 the provider it builds (main-seat ruling, OQ-21).
 From S2c, `loadWorkConfig` merges object defaults one level deep (`work.clear`,
 `work.tidy`, from S2d `work.sleep`), so a profile that sets one sub-key keeps the
-other defaults; other values still replace the default whole.
+other defaults; other values still replace the default whole. From S2e,
+`work.inventory` merges `items` by item name (`mergeInventory`) and keeps the
+validation result as `inventory.error`. `work.junk_items` and `work.junk_keep`
+are retired (S2e): a profile that still sets them gets the usual "ignoring
+unknown work setting" log line.
 
-Constants in code (not keys): the junk drop's 5-minute drop-point memory, its
-3-block skip radius and its two re-runs per step; the resume check's hostile radius 8 (the same as
+Constants in code (not keys): from S2e (`work/inventory.js` `INVENTORY`; the
+look, the wait, the landing and standing still measured by probe P15, PLAN
+§4): the 3-block free facing,
+look point and drop point, the 2-tick wait after the look, the guard's
+3-block radius, 5-minute life and 32 drop points, the 16-block owner radius,
+the two re-runs per step, the idle cleanup's 16-block hostile radius and 5 s
+quiet, 30 s between passes, 3 s resume gap, 5-minute and 8-block retry of a
+pass that removed nothing, 10-minute `!stop` hold, the cap of 4 passes in 10
+minutes and its 10-minute hold, and the five kept items named; the resume check's hostile radius 8 (the same as
 `self_defense`); the task view cap of 700 characters; the step result cap of 160
 characters; the DSL cap of 1,000 characters; the scaffold block (dirt) and the
 scaffold reserve (4 per 5-level lift above the first). From S2b: the outage
@@ -2629,7 +2777,7 @@ needs, and the 2 s watch for a bed after a timed-out placement.
 | `work.find.dusk_tick` | 11500 | Under `shelter`: no new legs after this `timeOfDay`. | Surv | P1b |
 | `work.min_health` | 10 | Health gate threshold (REQ-RES-8). | Surv | D4 |
 | `work.food_block_at` | 6 | Block with no food at or below this (REQ-SAFE-10). | Surv | E1 |
-| `work.allow_drop_task_surplus` | false | Drop unneeded task pickups (REQ-OBT-11). | Surv | E1 |
+| `work.allow_drop_task_surplus` | false | Drop unneeded task pickups (REQ-OBT-11; the chest destination is S2e part B, design r7 §7). | Surv | E1 |
 | `work.ask_over_s` | 900 | Ask before tasks estimated longer (REQ-BLD-8). | Surv | P1b / E1 |
 | `work.find.allow_locate` | false | `/locate` use (REQ-SAFE-6). | Surv | E1 |
 | `work.find.ask_targets` | desert_pyramid, jungle_temple, mansion, monument | Ask first (REQ-FIND-11). | Surv | P1b |
@@ -2707,7 +2855,7 @@ agent log, and every dropped line is logged).
 |---|---|---|
 | `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10) |
 | `question` | shown | the work layer's owner questions (REQ-REC-12) |
-| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8) |
+| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11) |
 | `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
 | `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror; (S2d) the unconfirmed wake (REQ-SLP-8) |
 
@@ -3007,8 +3155,51 @@ Recorded, not built:
 - After an exhausted search blocks, Qwen's one blocked-step turn may start a new
   search by itself. Accepted (LOW): each search is bounded by its budget, and the
   task by the stall rule (REQ-RES-16).
-- Junk the bot dropped can be picked up again on contact when a later path
-  crosses the spot (REQ-OBT-11).
+- Inventory upkeep (REQ-OBT-11, S2e; design r7 §10 and the build):
+  - items she dropped can be picked up again on contact when a later path
+    crosses the pile (server-side); the next pass drops them again;
+  - a full bag during a goal waits until the goal ends (the cleanup needs the
+    goal stopped);
+  - a follow is cut for a second or two per pass;
+  - a deliberate gift on the 0 list is dropped at the next pass when she is
+    nearly full (cure: `"all"` or a count for it);
+  - the guard is approximate: 32 drop points, 3 blocks, 5 minutes; an item
+    that rolls more than 3 blocks from its drop point is not skipped by
+    `pickupNearbyItems`;
+  - probe P15 measured the landing on flat ground only: a step ahead
+    shortens it (2.38 blocks onto a one-block step; the facing rule excludes
+    that direction); an obstacle within 3 blocks, the guard against
+    `pickupNearbyItems` and the one-slot `bot.transfer` path with whole-stack
+    tosses through ViaProxy (P15 used `bot.toss`) wait for the S2e trials;
+  - a model-issued `!stop` during a pass ends it but does not hold the
+    cleanup (only the owner's raw `!stop` holds it, 10 minutes); the hold
+    arms only while a pass runs (well under a second), so it is nearly
+    unreachable (S2e review ruling 3, as contracted);
+  - in a 1×1 pit or a stair tunnel no direction is free, so the in-task drop
+    fails and the step blocks "inventory full" (design r7 §3; MED by
+    consequence). The old drop tossed anyway, but there the items fell at her
+    feet and contact pickup took them back, so it failed in practice too
+    (S2e review A4);
+  - a server pickup refilling the one source slot during a partial transfer
+    can swap with a foreign item and toss it (needs a pickup in the same
+    tick); the cursor is checked before each transfer, not inside
+    Mineflayer's (S2e review, adversary gap 4; LOW);
+  - an exception from the needed items inside the admission is logged every
+    second (S2e review, adversary gap 5; LOW);
+  - the "full of things I keep" note counts every slot, armour included;
+  - an open container or a stuck cursor is found only inside the pass: it ends
+    `unavailable` and holds, `!itemList` then says "nothing to drop from here",
+    and a task step blocks "inventory full" (S2e review r2, adversary N2; LOW);
+  - the empty-plan cache keys on counts and the selected slot, not the slot
+    layout: an equip that swaps junk out of the held slot waits up to the
+    5-minute expiry (adversary N3; LOW);
+  - the no-progress hold (also set when no direction is free, or a follow's
+    target stands on her) lifts on an inventory change, her own move > 8
+    blocks or 5 minutes, not on a world change (a door opened): a free
+    direction can wait up to 5 minutes (S2e review r3, adversary; LOW);
+  - untested paths: the follow target moving during the cut (the facing re-read
+    at entry), the runner's owner-avoid wiring, an obstacle in the eye row on a
+    path floor (adversary N4; LOW).
 - Model outages (REQ-RES-17/18, S2b review rulings 2026-11-11; LOW unless
   noted):
   - a backend that is alive but slower than `work.model_timeout_s` (600) on a
@@ -3177,7 +3368,7 @@ How every kind of interaction is handled. "—" means not applicable.
 | Beds | owner's `!goToBed` text command only; in designs replaced by full blocks | — | yaw-dependent blocks |
 | Crafting table, furnace | resolver places and picks up its own; carried forward as `station` entries whenever a new task replaces the record (REQ-BLD-22); from S2c kept as `station` entries in the placements ledger (REQ-OWN-1) | I1, I5 | — |
 | Chests | `!putInChest`/`!takeFromChest` (text in I1, tools from I2) | I1 | authorised deposit chest (Surv) |
-| Full inventory | junk drop from `work.junk_items` with no model call; else block with the five largest stacks | I1 | — |
+| Full inventory | the item list's surplus dropped with no model call, in a task and when idle or following (S2e); else a task blocks with the five largest stacks | I1 | chest destination (S2e part B) |
 | Owner's builds and containers | protected; may serve as a `solid` cell | I1 | — |
 | Villages and other structures | found, recognised, protected; never looted | I4 | — |
 | Hostile mobs | modes defend/flee; resume check | I1 | health gate, night shelter (Surv); combat steps out of scope |
