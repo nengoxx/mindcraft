@@ -94,6 +94,12 @@ export function initBot(username) {
         bot.acceptResourcePack();
     });
 
+    // Fork carry (REQ-OWN-1): the world's hashed seed from the login packet
+    // (SpawnInfo, worldState since 1.20.5), updated by a respawn; the
+    // placements ledger keys its records by it (work/ledger.js worldId).
+    const keepSeed = packet => { if (bot.game) bot.game.hashedSeed = (packet.worldState ?? packet).hashedSeed ?? null; };
+    bot._client.on('login', keepSeed);
+    bot._client.on('respawn', keepSeed);
     bot.once('login', () => {
         console.log(`[mcdata] Logged in: version=${bot.version}, protocol=${bot.protocolVersion}`);
         mc_version = bot.version;

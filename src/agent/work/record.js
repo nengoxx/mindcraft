@@ -70,7 +70,7 @@ export function newStep(n, skill, args) {
 
 // The bot's placements are not in the record: they live in the placements
 // ledger (ledger.js, REQ-OWN-1), which a task change does not touch.
-export function newRecord({ objective, request_text, requested_by, anchor, steps, now = Date.now() }) {
+export function newRecord({ objective, request_text, requested_by, anchor, steps, now = Date.now(), notify_done = false }) {
     return {
         version: RECORD_VERSION,
         id: `t${now.toString(36)}`,
@@ -89,6 +89,10 @@ export function newRecord({ objective, request_text, requested_by, anchor, steps
         interruptions: { count: 0, last: null },
         pending_question: null, // REQ-REC-12: set while code waits for the owner's answer
         clean_stop: false,
+        // REQ-CHAT-1/2 (optional fields, version unchanged): whether the done
+        // line goes to the owner, and the blocks per step ordinal.
+        notify_done,
+        blocks_by_step: {},
     };
 }
 

@@ -41,12 +41,16 @@ export const WORK_DEFAULTS = Object.freeze({
             'decorated_pot', 'jukebox', 'campfire', 'soul_campfire', 'suspicious_sand', 'suspicious_gravel']),
         never_remove: Object.freeze(['spawner']), // a clear always keeps these
     }),
-    ledger_max: 2000,           // cap on live scaffold entries (REQ-OWN-5)
-    // Tidying the bot's own scaffold (REQ-OWN-8, 10).
+    ledger_max: 2000,           // cap on live scaffold entries per world (REQ-OWN-5)
+    // Tidying the bot's own scaffold (REQ-OWN-8). Its line is chat category
+    // `detail` (REQ-CHAT-1); work.tidy.announce is retired.
     tidy: Object.freeze({
         enabled: true,          // the automatic sweeps after a mode and at task end; !tidy always works
-        announce: true,         // one line after a sweep that removed or left something
     }),
+    // What the bot says in chat (REQ-CHAT-1): 'quiet' (only what matters to
+    // the owner) or 'debug' (today's full output). Read through
+    // agent.prompter.work_config by work/chat.js, so it exists before Work.
+    chat: 'quiet',
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one

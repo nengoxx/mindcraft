@@ -85,7 +85,7 @@ export function leftoversQuestion(args, s) {
     if (s.leftovers.length) {
         const listed = groups(s.leftovers, c => c.block).map(([name, n, c]) => `${name} ${n} (${n === 1 ? 'at' : 'one at'} ${at(c)})`);
         const n = s.leftovers.length;
-        // Not "that I did not place": scaffold forgotten at a restart is the bot's own.
+        // Not "that I did not place": scaffold the cap evicted is the bot's own.
         parts.push(`${n} block${n === 1 ? ' is' : 's are'} left that ${n === 1 ? 'is' : 'are'} not natural and not in my records: ${listed.join(', ')}. Remove ${n === 1 ? 'it' : 'them'} too? Answer yes or no.`);
     }
     if (s.containers.length) {
@@ -110,7 +110,7 @@ export function clearReport(args, s, { declined = false } = {}) {
 // REQ-OWN-10: the tidy line, from a sweep's result (tidy.js). It never claims
 // drops were collected.
 export function tidyLine({ removed, left }) {
-    const blocks = `${removed.length} of my scaffold block${removed.length === 1 ? '' : 's'}`;
+    const blocks = `${removed.length} scaffold block${removed.length === 1 ? '' : 's'} of mine`;
     if (!left.length) return `Removed ${blocks} here.`;
     const reasons = groups(left, l => l.reason);
     const why = reasons.length === 1 ? reasons[0][0] : reasons.map(([reason, n]) => `${n} ${reason}`).join(', ');
@@ -136,6 +136,22 @@ export function blockedReport(record, step, bot) {
     const where = step ? `step ${step.n}/${record.plan.length} (${step.skill} ${shortArgs(step)})` : 'its current step';
     return `Task "${record.objective}" is blocked at ${where}: ${record.reason}. ${inventoryFacts(record, bot)} ` +
         'Tell the owner briefly, then use !taskRevise(from_step, "<steps>") with a changed plan, !taskResume to retry, or !taskCancel.' + goalStopped(record);
+}
+
+// REQ-CHAT-1: the owner's one short line for a task he asked for.
+export function doneLine(record) {
+    return `Task done: "${record.objective}".`;
+}
+
+// REQ-CHAT-2: a step blocked a second time in one task (one code line,
+// beside the model's relay of the blocked report).
+export function blockedAgainLine(n, reason) {
+    return `Step ${n} blocked again: ${String(reason).replace(/\.$/, '')}.`;
+}
+
+// REQ-CHAT-2: her death, said by code (the model's turn for it is her own).
+export function deathLine(pos, paused) {
+    return `I died at ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}${paused ? '; my task is paused' : ''}.`;
 }
 
 export function failedReport(record, bot) {

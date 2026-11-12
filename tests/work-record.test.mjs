@@ -184,7 +184,7 @@ test('SIGINT writes clean_stop and re-raises; the next start (even "Agent proces
     const stopped = F.readRecord(probe);
     assert.deepEqual([stopped.status, stopped.clean_stop], ['active', true]);
     // The placements ledger is flushed on SIGINT too (REQ-OWN-1).
-    assert.deepEqual(F.readLedger(probe).entries.map(e => e.block), ['oak_planks']);
+    assert.deepEqual(F.ledgerEntries(probe).map(e => e.block), ['oak_planks']);
 
     const restarted = setup({ name, keep: true, init_message: W.RESTART_MESSAGE });
     assert.deepEqual([restarted.work.record.status, restarted.work.record.reason], ['paused', 'fresh_start']);

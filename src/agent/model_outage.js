@@ -54,7 +54,7 @@ export class ModelOutage {
         if (this.cause !== null) return;
         this.cause = cause;
         console.warn(`[outage] model unreachable: ${cause}`);
-        if (notify) this.agent.openChat(outageNotice(cause));
+        if (notify) this.agent.openChat(outageNotice(cause), 'alert');   // REQ-CHAT-1: shown in quiet
     }
 
     // Recovery also ends the current back-off of every waiting turn, so the
@@ -64,7 +64,7 @@ export class ModelOutage {
         console.log(`[outage] model reachable again (was: ${this.cause})`);
         this.cause = null;
         for (const wait of this.waits) if (wait.deadline !== null) wait.woken = true;
-        this.agent.openChat(RECOVERY_NOTICE);
+        this.agent.openChat(RECOVERY_NOTICE, 'alert');
     }
 
     // REQ-RES-17: promptConvo's foreground wait through an outage, registered on

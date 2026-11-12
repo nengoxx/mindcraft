@@ -9,6 +9,7 @@
 // its listing like Mindcraft's own queries.
 
 import Vec3 from 'vec3';
+import { turnCategory } from './chat.js';
 
 const POSITIONS_MAX_RANGE = 64; // REQ-TRN-16: range 1–64, clamped (OQ-22)
 const POSITIONS_LISTED = 10;    // display cap
@@ -61,9 +62,14 @@ const DSL_HELP = 'Steps: one string, steps separated by ";", each "skill key=val
     "Free text goes in single quotes; never put a double quote inside an argument (that gives an argument-count error). " +
     'At most 8 steps. Example: !taskStart("40 oak planks", "obtain item=oak_planks count=40")';
 
+// REQ-CHAT-1: the line follows the turn (shown in the owner's turns, a raw
+// owner command included, and in blocked-report turns; `detail` in her own);
+// a markers= clear's box statement is an `alert` line of its own.
 async function report(agent, result) {
-    agent.openChat(result.message);
-    await agent.history.add('system', result.message);
+    agent.openChat(result.message, turnCategory(agent));
+    if (result.statement) agent.openChat(result.statement, 'alert');
+    const line = result.statement ? `${result.message} ${result.statement}` : result.message;
+    await agent.history.add('system', line);
     await agent.history.save();
 }
 

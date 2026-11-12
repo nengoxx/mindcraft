@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -61,6 +61,9 @@ nothing the owner can see is retired.
     bot's own reachable scaffold. Clearing is a capability of its own (DECISIONS
     2026-11-08); it lands before S3 only because S3 reuses `dig.js`, the ledger
     kinds and the owner question.
+  - S2c-fu: quiet chat (`work.chat`) and scaffold records that survive
+    restarts and unloads, kept per world (DECISIONS 2026-11-11 "After the S2c
+    live trials", 2026-11-12).
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -466,7 +469,8 @@ add the protected-block diff. Interventions: target 0.
     when complete), the owner `!stop` keep from chat, whispers and MindServer
     before any translation, a model `!stop` within 60 s of an owner message
     counted as the owner's, `should_reprompt` false for `action:tidy`,
-    `work.tidy.enabled` and `announce`. (As built: `tests/work-tidy.test.mjs`,
+    `work.tidy.enabled` and `announce` (`announce` retired in S2c-fu; its test
+    replaced by the quiet ones). (As built: `tests/work-tidy.test.mjs`,
     with a control test that a fight interrupting any other action still
     prompts the model.)
 - **Live acceptance (uncoached unless noted; bot invincible).**
@@ -526,6 +530,115 @@ add the protected-block diff. Interventions: target 0.
 - **Not in S2c.** A walking idle sweep, scaffold out of reach and travel bridges
   (the later slice, §8); levelling; the builder's use of `dig.js` and the ledger
   (S3); water from `self_preservation` and torches (SPEC §16).
+
+#### S2c-fu — Quiet chat and remembered scaffold
+
+- **Goal.** The S2c trials' follow-ups (DECISIONS 2026-11-11 "After the S2c live
+  trials", 2026-11-12 "Quiet chat and remembered scaffold"): in quiet, the
+  default, she speaks only when the owner speaks to her, when she needs an
+  answer, when something fails, is stuck a second time or kills her, before
+  clearing a marked box, with one short line for a task he asked for, at a
+  goal's end and in answer to a command he typed; `work.chat: "debug"` brings
+  back today's output. Her scaffold records survive restarts, crashes and
+  unloads, kept per world, and an old block is hers to remove only while
+  nothing non-natural she did not place touches its pillar or bridge. (Design:
+  `runtime/diagnostics/i1-build/quiet-council/recommended-design.md` r4, from a
+  council with a Sol review and two adversary waves.)
+- **SPEC.** §15.1 (REQ-CHAT-1, 2); §11.10 REQ-OWN-1 (file version 2, worlds),
+  REQ-OWN-4 (kept records, the gap mark, the component guard), REQ-OWN-5 (cap
+  per world, eviction after load, hygiene, durability), REQ-OWN-8 and 10 (the
+  tidy line and `!tidy`'s answer); §6.2 (`notify_done`, `blocks_by_step`); the
+  `work.chat` row of §14 and `work.tidy.announce` retired; the `agent.js`,
+  `self_prompter.js` and `utils/mcdata.js` rows of §5.3; §16.
+- **Files.**
+  - `src/agent/work/`: `chat.js` (new: `chatMode`, `chatShown`, the turn's
+    category); `index.js` (the turn's voice in `guardTurns`, `turnVoice`,
+    `ownerTurn`, the owner's answer pending, the blocked-report mark,
+    `deliver`'s categories, the done
+    line and `notify_done`, `blocks_by_step` and the second-block alert, the
+    death alert, the box statement apart, the gap mark and hygiene at init);
+    `ledger.js` (file version 2 and the v1 fold, `worldId`, kept scaffold with
+    `gap_at`, hygiene on chunk load, the exit flush, eviction after load,
+    `scaffoldEligible`); `protect.js` (the component guard, `protectorFor`);
+    `tidy.js` (eligibility in every choice, the line as `detail`, `!tidy`'s
+    answer); `commands.js` (the task line by the turn, the statement as an
+    alert); `report.js` (the done, blocked-again and death lines; the tidy
+    line's singular); `record.js` (the two optional fields); `config.js`
+    (`work.chat`; `tidy.announce` retired).
+  - Carries: `agent/agent.js` (the chat gate and the quiet branch),
+    `agent/self_prompter.js` (one category), `utils/mcdata.js` (the hashed
+    seed); `agent/model_outage.js` (our own file) tags its two notices;
+    `patches/mineflayer-pathfinder+2.4.5.patch` (amendment 1: the tower
+    placement waits until her feet clear the cell).
+  - Profile (private, not in the repo): the `conversing` sentence and the
+    examples without narration before commands (design §3); the proposal is a
+    full file beside the build report, for the owner to apply.
+  - CHANGES.md: the three carries and the pathfinder patch hunk.
+- **Offline tests.** `tests/work-chat.test.mjs` (new) drives the real
+  `openChat`/`routeResponse`, capturing `bot.whisper`, with
+  `prompter.work_config` set and `show_command_syntax: "full"`: the switch and
+  its unknown value; quiet and debug owner turns with a query then an answer;
+  her own turns dropped, a no-command reply and the `!endGoal` text shown; a
+  blocked-report turn shown (the relay and its task receipt) and the
+  second-block alert once; every raw task command answered, the echo not; the
+  marker statement alone; a dropped line does not disarm a question; the done
+  line only for owner tasks (also after an owner's resume, and for a record
+  without the field); the death line; `cleanKill` silent in quiet; the turn's
+  voice. The fixture default is `work.chat: 'debug'`, so the older suites keep
+  testing today's output. `work-ledger.test.mjs`: the world id; the v1 fold;
+  worlds kept apart and the cap per world after load; an unknown world;
+  restart keeps entries with `gap_at`, an unload keeps and marks; hygiene at
+  start and on chunk load; the exit flush after a successful dig; the
+  component guard (a foreign neighbour on one member lapses the whole
+  component; air, natural terrain, a natural tree and same-session scaffold
+  keep it; an `own`, `building` or `station` neighbour, a log build, an
+  unloaded neighbour lapse it; a clear box makes it hers; 64 members free, 65
+  lapsed; the memo, also dropped by a column load or unload; planks on a tree
+  lapse it inside a run). `work-tidy.test.mjs`: after a restart
+  old scaffold is tidied while it stands free, a lapsed pillar, an own
+  neighbour's and a lapsed dirt block are not, nor one that lapses during the
+  sweep; the line in quiet goes to history only; the owner's raw `!tidy` and
+  the model's in his turn answered, hers in her own turn returns nothing.
+  Fix wave 1 also pins in `work-chat.test.mjs`: the outage notices and a task
+  failure shown; a raw query's result shown; the second-block alert at
+  exactly the second block; the block count kept by a reordered revision; a
+  clear's whole done report; an owner's revision sets `notify_done`; a task
+  started in a blocked-report turn inherits it; the owner's answer pending.
+- **Live acceptance (the test card; bot invincible).**
+  1. Restart her with a pillar recorded: the log shows
+     `[ledger] kept N scaffold entries from before`, and a `!tidy` within reach
+     removes the pillar when nothing of his touches it.
+  2. A night of fights: count her chat lines (target: only the categories
+     above; no tidy lines, no narration, no "Restarting.").
+  3. A `markers=` clear she starts: the box statement is still shown.
+  4. A raw `!tidy` from the owner is answered with its line, and so is "tidy
+     up your blocks" in words (the model's `!tidy`, then her answer).
+  5. A death: one line "I died at x, y, z; …".
+  6. Pit escape (amendment 1; the pathfinder carry places a tower block only
+     once her feet clear the cell, and resets a tower she cannot clear: at
+     once when she stands in its reference cell, else after 3.5 s,
+     CHANGES.md): in a 1-wide, 4-deep pit she towers out, and every tower
+     block is recorded on its first attempt; no jump in place lasts longer
+     than about 4 s. Already measured live in the probe's confirm
+     round, before the futility reset (private
+     `i1-build/s2cfu-review/pit-probe-report.md`): 5/5 one-block towers and a
+     4-block tower clean, each block recorded on the first attempt. Stopping
+     on her tower inside the pit at a `GoalNear` of range 2–3 is a SPEC §16
+     residual, not part of this trial.
+  7. While a `!goal` runs, ask her a question she answers with a query (for
+     example "what do you have?"): her answer is shown in her next turn.
+  - Note for the card: if the unstuck mode fails, she restarts with no word
+    in quiet ("Restarting." is `detail`); the log shows it.
+- **Metrics.** §2.3; chat lines per hour by category (from the `[chat]` log
+  lines and the whispers), and the own-blocks count of S2c with the
+  "from before a restart or an unloaded chunk" reason split into tidied,
+  lapsed and out of reach.
+- **Exit.** All trials pass; the profile change is applied by the owner; CHANGES.md is
+  current.
+- **Not in S2c-fu.** The pit-escape residuals (the `GoalNear` range met inside
+  a pit, the refusal of unknown cause; SPEC §16); sleeping (S2d), inventory
+  upkeep (S2e), the walking tidy (§8); per-world task records, structures and
+  memory (SPEC §16).
 
 #### S3 — Terrain-fitting shelter
 

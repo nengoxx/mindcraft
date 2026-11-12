@@ -121,6 +121,14 @@ export function tree(world, x, y, z, height = 4, log = 'oak_log') {
     world.fill(x - 1, y + height, z - 1, x + 1, y + height, z + 1, leaves, { persistent: false, distance: '1', waterlogged: false });
 }
 
+// A protocol i64 as node-minecraft-protocol hands it to Mineflayer (protodef's
+// SignedBigInt: a [high, low] array whose valueOf is a BigInt).
+export function i64(value) {
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigInt64BE(BigInt.asIntN(64, value));
+    return require('protodef').types.i64[0](buffer, 0).value;
+}
+
 let entityIds = 100;
 export function makeBot({ world = new World(), position = [0, 64, 0], inventory = {} } = {}) {
     const bot = new EventEmitter();
@@ -129,7 +137,9 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.version = '26.1';
     bot.username = 'fixture';
     bot.world = world;
-    bot.game = { dimension: 'overworld', gameMode: 'survival' };
+    // hashedSeed: the login packet's worldState.hashedSeed as protodef reads an
+    // i64, kept by the mcdata carry; the ledger's world (REQ-OWN-1).
+    bot.game = { dimension: 'overworld', gameMode: 'survival', hashedSeed: i64(0x123456789abcdef0n) };
     bot.output = '';
     bot.interrupt_code = false;
     bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
@@ -337,6 +347,9 @@ export function makeAgent({ bot = makeBot(), modes = {}, work = {}, replies = []
     };
     agent.prompter = {
         profile: { work },
+        // agent.js:33. work.chat 'debug' by default, so today's chat assertions
+        // keep testing today's output (REQ-CHAT-1); a test passes chat: 'quiet'.
+        work_config: modules.config.loadWorkConfig({ chat: 'debug', ...work }),
         getInitModes: () => ({ ...MODES_OFF, ...modes }),
         promptConvo: async () => { agent.modelCalls++; const r = replies.shift(); return typeof r === 'function' ? r(agent) : (r ?? ''); },
         cancelCoding: () => {},
@@ -408,6 +421,11 @@ export function ledgerFile(agent) {
 
 export function readLedger(agent) {
     return JSON.parse(fs.readFileSync(ledgerFile(agent), 'utf8'));
+}
+
+// The written entries of the agent's current world (placements.json version 2, REQ-OWN-1).
+export function ledgerEntries(agent) {
+    return readLedger(agent).worlds?.[modules.ledger.worldId(agent.bot)]?.entries ?? [];
 }
 
 // Run the agent's command parser on an owner-typed (forced) command.

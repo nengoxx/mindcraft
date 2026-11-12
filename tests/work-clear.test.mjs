@@ -145,7 +145,9 @@ test('a markers= box is stated and cleared at once: top-down, nearest first, at 
     CLEAR.unit = async function (ctx, s) { const before = digs(bot).length; const r = await unit.call(this, ctx, s); perUnit.push(digs(bot).length - before); return r; };
     try {
         const started = agent.work.startTask('clear the cube', `clear markers=${MARKER}`);
-        assert.equal(started.message, 'Task started: "clear the cube" (1 step). Clearing x 2..4, y 64..66, z 0..2: 27 cells inside the marked box; its outer layer stays.');
+        // REQ-CHAT-1: a markers= box statement is its own part of the result (an `alert` line).
+        assert.deepEqual([started.message, started.statement], ['Task started: "clear the cube" (1 step).',
+            'Clearing x 2..4, y 64..66, z 0..2: 27 cells inside the marked box; its outer layer stays.']);
         await until(agent, 'done');
     } finally {
         CLEAR.unit = unit;
@@ -757,6 +759,7 @@ function outbox() {
     const agent = {
         name: 'outbox', history: { add: async () => {}, save: async () => {} },
         handleMessage: async () => {}, openChat: async text => { sent.push({ text, at: Date.now() }); },
+        prompter: { work_config: { chat: 'debug' } },   // the fixture default (REQ-CHAT-1)
     };
     const w = new W.Work(agent, { timers: false });
     w.log = () => {};

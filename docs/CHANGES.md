@@ -364,7 +364,7 @@ forward bridge, movements.js:412-413). `work.clear` (merged one level deep by
 - Tell A (REQ-OWN-3, not our carry): the recording relies on Mindcraft's
   pathfinder patch writing the predicted stone (`setBlockStateId(dest, 1)`)
   before it calls `bot.placeBlock` (`patches/mineflayer-pathfinder+2.4.5.patch`,
-  index.js:571 → :575). Check: `work-ledger.test.mjs` "the installed pathfinder
+  index.js:580 → :584 since the S2c-fu pit-escape hunk). Check: `work-ledger.test.mjs` "the installed pathfinder
   writes the predicted stone before it calls bot.placeBlock (tell A guard,
   REQ-OWN-6)", a source check of the installed file. If it fails after a merge
   or a pathfinder bump, apply the dirt-only fallback of REQ-OWN-6 instead of
@@ -424,3 +424,84 @@ The work fixture's bot has `entity.onGround` (true), its `stopDigging` aborts
 the dig in progress as Mineflayer's does (digging.js:167-192), its dig call
 records the look argument, and the fixture loads `work/tidy.js` and
 `work/report.js`.
+
+I1 S2c-fu (quiet chat and remembered scaffold; SPEC §15.1 REQ-CHAT-1, 2 and
+§11.10 REQ-OWN-1, 4, 5, 10). Why: "she talks too much in chat" and her scaffold
+records should survive a restart, kept per world (DECISIONS 2026-11-11 "After
+the S2c live trials", 2026-11-12). Our own new file is `work/chat.js` (the
+`work.chat` switch read through `prompter.work_config`, the categories, the
+turn's category). In our own files: the work layer's `handleMessage` wrap stores
+the turn's voice (owner, the handed-over blocked report with whether its task
+was the owner's, her own) and counts its shown lines, so an owner turn begun
+while a goal ran that showed none leaves his answer pending for the next
+model response; its
+`openChat` wrap disarms a question only for a shown line; `deliver` and
+`postReport` take a category; the done line, the second-block and death alerts,
+`notify_done` and `blocks_by_step` in the record; the ledger file is version 2
+with worlds (`worldId`, one quarantined fold of a version-1 file), keeps
+scaffold with `gap_at`, retires mismatches on chunk load and flushes on exit;
+the Protector's component guard decides old scaffold, and `scaffoldEligible`
+is used by every tidy choice; `work.tidy.announce` is retired.
+`agent/model_outage.js` (our own file) tags its two notices `alert`. The
+carries into upstream files:
+
+- `agent/agent.js` (grown carry): `openChat(message, category = 'detail')`
+  drops a line quiet does not show as its first step (and logs it);
+  `routeResponse` passes the category through, the bot-to-bot branch
+  unchanged; `reply` on the raw owner command's "does not exist" and result and
+  on a model reply with no command; in quiet a branch around the whole
+  `show_command_syntax` dispatch sends only the text before the command, with
+  the category from the turn's voice (`work/chat.js` `replyCategory`, taken
+  for every response with a command, so it consumes a pending owner answer);
+  `cleanKill` says "Restarting."/"Exiting." only when `detail` is shown (about
+  15 lines). Why: one gate for every line, so nothing bypasses quiet (the
+  owner's `show_command_syntax: "full"` sends at the `full` branch, so a gate on
+  the last branch alone is not enough). Reapply check: `work-chat.test.mjs`
+  (all of it; it drives the real `openChat` and `routeResponse`). Retire when
+  upstream offers chat categories or a verbosity switch.
+- `agent/self_prompter.js` (grown carry): the "did not use command … Stopping
+  auto-prompting" line is an `alert` (one argument). Why: a goal that gave up
+  must show in quiet. Reapply check: `work-chat.test.mjs` "the goal loop giving
+  up is an alert, shown in quiet". Retire with the agent.js carry.
+- `utils/mcdata.js` (grown carry): in `initBot`, beside the "[mcdata] Logged in"
+  line, listeners on the client's `login` and `respawn` packets keep
+  `worldState.hashedSeed` as `bot.game.hashedSeed` (three lines). Why: the
+  placements ledger keys its records by world, and Mineflayer's game plugin
+  drops the seed. Reapply check: `work-ledger.test.mjs` "the world id is
+  seed:<hex> …" (its text check of the two listeners). Retire when Mineflayer
+  keeps the hashed seed in `bot.game`.
+- `patches/mineflayer-pathfinder+2.4.5.patch` (grown carry, the pit escape):
+  in the jump-placement branch of `monitorMovement` (installed index.js:563)
+  `canPlace = placingBlock.y + 1 < bot.entity.position.y` becomes
+  `canPlace = placingBlock.y + 2 <= bot.entity.position.y`. Why: the old test
+  fired at the first jump tick, while her body was still in the target cell,
+  and the server refuses a block placed inside the player, so a 1-wide pit's
+  tower out lost its last block every time and she stayed in the pit (ISSUES,
+  S2c live findings; root cause and the live confirm round:
+  `runtime/diagnostics/i1-build/s2cfu-review/pit-probe-report.md`, private).
+  In the same branch (installed index.js:564-571), while `canPlace` is false,
+  `resetPath('stuck')` and return at once when she stands on the ground with
+  her feet in the reference cell (`plannedMidAir`: `bot.entity.onGround &&
+  bot.entity.position.y < placingBlock.y + 0.8`, the planner's own 0.2
+  tolerance from getMoveUp, so a tower from soul sand or farmland, where the
+  planner starts one cell up, is not reset every tick: adversary r3 R1), or else after more
+  than 3.5 s since the last node. Why: a tower planned from a mid-air cell
+  (a path reset while she is airborne) can never clear, and the placing
+  branch returned before the walking branch's 3.5 s futility check
+  (index.js:663), so she jumped in place until the unstuck mode (adversary
+  r1 D1; seen once live, 18 s). Standing with her feet in the reference cell
+  shows such a plan at once, and the reset then replans from the ground; a
+  reset on the 3.5 s rule alone could replan from mid-air again about half
+  the time (adversary r2 A2). The 3.5 s rule stays for the rest (honey,
+  cobweb). Reapply check: `grep -n "canPlace = placingBlock.y + 2 <=
+  bot.entity.position.y\|const plannedMidAir = bot.entity.onGround\|if
+  (!canPlace && (plannedMidAir || performance.now() - lastNodeTime > 3500))"
+  node_modules/mineflayer-pathfinder/index.js` after `npm install`
+  (patch-package): all three lines. Retire them when upstream places a 1x1
+  tower block only once the player has cleared the cell.
+
+The work fixture's agent gets `prompter.work_config` with `work.chat: 'debug'`
+(so the older suites keep testing today's output) and its bot a hashed seed
+(`bot.game.hashedSeed`, built by `F.i64` with protodef's own i64 reader);
+`F.ledgerEntries`
+reads the current world's written entries.
