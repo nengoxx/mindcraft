@@ -19,8 +19,7 @@ the owner, who was not online):
   the first placement fails its whole-bed check every night (F1) and one pickup lost the bed (F2)**.
 
 **Next.**
-0. Restart the bot's operator under the new session (Notes). Waiting for the owner's go: a project `CLAUDE.md`
-   (draft `runtime/diagnostics/i1-build/claude-md-draft.md`); on the go, add it and cut these Notes to session state.
+0. Restart the bot's operator under the new session (Notes).
 1. **S2d fix slice (F1, F2, F3)**, a bug fix: root cause first (the `audit` quick form), with two short daytime probes
    on the live bot: (a) after a bed placement, log when the foot and head cells' updates arrive (F1: is the head read
    too early?); (b) break a placed bed's foot and log the item entities with `getDroppedItem()` for 2 s (F2: is the
@@ -54,16 +53,11 @@ about 110 dug dirt near x −480..−496, z 1740..1750. A blocked task record `t
 fill at −529 66..68 1743 (recorded) with a 1-deep hole above; an unrecorded cobblestone at −531,66,1741; a 6-block test
 pillar at −468 73..78 1770 (unrecorded; the owner may break it); the 8 dead fire coral markers near −526 70 1730.
 
-**Notes.** The bot's operator (`operator/mindcraft.sh start`: MindServer, ViaProxy and the agent process; the agent
-is driven by the local Qwen model) was started as a background job of the session before this one. First thing in a
-new session: check it (`pgrep -af operator/linux.mjs`); stop it with `operator/mindcraft.sh stop` and start it
-again as a background job of the new session, log under `runtime/logs/`. The live-test helper
-is `operator/live.mjs` (state, listen, say, settings, set, restart; `say` speaks as the owner, see its header).
-Whispers are not logged on the host; `[chat] quiet: dropped` lines show what quiet hid. A profile change needs
-`set-agent-settings`. The owner allows restarts any time; keep her in game. Node is private (DECISIONS 2026-11-08,
-self-contained): `runtime/tools/node-v22.23.4-linux-x64/bin/node`; gate: `TMPDIR=<dir> <node>
---experimental-test-module-mocks --test tests/*.test.mjs`. Public fork: push only on the owner's word; tracked files
-carry no hosts, accounts, names or private paths.
+**Notes.** Durable project facts (priorities, tooling, live testing, the public-fork rule) are in `CLAUDE.md`. The
+bot's operator was started as a background job of the session before this one: from the new session, check it
+(`operator/mindcraft.sh status`), stop it (`operator/mindcraft.sh stop`) and start it again as a background job,
+logging under `runtime/logs/`. Trial scratch from 2026-11-12 is archived in
+`runtime/diagnostics/i1-build/live-scratch-20261112.tgz`.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
