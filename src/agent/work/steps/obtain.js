@@ -41,6 +41,11 @@ export default {
         return { now, target: step.args.count, score: plan.error ? -Number.MAX_SAFE_INTEGER : -remainingWork(plan.nodes) }; // finite: the record is JSON
     },
 
+    // The target is in the bag (the unit's own first check).
+    met(ctx, step) {
+        return (world.getInventoryCounts(ctx.bot)[step.args.item] || 0) >= step.args.count;
+    },
+
     // Items this step must keep (the junk drop never tosses them).
     neededItems(ctx, step) {
         const items = new Set([step.args.item]);

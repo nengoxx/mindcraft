@@ -33,6 +33,10 @@ export default {
         return { now: given, target: step.args.count, score: given };
     },
 
+    met(ctx, step) {
+        return (step.progress?.confirmed ?? 0) >= step.args.count;
+    },
+
     neededItems(ctx, step) {
         return new Set([step.args.item]);
     },

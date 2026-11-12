@@ -234,6 +234,22 @@ test('when the minimum cannot be reached the step blocks; nothing off the list i
     assert.equal(W.TASK_ACTIVE.length > 0, true);
 });
 
+test('a step whose target is already met finishes on a nearly full bag; it does not block on slots (S2e trials F1)', async () => {
+    const inventory = {};
+    const names = ['diamond', 'iron_ingot', 'oak_sapling', 'bread', 'apple', 'torch', 'bone', 'string', 'feather', 'flint', 'leather', 'paper', 'book', 'arrow', 'stick', 'oak_planks', 'birch_planks', 'spruce_planks', 'coal', 'charcoal', 'egg', 'wheat', 'sugar', 'gold_ingot', 'copper_ingot', 'emerald', 'lapis_lazuli', 'redstone', 'glass', 'sand', 'clay_ball', 'brick', 'oak_log'];
+    for (const name of names) inventory[name] = name === 'diamond' ? 64 : 3;
+    const bot = F.makeBot({ world: landscape(), inventory });
+    F.player(bot);
+    assert.equal(bot.inventory.emptySlotCount(), 3);
+    const agent = F.makeAgent({ bot, name: 'metfull', replies: [''] });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    agent.work.startTask('logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active');
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+});
+
 // --- fix wave 1 ------------------------------------------------------------
 
 test('with no log of any kind in view the wood falls back to oak, not the first recipe (cherry) (F18)', async () => {

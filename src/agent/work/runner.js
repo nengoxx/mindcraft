@@ -179,7 +179,8 @@ export class Runner {
                 if (!step.progress) step.progress = newProgress(step, handler.measure(ctx, step), work.now());
                 step.status = 'running';
 
-                if (handler.needsFreeSlots) {
+                // A step whose target is already met needs no free slot: the unit ends it (S2e trials F1).
+                if (handler.needsFreeSlots && !handler.met?.(ctx, step)) {
                     const slots = await this.ensureFreeSlots(step);
                     if (this.interrupted() || !current()) return;
                     // 'drop-only' (the clear step): the junk drop runs, but a dig

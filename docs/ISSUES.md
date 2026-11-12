@@ -117,6 +117,23 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2e live trials, 2026-11-12 afternoon (an Opus trial lane acting as the owner)
+
+Seven solo trials after the deploy (`0da559e`). Every cleanup pass: 0 model calls, no chat, no kept item dropped by
+the code; the bot stayed connected. Pass: `!itemList`; idle drop on open ground (about 1 s after going idle, nothing
+picked up); the clear's start (junk ahead of her, away from the box, not picked up); the pass cap (10-minute hold,
+told once); a night ending (cleanup 1 s after the bed came back). Walking over a pile: contact pickup took it and
+the next pass dropped it again (the recorded residual). Not run: following the owner.
+
+| Finding | Effect | Status |
+|---|---|---|
+| F1: the runner checked free slots before the step's own "target met" check, so an obtain whose last unit filled the bag blocked "inventory full" with its target in the bag (seen: oak_button 1 held). Since S2. | A finished task blocks; the model resumes or cancels it. | Fixed (a step's `met` skips the slot check). |
+| F2: gathering dirt digs her into a pit 1 deep; walled in at foot height, no direction is free. | In a task the step blocks "inventory full"; idle, no pass until something moves her. | Open: design question for the owner. |
+| F3: the "inventory full" report lists her largest stacks; the model answered with `!discard("dirt", 64)` and threw away her kept stack. | A kept item lost through the model. | Open: design question for the owner. |
+| F4: junk in the selected hotbar slot is never dropped (the planner skips the held slot, R1-3), and nothing re-selects. | One slot short; the step blocked. | Open: design question for the owner. |
+| F5: `!itemList` says "nothing to drop from here" when the cause is no free direction. | Misleading. | Open, LOW. |
+| F6: the clear drops junk before the owner's yes/no on leftovers. | Junk only; small. | Open, LOW. |
+
 ### S2e build (inventory upkeep), 2026-11-12
 
 | Finding | Status |
