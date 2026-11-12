@@ -275,3 +275,7 @@ The owner gave her his own gear (copies: ours to use) and ruled, for the next sl
   silk touch where it changes the drop). Picked-up armour must never replace his.
 - **Her diamond sword** may go (it is in his chest). **His pickaxe** without silk touch: the owner gives her a copy
   (same item, no Silk Touch) to keep and use.
+- **Gear: the best one, period** (the owner, same night): of weapons and of each kind of tool she keeps only the best
+  one by the rules above and drops the rest (a spare sword, a worse pickaxe). The main seat's reading for the design:
+  one per tool kind (pickaxe, axe, shovel, hoe), one best melee weapon (sword or axe; an axe counts for both), armour
+  one per slot; to confirm in the design.

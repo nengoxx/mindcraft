@@ -17,7 +17,9 @@
   3. armour by real armour and toughness values (components, vanilla fallback), Protection next; picked-up armour
      never replaces his (mineflayer-armor-manager ranks by material name, leather lowest);
   4. tools by real mining speed (the `tool` component, Efficiency), the silk-touch rule kept;
-  5. a truly unbreakable item (the `unbreakable` component) takes priority in all three.
+  5. a truly unbreakable item (the `unbreakable` component) takes priority in all three;
+  6. keep only the best one of weapons and of each tool kind, drop the rest (DECISIONS, "Gear: the best one,
+     period"; the per-kind reading is to confirm with him in the design).
   His words, for the brief: "I want the damage over time and our real armor values to be the actual decision. And
   obviously, if there's anything that is unbreakable, like legit unbreakable, not just enchanted with unbreaking
   [...] that should take priority"; "I just want to make sure that [...] she's using the best gear that she can use,
