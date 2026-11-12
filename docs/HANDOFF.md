@@ -1,23 +1,21 @@
 # Handoff
 
-## 2026-11-12 (midday) — S2d fixes F1 and F2 merged; F2 not deployed yet (server down)
+## 2026-11-12 (midday) — S2d fixed and deployed (solo trials pass); P15 done; S2e building
 
-- The operator runs under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112.log`).
-- F1 (the whole-bed check before the head's update) fixed `65fce4a`, deployed, 5/5 nights whole on the first try.
-- F2 (the bed lost at the pickup) root cause found in the re-run trials and fixed `33a0c5d` (quick reviews SHIP;
-  ISSUES "S2d fix slice, 2026-11-12"). **Not deployed:** the server shut down at 10:01 UTC and the agent process gave
-  up; the operator (MindServer, proxy) still runs. Deploy = once the owner has started the server,
-  `operator/live.mjs restart` (or a full operator Stop/Start).
-- Re-run trials (`runtime/diagnostics/i1-build/s2dfix-review/live-trials-report.md`): idle at dusk and the goal at dusk
-  passed apart from F2; not run (server down): `!stop` in bed, a clear at dusk, a crash in bed; phantoms never came.
-- **Next:** deploy, then the unrun S2d trials (the trial brief `s2dfix-review/brief-trials.md` still fits), with the
-  owner the follow trials; then P15 and S2e (builder brief drafted: `runtime/diagnostics/i1-build/s2e-review/brief-s2e.md`;
-  P15 harness: `~/.cache/tmp/s2dfix/p15/p15-probe.js`, loaded from the probe hook).
-- **If this session ends now:** the untracked `node_modules/mineflayer/lib/plugins/place_block.js` carries temporary
-  `[probe]` logging. Restore it with `cp -p ~/.cache/tmp/s2dfix/place_block.js.orig node_modules/mineflayer/lib/plugins/place_block.js`
-  (sha256 `6d9941df…37d1b`), then do an agent restart with her idle.
+- The operator runs under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112b.log`;
+  restarted fully after a server restart left the old proxy unable to log her in, ISSUES "Operator: the proxy after a
+  server restart").
+- S2d: F1 fixed `65fce4a`, F2 fixed `33a0c5d`, deployed; the re-run solo trials pass (ISSUES "S2d re-run trials after
+  both fixes"). Left for the owner: following at dusk and a follow still on 10+ minutes later. The probe logging is
+  removed (`node_modules` restored, sha256 `6d9941df…37d1b`).
+- P15 ran live (owner ruling 2026-11-12: build S2e first, P15 before the deploy): G1 confirmed, the design's toss values
+  hold (`runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`).
+- **Running:** the S2e builder (part A) in the worktree `~/.cache/tmp/mindcraft-s2e` (branch `s2e` from `72d7d76`),
+  brief `runtime/diagnostics/i1-build/s2e-review/brief-s2e.md`, report to `s2e-builder-report.md` beside it.
+  **If this session ends now:** that worktree holds unreviewed work; next is its review round (Sol + Opus adversary),
+  then merge, deploy, S2e trials.
 
-**Test card for the owner (this afternoon).** Start the server; we restart her. Watch a night: she places her bed
+**Test card for the owner (this afternoon).** Watch a night: she places her bed
 beside her, sleeps, the night skips, and she should take the bed back every time (no "I lost my bed" line). Tell her
 to follow you at dusk: she sleeps, then follows again, and still follows 10+ minutes later. Tell us any "I lost my
 bed" / "I left my bed" line you see (whispers, not in our log).
