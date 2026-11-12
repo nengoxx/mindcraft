@@ -246,3 +246,7 @@ The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials
   owner; the model does not pick kept items to discard. The owner's "throw this too" stays a
   one-off drop; adding the item to her list from chat is a possible later feature.
 - **The list itself** should be revised so a bag full of kept items practically never happens.
+- **List revision, first rulings.** Banners and ominous bottles: keep one stack (one slot,
+  whatever the stack size). Bows and crossbows join the list: keep the best one of each and
+  drop plain spares (common loot); arrows stay at one stack. These kept weapons and arrows are
+  for the owner (she fights with melee) and may be thrown when there is no space at all.
