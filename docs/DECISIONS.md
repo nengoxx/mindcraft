@@ -213,3 +213,20 @@ The owner's answers to the trial findings (ISSUES.md "S2c live trials, 2026-11-1
 - Chat: "she talks too much in chat". Most of what she says on her own should be
   off by default and switchable on for debugging; on her own she only speaks
   about important things.
+
+## 2026-11-12 — Quiet chat and remembered scaffold (S2c follow-up)
+
+After a council (main seat, Opus, Sol blind; Opus adversary; a Sol review and two waves; design
+`runtime/diagnostics/i1-build/quiet-council/recommended-design.md` r4):
+
+- One switch, `work.chat`: quiet by default, debug brings back today's output. In quiet she speaks when
+  the owner speaks to her (her answers in that turn), when she needs an answer, when a task fails or a step is stuck
+  a second time, when she dies, before clearing a marked box (its corners), with one short "done" for a task he
+  asked for, at the end of a goal, and in answer to a command he typed. Her own narration, task-start and tidy
+  lines, the command echo and the public "Restarting." go quiet. `work.tidy.announce` is retired.
+- Her scaffold records survive restarts, crashes and leaving an area. An old block counts as hers only while
+  nothing non-natural she did not place touches its pillar or bridge; then she may remove it by herself as before
+  ("let's go with your suggestion"). This replaces the "not tidied automatically" rule of 2026-11-10.
+- No receipt for a long command he types in quiet ("We don't want too much verbosity when it's not needed").
+- "Ideally, she should be able to work in different worlds": her block records are kept per world (by the
+  world's hashed seed). Task records, structures and memory are not per world yet.
