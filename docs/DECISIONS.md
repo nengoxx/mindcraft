@@ -303,3 +303,5 @@ The owner's answers to the gear design's open questions (design r3 §8):
   explicitly to craft"): asked for an item she holds, she gives one she has, her kept best included; she makes a new
   one only when he asks her to craft it. The main seat's reading: with a spare of that name in the bag, the spare
   goes first.
+- **The design is approved** (same day: "yes, let's go with that design"): the gear slice is built as the council's
+  recommended design r5 (`runtime/diagnostics/i1-build/gear/recommended-design.md`).
