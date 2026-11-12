@@ -6,6 +6,10 @@
   Probe P16, design, briefs, reviews, rulings and the trial report: `runtime/diagnostics/i1-build/s2efu/`.
 - S2e-fu merged `13b7b86` (review: Sol + Opus adversary, three rounds, closed; offline 451/451), deployed by an agent
   restart at 19:47 UTC. Live trials 1–5 pass (ISSUES "S2e-fu live trials").
+- **First in the next session (the owner's ask):** check that everything agrees: the 2026-11-12 DECISIONS entries,
+  SPEC REQ-OBT-11 and §16, PLAN's S2e-fu section and status lines, ISSUES, this handoff, and the live private profile
+  (`runtime/config/profiles/amaia.json`: `modes.sleeping` false, the `work.inventory.items` one-stack entries) against
+  the running bot (`live.mjs settings`). Fix drift, then start the gear slice.
 - **Next (a clean session): the gear slice**, the owner's rulings in DECISIONS 2026-11-12 (night) "The owner's gear
   and a one-stack cap". Design first (council per the user rules), then build, review, deploy, trials. Scope:
   1. a one-stack cap for every stackable item on no list (a config default, e.g. `work.inventory.default`, set in the
