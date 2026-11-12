@@ -3,7 +3,8 @@ import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { STEPS } from './plan.js';
 import { clipResult } from './record.js';
-import { planRemoval, dropItems, largestStacks, ownerNear, INVENTORY } from './inventory.js';
+import { planRemoval, removalEnabled, dropItems, largestItems, ownerNear, INVENTORY } from './inventory.js';
+import { INVENTORY_FULL, INVENTORY_KEPT } from './report.js';
 
 // The runner (SPEC §7): one run is one Mindcraft action. It never throws out of
 // run(), because an exception would clear resume_func (REQ-RES-4,
@@ -295,32 +296,48 @@ export class Runner {
 
     // REQ-OBT-11: below min_free_slots, drop the item list's surplus where the
     // bot stands, facing away from the work, before moving to the work: the
-    // shared planner and dropper (work/inventory.js). A refill re-runs the
-    // drop at most twice per step; a bad item list drops nothing, so the step
-    // blocks on slots as before.
+    // shared planner and dropper (work/inventory.js); with no free direction
+    // she walks to the nearest drop spot first. A refill re-runs the drop at
+    // most twice per step; a bad item list drops nothing, so the step blocks on
+    // slots as before.
     async ensureFreeSlots(step) {
         const { bot } = this;
         const config = this.config;
         if (bot.inventory.emptySlotCount() >= config.min_free_slots) return {};
         const p = step.progress;
         p.junk_drops = p.junk_drops || 0;
-        const full = () => ({ blocked: `inventory full: ${bot.inventory.emptySlotCount()} free slots, ${config.min_free_slots} needed; largest stacks: ` +
-            largestStacks(bot).map(s => `${s.name} ${s.count}`).join(', ') });
+        const plan = () => planRemoval(bot, config.inventory, { needed: this.work.neededItems(), minFree: config.min_free_slots });
+        // DECISIONS 2026-11-12 (S2e trials F3): the list decides, never the
+        // model. A bag left with nothing the list may remove says so; the
+        // blocked report adds what the model should do (report.js INVENTORY_FULL).
+        // A bad list removes nothing and is named as such, not as kept items;
+        // the kept totals may hold the task's needed items (review r1, Sol 3, D10).
+        const full = why => {
+            const slots = `${bot.inventory.emptySlotCount()} free slots, ${config.min_free_slots} needed`;
+            if (!removalEnabled(config.inventory))
+                return { blocked: `${INVENTORY_FULL}: ${slots}; my item list has an error (${config.inventory.error}); largest: ${largestItems(bot)}` };
+            return { blocked: plan().length ? `${INVENTORY_FULL}: ${slots}${why ? ` (${why})` : ''}; largest: ${largestItems(bot)}`
+                : `${INVENTORY_KEPT}: ${slots}; kept or needed by this task: ${largestItems(bot)}` };
+        };
         if (p.junk_drops > INVENTORY.maxReruns) return full();
-        const plan = planRemoval(bot, config.inventory, { needed: this.work.neededItems(), minFree: config.min_free_slots });
-        if (plan.length) {
+        const ops = plan();
+        let why = null;
+        if (ops.length) {
             // The attempt is recorded before the first toss, so an
             // interruption mid-drop uses it up (the dropper records the guard).
             p.junk_drops++;
             this.work.write();
-            this.work.log(`junk drop ${p.junk_drops}: ${plan.map(op => `${op.count} ${op.name}`).join(', ')}`);
+            this.work.log(`junk drop ${p.junk_drops}: ${ops.map(op => `${op.count} ${op.name}`).join(', ')}`);
             // Away from the work first, then not toward the owner within 16 (R1-10).
-            const result = await dropItems(bot, plan, { awayFrom: step.work_pos ?? this.work.record.anchor ?? null,
-                avoid: ownerNear(bot, this.work.owner()) });
+            const result = await dropItems(bot, ops, { awayFrom: step.work_pos ?? this.work.record.anchor ?? null,
+                avoid: ownerNear(bot, this.work.owner()), walk: 'task', replan: plan });
             if (result.outcome === 'interrupted') return {};
-            if (result.outcome !== 'done') this.work.log(`junk drop ${p.junk_drops} ${result.outcome}: ${result.reason}`);
+            if (result.outcome !== 'done') {
+                why = result.reason;
+                this.work.log(`junk drop ${p.junk_drops} ${result.outcome}: ${result.reason}`);
+            }
         }
-        if (bot.inventory.emptySlotCount() < config.min_free_slots) return full();
+        if (bot.inventory.emptySlotCount() < config.min_free_slots) return full(why);
         return {};
     }
 }

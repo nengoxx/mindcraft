@@ -131,10 +131,22 @@ export function doneReport(record, bot) {
     return `Task done: "${record.objective}". ${steps} ${inventoryFacts(record, bot)}`.trim() + goal;
 }
 
+// The heads of the inventory-full reasons (runner.js ensureFreeSlots). Their
+// blocked report tells the model, and only the model, what to do (DECISIONS
+// 2026-11-12, S2e trials F3: the list decides what goes, never the model; when
+// all that is left is kept she tells the owner); the reason itself, the task
+// view and the owner's lines keep the facts.
+export const INVENTORY_FULL = 'inventory full';
+export const INVENTORY_KEPT = `${INVENTORY_FULL} of things I keep`;
+export const isInventoryFull = reason => String(reason ?? '').startsWith(INVENTORY_FULL);
+const KEPT_ASK = 'Tell the owner your bag is full of things you keep or need for this task; do not discard kept items unless he names them.';
+const NO_DISCARD = 'Do not discard kept items unless the owner names them.';
+
 // Sent to the model as one system message (the blocked step's one model call).
 export function blockedReport(record, step, bot) {
     const where = step ? `step ${step.n}/${record.plan.length} (${step.skill} ${shortArgs(step)})` : 'its current step';
-    return `Task "${record.objective}" is blocked at ${where}: ${record.reason}. ${inventoryFacts(record, bot)} ` +
+    const ask = String(record.reason ?? '').startsWith(INVENTORY_KEPT) ? `${KEPT_ASK} ` : isInventoryFull(record.reason) ? `${NO_DISCARD} ` : '';
+    return `Task "${record.objective}" is blocked at ${where}: ${record.reason}. ${ask}${inventoryFacts(record, bot)} ` +
         'Tell the owner briefly, then use !taskRevise(from_step, "<steps>") with a changed plan, !taskResume to retry, or !taskCancel.' + goalStopped(record);
 }
 

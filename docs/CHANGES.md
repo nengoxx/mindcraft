@@ -608,3 +608,22 @@ The work fixture gains `bot.transfer` (a one-slot toss to −999, recorded as a
 `toss` call), `bot.waitForTicks`, `bot.quickBarSlot` (0: slot 36 is held) and
 `bot.entity.eyeHeight`, and loads `work/inventory.js`. The S2d full-bag tests
 fill the bag with kept planks, so the item cleanup leaves them full.
+
+I1 S2e-fu (inventory upkeep follow-up; SPEC §9.4 REQ-OBT-11; DECISIONS
+2026-11-12 "After the S2e live trials (follow-up slice S2e-fu)"). In our own
+files: junk in her hand, the throw over a one-block lip, the walk to a drop
+spot, the blocked-report lines and the revised list (`work/inventory.js`,
+`work/runner.js`, `work/report.js`, `work/config.js`; `work/sleep.js` exports
+`NO_DIG`). One upstream carry:
+- `agent/library/skills.js` (grown): `startDoorInterval`, the stuck-door
+  helper `goToGoal` and `moveAway` start, opens no door, gate or trapdoor while
+  the active movements (`bot.pathfinder.movements`) have `canOpenDoors ===
+  false`, checked at each tick before activation. Why: the item walks forbid
+  doors (nothing would close one behind her), and the helper opened them
+  regardless (S2e-fu review r2, D4). Only callers that set `canOpenDoors =
+  false` are affected; upstream's movements leave it true. Reapply check:
+  `work-positions.test.mjs` "S2e-fu r2 (D4): goToGoal's stuck-door helper opens
+  no door while the movements forbid doors". Retire when upstream's helper
+  honours `canOpenDoors`.
+
+The work fixture's `bot.setQuickBarSlot` records a `hotbar` call.

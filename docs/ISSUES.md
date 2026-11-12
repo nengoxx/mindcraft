@@ -128,11 +128,15 @@ the next pass dropped it again (the recorded residual). Not run: following the o
 | Finding | Effect | Status |
 |---|---|---|
 | F1: the runner checked free slots before the step's own "target met" check, so an obtain whose last unit filled the bag blocked "inventory full" with its target in the bag (seen: oak_button 1 held). Since S2. | A finished task blocks; the model resumes or cancels it. | Fixed (a step's `met` skips the slot check). |
-| F2: gathering dirt digs her into a pit 1 deep; walled in at foot height, no direction is free. | In a task the step blocks "inventory full"; idle, no pass until something moves her. | Open: design question for the owner. |
-| F3: the "inventory full" report lists her largest stacks; the model answered with `!discard("dirt", 64)` and threw away her kept stack. | A kept item lost through the model. | Open: design question for the owner. |
-| F4: junk in the selected hotbar slot is never dropped (the planner skips the held slot, R1-3), and nothing re-selects. | One slot short; the step blocked. | Open: design question for the owner. |
-| F5: `!itemList` says "nothing to drop from here" when the cause is no free direction. | Misleading. | Open, LOW. |
+| F2: gathering dirt digs her into a pit 1 deep; walled in at foot height, no direction is free. | In a task the step blocks "inventory full"; idle, no pass until something moves her. | Addressed by S2e-fu (owner ruling 2026-11-12; P16): she throws over a one-block lip, and from a deeper pit walks to the nearest drop spot within 5 blocks (in a task towering if needed; idle placing nothing, so idle in a pit two deep she still holds). Pending its live trials. |
+| F3: the "inventory full" report lists her largest stacks; the model answered with `!discard("dirt", 64)` and threw away her kept stack. | A kept item lost through the model. | Addressed by S2e-fu (owner ruling 2026-11-12): a bag with nothing the list may remove blocks "inventory full of things I keep … kept: …", and the blocked report of every inventory-full reason asks the model to ask the owner and not to discard kept items; `!discard` itself is not refused. Pending its live trials. |
+| F4: junk in the selected hotbar slot is never dropped (the planner skips the held slot, R1-3), and nothing re-selects. | One slot short; the step blocked. | Addressed by S2e-fu (owner ruling 2026-11-12): the held slot is a source; the dropper switches her hand off it first. Pending its live trials. |
+| F5: `!itemList` says "nothing to drop from here" when the cause is no free direction. | Misleading. | Addressed by S2e-fu: the hold records why ("no free direction nearby" or "nothing to drop from here"). Pending its live trials. |
 | F6: the clear drops junk before the owner's yes/no on leftovers. | Junk only; small. | Open, LOW. |
+
+Noted in the S2e-fu review (round 1, Sol 2): a mineflayer-pathfinder `goto` that rejects with a partial route can
+leave that route running; the item walk now clears its goal at the end. The sleep routine's `walk`
+(`src/agent/work/sleep.js`) likely has the same behaviour on a failed walk. Open, LOW: check in a later slice.
 
 ### S2e build (inventory upkeep), 2026-11-12
 
