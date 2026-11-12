@@ -499,6 +499,24 @@ carries into upstream files:
   node_modules/mineflayer-pathfinder/index.js` after `npm install`
   (patch-package): all three lines. Retire them when upstream places a 1x1
   tower block only once the player has cleared the cell.
+  Landing wait (live trials after the S2c-fu deploy): a `towerSent` flag is set
+  when a tower block is sent and cleared at the next node arrival and on a new
+  goal; while it is set and she is airborne, the arrival at the last node and
+  the empty-path goal check both wait for her to land, and the goal check also
+  waits until the server has answered that block (`towerPending`, cleared when
+  `placeBlock` settles: she can land on the predicted block 300 ms after the
+  send, before a slow reply). Why: the goal was
+  reported about 50 ms after the last tower block was sent, at her jump's
+  peak, before the server's verdict (75–90 ms); a refused last block (seen when
+  the block below was still the client's own prediction) then never retried,
+  so a 2-block tower ended one short 4 of 4 times. Now she lands one short and
+  the empty-path branch replans from the ground (the send-time
+  `block_updated` reset already emptied the path), and she places again
+  (live: 2-block towers 5/5, three with a second attempt; a goal ending in
+  water after a tower did not hang). Check: `grep -n "towerSent\|towerPending"
+  node_modules/mineflayer-pathfinder/index.js` shows eight lines. Retire with
+  the lines above, or when upstream waits for the ground before a goal it
+  reached while placing.
 
 The work fixture's agent gets `prompter.work_config` with `work.chat: 'debug'`
 (so the older suites keep testing today's output) and its bot a hashed seed
