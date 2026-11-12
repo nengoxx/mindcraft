@@ -291,3 +291,15 @@ The owner gave her his own gear (copies: ours to use) and ruled, for the next sl
   pass that drops the worst until 2 are left (the number a setting); below 4 free slots all surplus goes, as today.
 - **Her diamond pickaxe and diamond axe** were placeholders: "I don't care about [them], since the ones that I gave
   her are better." They go as spares.
+
+## 2026-11-13 — The gear slice: surplus, junk, a finished task's goods, giving
+
+The owner's answers to the gear design's open questions (design r3 §8):
+- **One shared allowance** ("Yes, let's share it"): spare gear and stacks over the cap count together toward the 2
+  surplus slots; the third starts a pass that drops all surplus, not only the worst.
+- **Junk counts as surplus** ("Yes, junk should be dropped").
+- **A finished task's goods** stay 30 minutes or until the next task, even over the cap ("Yes, I agree").
+- **Giving** ("by default, she would just give me the one she has. There's no need to craft another one unless I ask
+  explicitly to craft"): asked for an item she holds, she gives one she has, her kept best included; she makes a new
+  one only when he asks her to craft it. The main seat's reading: with a spare of that name in the bag, the spare
+  goes first.
