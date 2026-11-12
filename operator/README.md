@@ -102,6 +102,14 @@ task/action. Protection can still move/dig/place after task stop; operator Stop
 disconnects the app and proxy. Generated JavaScript is authorized only when local
 configuration enables it; its timeout is cooperative, not an OS sandbox.
 
+Live-test helper (`node operator/live.mjs state|listen|say "<text>"|settings <out.json>|set <file>|restart`)
+talks to the running bot through the local MindServer. `say` speaks as the configured
+owner (`only_chat_with[0]`), because the bot obeys only its owner; a message with an
+unquoted `!command` runs that command raw, anything else goes to the model. `settings`
+writes the live settings (they include the profile and endpoint: keep the file under
+`runtime/`); `set` applies a settings file and restarts the agent. That change lives in
+MindServer memory only: a full operator restart loads the files on disk again.
+
 MindServer currently exposes status and last messages outside game. A full
 conversation panel or external agent-UI integration is not implemented here.
 

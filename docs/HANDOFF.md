@@ -6,7 +6,7 @@ Work on this repo now runs in the persistent agent session `mindcraft` (cwd this
 Remote Control); the workspace handoff only points here.
 
 **Done this session** (main seat Opus; lanes: Opus builders, Sol + Opus adversary reviews, Opus live lanes acting as
-the owner; the owner was not online):
+the owner, who was not online):
 - **S2c-fu** (quiet chat `work.chat`, scaffold records kept per world, the pit escape): merged `168dfd2`, deployed with
   the new profile text (backup `runtime/config/profiles/amaia.json.bak-pre-s2cfu`), live trials passed (ISSUES.md
   "S2c-fu live trials, 2026-11-12"). Design and review record: `runtime/diagnostics/i1-build/s2cfu-review/`.
@@ -52,14 +52,16 @@ about 110 dug dirt near x −480..−496, z 1740..1750. A blocked task record `t
 fill at −529 66..68 1743 (recorded) with a 1-deep hole above; an unrecorded cobblestone at −531,66,1741; a 6-block test
 pillar at −468 73..78 1770 (unrecorded; the owner may break it); the 8 dead fire coral markers near −526 70 1730.
 
-**Notes.** The bot's operator (`operator/mindcraft.sh start`: MindServer, ViaProxy, the agent) was started as a
-background job of the workspace session; if that session is cleared or restarted the bot drops. First thing in a new
-session: check it (`pgrep -af operator/linux.mjs`) and, if it is down, start it as a background job (log under
-`runtime/logs/`). Whispers are not logged on the host; `[chat] quiet: dropped` lines show what quiet hid. The operator
-helper the live-test helper (state, say, listen, settings, set, restart) sends as the owner. A profile change
-needs `set-agent-settings`. The owner allows restarts any time; keep her in game. Node is private:
-`runtime/tools/node-v22.23.4-linux-x64/bin/node`; gate: `TMPDIR=<dir> <node> --experimental-test-module-mocks --test
-tests/*.test.mjs`. `develop` is ahead of GitHub (public fork): push only on the owner's word.
+**Notes.** The bot's operator (`operator/mindcraft.sh start`: MindServer, ViaProxy and the agent process; the agent
+is driven by the local Qwen model) was started as a background job of the session before this one. First thing in a
+new session: check it (`pgrep -af operator/linux.mjs`); stop it with `operator/mindcraft.sh stop` and start it
+again as a background job of the new session, log under `runtime/logs/`. The live-test helper
+is `operator/live.mjs` (state, listen, say, settings, set, restart; `say` speaks as the owner, see its header).
+Whispers are not logged on the host; `[chat] quiet: dropped` lines show what quiet hid. A profile change needs
+`set-agent-settings`. The owner allows restarts any time; keep her in game. Node is private (DECISIONS 2026-11-08,
+self-contained): `runtime/tools/node-v22.23.4-linux-x64/bin/node`; gate: `TMPDIR=<dir> <node>
+--experimental-test-module-mocks --test tests/*.test.mjs`. Public fork: push only on the owner's word; tracked files
+carry no hosts, accounts, names or private paths.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 

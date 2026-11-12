@@ -142,7 +142,7 @@ the sleep made 0 model calls and the night skipped about 5 s after she lay down.
 | F3. After F1 left the bed placed, her own blocked-task turn ran `!searchForBlock("oak_log", 256)` and walked her about 50 blocks away from it. | A placed bed left far from her at night (white bed at −476 76 1802..1803, recorded `own`); she takes it back only within 16 blocks by day. | Goes with F1: a failed try should take the bed back before anything else runs. |
 | F4. The agent process exited while `mode:unstuck` interrupted her `!goToSurface` (the stop watchdog), and was crash-restarted. | One crash; a blocked task record (`tmwd82ldo`) stayed. | Not S2d code; the known unstuck kill (SPEC §4.1). |
 | F5. A gathering `!goal` starts a task at once and the S2 rule stops the goal. | The goal-at-dusk trial needs a goal made of one-off commands. | Trial staging only. |
-| F6. Shown lines (`alert`, `reply`) are whispers and reach neither the log nor `ms.mjs listen`. | The bed-lost and bed-left alerts cannot be checked without the owner. | Log shown lines at debug level, or check with the owner. |
+| F6. Shown lines (`alert`, `reply`) are whispers and reach neither the log nor `operator/live.mjs listen`. | The bed-lost and bed-left alerts cannot be checked without the owner. | Log shown lines at debug level, or check with the owner. |
 
 ### S2c-fu live trials, 2026-11-12 (an Opus probe lane acting as the owner)
 
