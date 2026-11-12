@@ -19,6 +19,8 @@ the owner, who was not online):
   the first placement fails its whole-bed check every night (F1) and one pickup lost the bed (F2)**.
 
 **Next.**
+0. Restart the bot's operator under the new session (Notes). Waiting for the owner's go: a project `CLAUDE.md`
+   (draft `runtime/diagnostics/i1-build/claude-md-draft.md`); on the go, add it and cut these Notes to session state.
 1. **S2d fix slice (F1, F2, F3)**, a bug fix: root cause first (the `audit` quick form), with two short daytime probes
    on the live bot: (a) after a bed placement, log when the foot and head cells' updates arrive (F1: is the head read
    too early?); (b) break a placed bed's foot and log the item entities with `getDroppedItem()` for 2 s (F2: is the
