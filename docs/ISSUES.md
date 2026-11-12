@@ -117,6 +117,25 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2c-fu live trials, 2026-11-12 (an Opus probe lane acting as the owner)
+
+Deployed `168dfd2` by set-agent-settings (new profile text): the ledger folded
+version 1 into world `seed:…` (31 entries) and kept 30 scaffold
+entries from before. Shown lines are whispers (not logged on the host), so
+"shown" means in her history with no `[chat] quiet: dropped` line. Report and
+receipts: `runtime/diagnostics/i1-build/s2cfu-review/live-trials-report.md`.
+
+| Trial | Result |
+|---|---|
+| Restart with scaffold recorded | pass: "kept 30 …", later 67 and 75 after more fights |
+| Marker clear (8 dead fire coral markers) | pass: 3 lines (the box statement, the leftovers question, "Task done"), nothing dropped |
+| Raw `!tidy`; "tidy up your blocks" in words | worded: answered; raw: the line was dropped as `detail` and returned as the command result (that path logs nothing, so shown is unproven); "Removed 0 …" reads oddly when nothing was removed |
+| Owner question during a goal | pass: "48." matched her inventory; the goal's done line shown |
+| Pit escape, range 2 and 0 | pass 3/3, every tower block recorded on its first attempt (one run used her last dirt; one unrecorded cobblestone left at −531,66,1741) |
+| Tower from a dirt path | no standing still; but a 2-block tower straight up to a goal ended one short 4/4 (also from stone): the goal counted mid-jump before a refused last block. Fixed `a080cff` (landing and reply wait); then 2-block towers 5/5 and 3/3 |
+| A night of fights | pass: nothing said on her own; 3 lines dropped, all `detail` |
+| Death line | not testable live (invincible); offline tests cover it |
+
 ### S2c live trials, 2026-11-11 night (main seat acting as the owner)
 
 Run through the MindServer helper as the owner, near −526 70 1730 (8 dead fire coral
