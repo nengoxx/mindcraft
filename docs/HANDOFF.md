@@ -1,88 +1,65 @@
 # Handoff
 
-## 2026-11-12 — S2c follow-up designed (quiet chat, remembered scaffold, pit escape)
+## 2026-11-12 — where Iteration 1 stands; next: the S2c follow-up slice
 
-- Agreed order (the owner: "sounds good"): this follow-up slice, then S2d (sleep), then
-  S2e (inventory). Walking back to tidy out-of-reach scaffold stays a later slice.
-- Design closed: `runtime/diagnostics/i1-build/quiet-council/recommended-design.md`
-  r4 (sha256 in `recommended-r4.sha256`; council lanes, adversary, Sol review and
-  two waves beside it; r1–r3 kept). The owner's answers: DECISIONS 2026-11-12. §10 (the
-  per-world ledger) is a main-seat specification the build review must cover.
-- Pit escape (a bug per the owner): unresolved. Evidence in ISSUES "S2c live trials":
-  the failing placement is usually the *last* of a 2–4 block tower, in pits and
-  in the open (each "placement … no entry (the cell shows air)" line). The
-  pathfinder places only by jumping (`movements.js` getMoveUp, `index.js:560-590`);
-  a ceiling stops the move from being planned. Next probe (daytime, with ~10
-  cobblestone): dig a 1-wide, 4-deep pit in the open with a clear box, walk her
-  in, send her out, and log the state (`firstBlockAboveHead`) and each attempt.
-- Exact next step: write PLAN (one slice: quiet chat, remembered per-world
-  scaffold, the pit probe and its fix) and the SPEC edits (REQ-OWN-4/5/10, a new
-  chat REQ, §14 keys, §16 residuals, CHANGES carries for agent.js and mcdata.js),
-  then a builder brief and the build in a worktree; review (Sol + Opus adversary);
-  deploy; live card: restart with a pillar recorded ("kept N"), a night of fights
-  counting chat lines, the marker statement, a raw `!tidy`, a death line.
-- Out of scope, flagged to the owner: task records, structures and memory are not per
-  world yet.
+**Done.** S2c (clearing, the placements ledger, the owner question, tidying) is
+built, reviewed, merged (`1f4ab07`) and deployed; its live trials ran on
+2026-11-11 (results: ISSUES.md "S2c live trials, 2026-11-11 night"); one crash
+fixed there (`0645e3f`). The bot is online on the committed code (`c685d74`),
+profile as of S2c (backup `runtime/config/profiles/amaia.json.bak-pre-s2c`).
 
-## 2026-11-11 (night) — S2c live trials run by the main seat
+**Order of work (the owner, 2026-11-11/12):**
+1. **S2c follow-up slice — next session.** Design closed:
+   `runtime/diagnostics/i1-build/quiet-council/recommended-design.md` r4 (sha256 in
+   `recommended-r4.sha256`; lanes, adversary, Sol review, two waves beside it).
+   the owner's answers: DECISIONS 2026-11-11 "After the S2c live trials" and 2026-11-12.
+   Contents: quiet chat (`work.chat`, quiet default, debug; death and stuck-twice
+   alerts; `work.tidy.announce` retired), scaffold records kept through restarts,
+   crashes and unloads with the connected-component "stands free" guard, a
+   per-world ledger (hashed seed; §10 is a main-seat spec the build review must
+   cover), and the pit-escape bug (below).
+   Steps: PLAN (one slice) and SPEC edits (REQ-OWN-4/5/10, a chat REQ, §14 keys,
+   §16 residuals; CHANGES carries for `agent.js` and `utils/mcdata.js`) → builder
+   brief → build in a worktree → review (Sol + Opus adversary) → commit → deploy
+   (profile text and examples by `set-agent-settings`) → test card for the owner:
+   restart with a pillar recorded ("kept N"), a night of fights counting chat
+   lines, the marker statement, a raw `!tidy`, a death line.
+2. **S2d sleeping:** `sleep-council/recommended-design.md` r3 plus two amendments
+   from S2e (bed pickup only with 2 free slots; the `action_manager.js` carry so a
+   resumed action keeps its timeout). Probe record P14:
+   `sleep-council/p14-live-20261111.md` (sleep works through ViaProxy; one
+   sleeper skips the night).
+3. **S2e inventory upkeep:** `junk-council/recommended-design.md` r7; probe P15
+   (toss direction, landing, pickup, profile reload) before the build. Fixes the
+   in-task drop facing (G1). The chest part is parked.
+4. Then S3.
 
-- The owner asked the main seat to run the S2c test card itself, as the owner (MindServer
-  helper as the owner). Results and findings: ISSUES.md "S2c live trials, 2026-11-11
-  night". Every card item passed except what the helper cannot do: "stop tidying"
-  in words needs game chat, and whispered replies (the `!tidy` refusal text) are
-  not visible from the host.
-- One crash found and fixed: `0645e3f` (scaffold settle timer gave `bot.blockAt` a
-  plain object; quick review SHIP; 317 tests). The bot runs the committed code.
-- Left in the world (unrecorded since the last restart): cobblestone at
-  −528 64..66 1749 and −528 64..67 1742 (both fill pits she dug), one block at
-  −530 72 1745; pits from `obtain cobblestone` mining under −526 64 1728. The
-  coral markers are all 8 in place; the box inside is empty.
-- The owner ruled on the findings the same night (DECISIONS 2026-11-11 "After the S2c
-  live trials" and 2026-11-12 "Quiet chat and remembered scaffold"); see the
-  2026-11-12 block above.
+**Pit escape (bug, open).** In the trials the failing placement was usually the
+last of a 2–4 block tower, in pits and in the open ("placement … no entry (the
+cell shows air)"). The pathfinder places only by jumping (`movements.js`
+getMoveUp, `index.js:560-590`); a ceiling stops the move from being planned.
+Next probe (daytime, ~10 cobblestone): dig a 1-wide, 4-deep pit in the open with a
+clear box, walk her in, send her out, log each attempt and `firstBlockAboveHead`.
 
-## 2026-11-11 (evening) — S2c deployed; S2d and S2e designed; live trials next
+**Open with the owner.** U1: keep the "yes, chests too" answer in the clear's leftovers
+question (kept until he answers; `s2c-review/s2c-p1-rulings-r2.md`).
 
-- S2c is built, reviewed (Sol plus an Opus adversary, two fix waves per part and
-  main-seat rulings; records in `runtime/diagnostics/i1-build/s2c-review/`),
-  committed (part 1 `7d94aee`, part 2 `75be9aa`, merge `1f4ab07`; 317 tests) and
-  deployed by `set-agent-settings` (MindServer keeps the loaded profile in memory,
-  so a plain agent restart reuses the old one). Startup migrated the old station
-  into `runtime/bots/amaia/placements.json`; `!tidy` answered "removed 0; left 0".
-- Private profile updated (clearing through `!taskStart` with `clear markers=` /
-  `clear box=`, `!blockPositions` for marker listing, one clear example); backup
-  `runtime/config/profiles/amaia.json.bak-pre-s2c`.
-- Sleep probe P14 (2026-11-11): sleep works through ViaProxy and the night skipped
-  about 3 s after `!goToBed` (she was alone online); phantoms broke the first
-  night. Record: `runtime/diagnostics/i1-build/sleep-council/p14-live-20261111.md`.
-  A black bed placed by `!placeHere` stands near −475 66 1744 (unrecorded, so the
-  S2 protection keeps it; the owner may break it).
-- Designs closed, the owner's answers in DECISIONS.md (`0cef52b`): S2d sleeping
-  (`sleep-council/recommended-design.md` r3) and S2e inventory upkeep
-  (`junk-council/recommended-design.md` r7; the chest part is parked). S2e amends
-  S2d: the bed pickup launches only with 2 free slots, and an `action_manager.js`
-  carry keeps a resumable action's timeout on resume (a cut follow otherwise stops
-  after 10 minutes; also true today after any fight during a follow).
-- Known: the shipped in-task junk drop can toss the way she already faced (forced
-  `lookAt` sends no packet before the toss); S2e fixes it (junk design §3, G1).
-- A 6-block test pillar stands at −468 73..78 1770 (pre-design, unrecorded).
-- Owner notices are whispered (`only_chat_with`); MindServer's web panel sends as
-  'ADMIN', which she ignores; the operator helper sends as the owner.
-- **Test card (S2c live acceptance, PLAN S2c item 4; the owner in game):**
-  1. Mark a small box with 8 identical blocks and say "clear inside the <block>
-     markers" → one `!taskStart` with `clear markers=…`; containers stay; if
-     something not natural is inside she lists it and asks once; answer "yes" or
-     "no" (short answers only). Expect a final report and the markers kept.
-  2. Make her fight on uneven ground (she pillars) with no task → within about a
-     minute after the fight she removes her own pillar blocks, quietly.
-  3. During a tidy, type `!stop` in game chat → the rest stays (also the block she
-     was digging). For "stop tidying" in words use game chat, not the panel.
-  4. `!tidy` while a task runs → refused; after it ends → tidies.
-  5. Report: blocks of hers left behind (the own-blocks count sets the priority of
-     the later full scaffold slice), anything dug that should not be, any chat
-     spam or extra model calls.
-- Exact next step: the live trials above with the owner, then S2d's PLAN and SPEC (the
-  sleep design plus the two amendments), then build S2d, then S2e.
+**Parked / later.** The clear's chest mode (after dropping is refined); walking
+back to tidy out-of-reach scaffold (a later slice, keep it clear); task records,
+structures and memory per world (flagged, not scheduled).
+
+**In the world.** A black bed near −475 66 1744 and a 6-block test pillar at
+−468 73..78 1770 (unrecorded; the owner may break them). From the trials: cobblestone at
+−528 64..66 1749 and −528 64..67 1742 (filling pits she dug), one block at
+−530 72 1745, mining pits under −526 64 1728. The 8 dead fire coral markers near
+−526 70 1730 are in place; the box inside is empty.
+
+**Notes.** Owner notices are whispered (`only_chat_with`); whispers are not logged
+on the host. The panel sends as 'ADMIN' (ignored); the operator helper
+the live-test helper sends as the owner (state, say, settings, set). A
+profile change needs `set-agent-settings` (MindServer caches the profile). The owner
+allows restarts any time; keep her in game while working. `develop` is 34 commits
+ahead of GitHub (public fork): push only on the owner's word.
 
 ## 2026-11-08 (late) — cube-clearing trials, protection fix, clearing design
 
