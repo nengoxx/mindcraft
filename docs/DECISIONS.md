@@ -230,3 +230,19 @@ After a council (main seat, Opus, Sol blind; Opus adversary; a Sol review and tw
 - No receipt for a long command he types in quiet ("We don't want too much verbosity when it's not needed").
 - "Ideally, she should be able to work in different worlds": her block records are kept per world (by the
   world's hashed seed). Task records, structures and memory are not per world yet.
+
+## 2026-11-12 — After the S2e live trials (follow-up slice S2e-fu)
+
+The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials").
+
+- **Junk in her hand (F4).** Junk in the selected hotbar slot is junk like any other: she
+  switches her hand off it and drops it.
+- **The pit (F2).** When she stands one block deep, she throws over the one-block lip, as a
+  player can. If that proves impractical for the bot, or the pit is deeper, she walks to the
+  nearest open spot within a few blocks and drops there. Throwing over the lip may move to its
+  own slice if it turns out complicated.
+- **Kept items (F3).** The owner does not name items to drop: the list decides. When everything
+  left is on her keep list and the bag is still full, the report says so and she tells the
+  owner; the model does not pick kept items to discard. The owner's "throw this too" stays a
+  one-off drop; adding the item to her list from chat is a possible later feature.
+- **The list itself** should be revised so a bag full of kept items practically never happens.
