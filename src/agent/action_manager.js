@@ -59,10 +59,11 @@ export class ActionManager {
             this.resume_func = actionFn;
             assert(actionLabel != null, 'actionLabel is required for new resume');
             this.resume_name = actionLabel;
+            this.resume_timeout = timeout; // fork carry (S2d): every resume keeps the timeout the action started with
         }
         if (this.resume_func != null && (this.agent.isIdle() || new_resume) && (!this.agent.self_prompter.isActive() || new_resume)) {
             this.currentActionLabel = this.resume_name;
-            let res = await this._executeAction(this.resume_name, this.resume_func, timeout);
+            let res = await this._executeAction(this.resume_name, this.resume_func, this.resume_timeout ?? timeout);
             this.currentActionLabel = '';
             return res;
         } else {

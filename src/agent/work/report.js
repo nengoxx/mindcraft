@@ -154,6 +154,20 @@ export function deathLine(pos, paused) {
     return `I died at ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}${paused ? '; my task is paused' : ''}.`;
 }
 
+// The sleep routine's owner lines (REQ-SLP-8): only what needs the owner.
+// `slots`: the free slots the refused pickup needed.
+export function bedLine(what, pos, slots = 2) {
+    const at = pos ? `${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}` : '';
+    switch (what) {
+        case 'left': return `I left my bed at ${at}.`;
+        case 'lost': return `I lost my bed at ${at}.`;
+        case 'full': return `My bag is too full to take my bed back (${slots} free slot${slots === 1 ? '' : 's'} needed); it stays at ${at}.`;
+        case 'no_skip': return 'The night did not skip, so I got up.';
+        case 'stuck': return 'I could not get out of bed; I am still asleep.';
+        default: return '';
+    }
+}
+
 export function failedReport(record, bot) {
     return `Task failed: "${record.objective}": ${record.reason}. ${inventoryFacts(record, bot)}`.trim() + goalStopped(record);
 }

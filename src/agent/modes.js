@@ -170,6 +170,18 @@ const modes_list = [
         }
     },
     {
+        // Fork carry (S2d, REQ-SLP-1): the policy and the routine live in work/sleep.js.
+        name: 'sleeping',
+        description: 'Sleep through the night in a bed from the inventory, then take the bed back. Interrupts all actions.',
+        interrupts: ['all'],
+        on: true,
+        active: false,
+        update: function (agent) {
+            const routine = agent.work?.sleeper?.next();
+            if (routine) execute(this, agent, routine);
+        }
+    },
+    {
         name: 'hunting',
         description: 'Hunt nearby animals when idle.',
         interrupts: ['action:followPlayer'],
@@ -316,7 +328,7 @@ async function execute(mode, agent, func, timeout=-1) {
 
     let should_reprompt = 
         interrupted_action && // it interrupted a previous action
-        interrupted_action !== 'action:tidy' && // fork carry (REQ-OWN-8): an interrupted tidy sweep needs no model call
+        !agent.work?.isQuietAction(interrupted_action) && // fork carry (REQ-OWN-8, REQ-SLP-9): a cut tidy sweep, sleep or bed pickup needs no model call
         !agent.actions.resume_func && // there is no resume function
         !agent.self_prompter.isActive() && // self prompting is not on
         !code_return.interrupted; // this mode action was not interrupted by something else

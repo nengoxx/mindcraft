@@ -69,6 +69,7 @@ export const modules = {
     dig: await import('../src/agent/work/dig.js'),
     clear: await import('../src/agent/work/steps/clear.js'),
     tidy: await import('../src/agent/work/tidy.js'),
+    sleep: await import('../src/agent/work/sleep.js'),
     report: await import('../src/agent/work/report.js'),
     ask: await import('../src/agent/work/ask.js'),
     runner: await import('../src/agent/work/runner.js'),
@@ -327,7 +328,7 @@ export function player(bot, username = OWNER, position = [5, 64, 5]) {
 
 // --- agent -----------------------------------------------------------------
 
-const MODES_OFF = { self_preservation: false, unstuck: false, cowardice: false, self_defense: false, hunting: false,
+const MODES_OFF = { self_preservation: false, unstuck: false, cowardice: false, self_defense: false, sleeping: false, hunting: false,
     item_collecting: false, torch_placing: false, elbow_room: false, idle_staring: false, cheat: false };
 
 // The agent around the real ActionManager, modes and handleMessage. The idle

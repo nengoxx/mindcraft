@@ -1,6 +1,6 @@
 import pf from 'mineflayer-pathfinder';
 import * as skills from '../library/skills.js';
-import { isProtectedForBot, knowFallingBlocks } from './protect.js';
+import { isProtectedForBot, knowFallingBlocks, protectorFor } from './protect.js';
 import { ledgerFor } from './ledger.js';
 import { harvestToolNames } from './resolve.js';
 
@@ -64,20 +64,26 @@ function checker(bot) {
 // The safety check, with its reason. `container` lifts blocksCantBreak for this
 // one block only (a granted container, REQ-CLR-9); the liquid, falling-block and
 // every other check stay. The patched safeToBreak (protect.js) has the last word.
-export function safetyReason(bot, block, { container = false } = {}) {
+// `ownBed` is the sleep routine's bed entry: exempt for both protection checks
+// here, synchronously, and nowhere else (REQ-OWN-2, Protector.withOwnBed).
+export function safetyReason(bot, block, { container = false, ownBed = null } = {}) {
     const m = checker(bot);
     const pos = block.position;
     const liquid = BESIDE.map(([dx, dy, dz]) => m.getBlock(pos, dx, dy, dz)).find(b => b.liquid);
     if (liquid) return `next to ${liquid.name === 'lava' ? 'lava' : 'water'}`;
     if (m.getBlock(pos, 0, 1, 0).canFall) return 'under a falling block';
-    if (isProtectedForBot(bot, block)) return 'protected';
-    const lifted = container && m.blocksCantBreak.delete(block.type);
-    try {
-        if (!m.safeToBreak(block)) return 'cannot be broken';
-    } finally {
-        if (lifted) m.blocksCantBreak.add(block.type);
-    }
-    return null;
+    const checks = () => {
+        if (isProtectedForBot(bot, block)) return 'protected';
+        const lifted = container && m.blocksCantBreak.delete(block.type);
+        try {
+            if (!m.safeToBreak(block)) return 'cannot be broken';
+        } finally {
+            if (lifted) m.blocksCantBreak.add(block.type);
+        }
+        return null;
+    };
+    const protector = ownBed ? protectorFor(bot) : null;
+    return protector ? protector.withOwnBed(ownBed, checks) : checks();
 }
 
 const refuse = (reason, extra = {}) => ({ ok: false, reason, ...extra });
@@ -85,7 +91,7 @@ const refuse = (reason, extra = {}) => ({ ok: false, reason, ...extra });
 // Every check a dig needs, on the cell as it is now: {block} or a refusal.
 // Run again after each await, since the world, the task and the bot's place
 // can change meanwhile (Mineflayer's dig checks none of them).
-function ready(bot, pos, name, { container, dim, standing }) {
+function ready(bot, pos, name, { container, ownBed, dim, standing }) {
     if (bot.interrupt_code) return refuse('interrupted', { soft: true });
     if (dim && (bot.game?.dimension ?? 'overworld') !== dim) return refuse('in another dimension', { soft: true });
     if (eyeDistance(bot, pos) > REACH) return refuse('out of reach');
@@ -93,7 +99,7 @@ function ready(bot, pos, name, { container, dim, standing }) {
     if (!block || block.name !== name) return refuse('changed', { soft: true });
     const by = occupant(bot, pos, { self: !standing });
     if (by) return refuse('occupied', { soft: true, by });
-    const unsafe = safetyReason(bot, block, { container });
+    const unsafe = safetyReason(bot, block, { container, ownBed });
     if (unsafe) return refuse(unsafe);
     return { block };
 }
@@ -103,7 +109,8 @@ function ready(bot, pos, name, { container, dim, standing }) {
 // `obtain` reports the tools that would harvest it, cheapest first, when none
 // held does (the caller obtains one); `hand` digs by hand then instead
 // (removal is the goal);
-// `container` is the granted-container exception; `dim` the dimension the
+// `container` is the granted-container exception; `ownBed` the sleep routine's
+// bed entry (its pickup, REQ-SLP-6); `dim` the dimension the
 // caller's cell is in; `standing` lets the bot dig the block it stands on
 // (other players still keep it); `final(block)` is the caller's own check, run
 // synchronously as the last thing before the dig packet (a reason refuses, soft).
@@ -111,9 +118,10 @@ function ready(bot, pos, name, { container, dim, standing }) {
 // between the last checks and the packet (digging.js:34, :130). A `soft`
 // refusal (occupied, interrupted, changed meanwhile, another dimension) says
 // nothing about the cell itself.
-export async function digCell(bot, block, { move = true, obtain = false, hand = false, configure = null, container = false, dim = null, standing = false, final = null } = {}) {
+export async function digCell(bot, block, { move = true, obtain = false, hand = false, configure = null, container = false, ownBed = null, dim = null, standing = false, final = null } = {}) {
     const pos = block.position;
     const name = block.name;
+    const opts = { container, ownBed, dim, standing };
     if (eyeDistance(bot, pos) > REACH) {
         if (!move) return refuse('out of reach');
         try {
@@ -122,17 +130,17 @@ export async function digCell(bot, block, { move = true, obtain = false, hand = 
             if (bot.interrupt_code) return refuse('interrupted', { soft: true });
         }
     }
-    let check = ready(bot, pos, name, { container, dim, standing });
+    let check = ready(bot, pos, name, opts);
     if (!check.block) return check;
     if (bot.game?.gameMode !== 'creative') {
         await bot.tool.equipForBlock(check.block);
-        check = ready(bot, pos, name, { container, dim, standing });
+        check = ready(bot, pos, name, opts);
         if (!check.block) return check;
         if (!check.block.canHarvest(bot.heldItem?.type ?? null) && !hand)
             return refuse('needs a tool', { tools: obtain ? harvestToolNames(bot, name) ?? [] : [] });
     }
     await bot.lookAt(check.block.position.offset(0.5, 0.5, 0.5), true);
-    check = ready(bot, pos, name, { container, dim, standing });
+    check = ready(bot, pos, name, opts);
     if (!check.block) return check;
     const late = final?.(check.block);
     if (late) return refuse(late, { soft: true });

@@ -222,10 +222,10 @@ Status: **works** = usable as is; **partly** = usable with stated gaps; **missin
 | Blueprint tasks | `!checkBlueprint*`, `!getBlueprint*` (queries.js:244-282) | n/a | Evaluation harness only; blocked by default (settings.js:45). | Not used. |
 | Inventory | `!inventory`, `!equip` (:240), `!consume` (:232), `!givePlayer` (:220), `!discard` (:278) → `discard` (skills.js:863, `bot.toss`), `!putInChest` (:248), `!takeFromChest` (:259), `!viewChest` (:270) | works | — | Text commands as today in I1; chat-action tools from I2 (§12.4); `give` step. |
 | Auto-eat | mineflayer-auto-eat, `startAt: 14` (agent/agent.js:192-196) | works | Already eats below 14 food when food is held. | Kept; the "no food" block (REQ-SAFE-10) is `[Surv]`. |
-| Sleep | `!goToBed` (actions.js:368) → `goToBed` (skills.js:1568) | works | — | Owner text command only; not used by the task layer (OQ-14 closed). |
+| Sleep | `!goToBed` (actions.js:368) → `goToBed` (skills.js:1612) | partly | Walks to the nearest bed within 32 and sleeps; P14 (2026-11-11) showed `bot.sleep` works through ViaProxy and the night skipped about 3 s after she lay down (she was alone online). Its in-bed loop (`while (bot.isSleeping)`, :1637) ignores `interrupt_code`, so a `!stop` while it sleeps waits for the server to wake her and past 10 s the stop watchdog kills the process (ISSUES; not fixed, design §12). | Owner text command only; for beds already in the world. Nightly sleep is the task layer's own routine (`work/sleep.js`, §7.9), which never calls it. |
 | Villagers | `!showVillagerTrades` (actions.js:423) → skills.js:1773; `!tradeWithVillager` (:431) → skills.js:1814 | works | Explicit trades only. | Trading as an obtain method is deferred. |
 | Combat | `!attack` (:347), `!attackPlayer` (:355), `defendSelf` (skills.js:385), `avoidEnemies` (:1470) | works | — | Modes handle danger; no combat steps in v1. |
-| Modes | agent/modes.js:24-304: `self_preservation`, `unstuck`, `cowardice`, `self_defense` (interrupt all actions); `hunting`, `item_collecting`, `torch_placing`, `elbow_room`, `idle_staring` (idle only); `cheat` (off) | works | Interrupting modes stop any action. Afterwards an AUTO MESSAGE re-prompts the model unless a resume function is set (modes.js:317-329). `unstuck` fires after 20 s within 2 blocks while an action runs (:102-131) and kills the process if `moveAway` takes over 10 s (:126). `hunting` defaults on (:176); the deployed profile turns it off. | Kept as the reflex layer (§7). |
+| Modes | agent/modes.js:24-304: `self_preservation`, `unstuck`, `cowardice`, `self_defense` (interrupt all actions; from S2d also the fork's `sleeping`, §7.9); `hunting`, `item_collecting`, `torch_placing`, `elbow_room`, `idle_staring` (idle only); `cheat` (off) | works | Interrupting modes stop any action. Afterwards an AUTO MESSAGE re-prompts the model unless a resume function is set (modes.js:317-329). `unstuck` fires after 20 s within 2 blocks while an action runs (:102-131) and kills the process if `moveAway` takes over 10 s (:126). `hunting` defaults on (:176); the deployed profile turns it off. | Kept as the reflex layer (§7). |
 | Goal | `!goal` (actions.js:400-413), `!endGoal` (:415), self_prompter.js | works | `!goal` cannot be blocked (commands/index.js:18). While the self-prompter is active, resume never runs (agent/action_manager.js:63). | Guarded while a task is active (REQ-RES-9). |
 | Places | `!rememberHere` (actions.js:197), `!goToRememberedPlace` (:207), `!savedPlaces` (queries.js:237), agent/memory_bank.js:1-24, death place (agent.js:490) | partly | In RAM only; never saved (history.js:110-126 omits it); no dimension. | `[I4]` Persisted backing with the same API (REQ-FIND-17). |
 | Memory | agent/history.js: 15 turns, summary of the oldest 5, cut at 500 chars (:44-45); summaries run in the background (:50-59) | partly | Summaries invent facts and truncate (C03). | Conversation only; working state moves to the task record (REQ-REC-10). |
@@ -237,7 +237,7 @@ Status: **works** = usable as is; **partly** = usable with stated gaps; **missin
 | `runAction(label, fn, {resume:true})` stores `resume_func` (action_manager.js:56-62). | Adversary fixture: a resumable run interrupted by a mode finished 20/20 with no model call. |
 | A mode interrupt sends no AUTO MESSAGE while `resume_func` is set (modes.js:317-322). | Code. |
 | After a run ends without interruption, `idle` fires (action_manager.js:133-135); one second later the agent calls `resumeAction()` if idle (agent.js:499-508). | Code. |
-| `resumeAction()` passes no timeout, so a **resumed** run gets the default 10-minute timeout (action_manager.js:15-17, :56). The first run uses whatever `runAction` was given. | Code. |
+| `resumeAction()` passes no timeout (action_manager.js:15-17, :56). Upstream, a **resumed** run therefore gets the default 10-minute timeout, whatever the first run was given. From S2d the `action_manager.js` carry (§5.3) stores the timeout a resumable action started with beside `resume_func` and uses it on every resume, so a resumed `!followPlayer` (started with −1) and a resumed task run keep "no timeout". | Code; `work-sleep.test.mjs` "a cut follow resumes with timeout -1 …". |
 | An interrupted or timed-out run emits **no** `idle` (action_manager.js:128-135); nothing resumes it by itself. | Code; adversary fixture stalled at 8/20. |
 | An exception inside a run clears `resume_func` (action_manager.js:144). | Code. |
 | `stop()` waits for the action and kills the process after 10 s (action_manager.js:27-49). A nested `runAction` inside a running action deadlocks and triggers that kill. | Adversary probe: kill after 10.0 s. |
@@ -300,8 +300,9 @@ Why (details in RESEARCH.md):
 | `agent/work/commands.js` | Text commands `!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`, `!build` (I1); `!blockPositions` (I1, S2b); `!tidy` (I1, S2c); their tool forms (I2); owner-only `!saveTemplate` (I3). | I1, I2, I3 |
 | `agent/work/steps/*.js` | Step registry: `obtain`, `go_to`, `give` (I1, S2), `clear` (I1, S2c), `build` (I1, S3); `find` (I4). | I1, I4 |
 | `agent/work/ledger.js` | The placements ledger file (`placements.json`): kinds, the placement wrap and its settlement, retirement, the cap and eviction (§11.10). From S2c-fu: per world (file version 2), kept scaffold with its gap mark, hygiene, the exit flush, `scaffoldEligible`. | I1 (S2c, S2c-fu) |
-| `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
+| `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep, the bed pickup (S2d, `ownBed`) and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
 | `agent/work/tidy.js` | The tidy sweep `tidyNear` and its triggers' launch checks (REQ-OWN-7 … 9). | I1 (S2c) |
+| `agent/work/sleep.js` | Sleeping through the night (§7.9): `Sleeper` with `next()` (when she sleeps, what sleep may cut), the `mode:sleeping` routine (spot, placement, sleep, the guarded wake), the bed pickup in the routine and as `action:bed` from `Work.tick`, the in-memory night record and collection receipt, the owner lines. | I1 (S2d) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -334,7 +335,8 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
 | `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). I1 (S2c-fu): the "did not use command … Stopping auto-prompting" line is an `alert` (:141; REQ-CHAT-1). | upstream before S2b; fork carry since | I1 |
-| `agent/modes.js` | I1 (S2c): in `execute` (:306-330), `should_reprompt` gains `interrupted_action !== 'action:tidy'`, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). Retire when upstream offers a quiet-action flag and a mode-end event. | upstream | I1 |
+| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself. | upstream | I1 |
+| `agent/action_manager.js` | I1 (S2d): `_executeResume` stores the timeout of a new resumable action beside `resume_func` (`resume_timeout`) and uses it on every resume (two lines), so a resumed follow keeps "no timeout" (§4.2; junk design r7 §5, amendment 2). Retire when upstream passes the original timeout on resume. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
@@ -357,6 +359,9 @@ those slices (PLAN §3). These hooks need no core edit:
   at work init, like the command guards (REQ-OWN-3);
 - the owner's raw messages through MindServer: a wrap of `agent.respondFunc` at
   work init, beside the existing `chat` and `whisper` listeners (REQ-OWN-9);
+- the label of each action started: a runtime wrap of `actions.runAction`
+  (REQ-OWN-7); from S2d it also records the turn's voice and whether a goal was
+  ACTIVE at the start, and tells the sleeper (REQ-SLP-2, 7);
 - the provider's `outcome` seam in our own `models/openai_tools.js`; upstream
   `gpt.js` is unchanged (REQ-RES-17).
 
@@ -593,9 +598,10 @@ silently recording every pillar as `own`.
   (REQ-BLD-34).
 - **REQ-RES-6 Run bound.** [I1] A run ends itself normally after `work.run_deadline_s`
   (300 s) of work, so `idle` fires and the next run continues. Reason: a resumed
-  run inherits a 10-minute ActionManager timeout (§4.2), and a run that times out
-  is never resumed by Mindcraft. The bound is checked between actuator calls,
-  never in the middle of one.
+  run inherited a 10-minute ActionManager timeout (§4.2), and a run that times out
+  is never resumed by Mindcraft. (From S2d the `action_manager.js` carry keeps a
+  resumed run's −1; the bound stays, as each run's own limit.) The bound is
+  checked between actuator calls, never in the middle of one.
 - **REQ-RES-7** [I1] Long skills are called in bounded chunks: `obtain` collects or
   crafts in chunks (a craft unit runs at most 4 recipe runs, because Mineflayer's
   craft loop ignores `interrupt_code`); a build pass places at most a bounded number of cells.
@@ -618,6 +624,15 @@ silently recording every pillar as `own`.
   (same record, same plan generation, no `!stop` since); a result that
   arrives after the block (or after a pause, cancel or revision) is discarded. One model
   call. A step that keeps making progress under constant combat never blocks.
+  - *The sleep hold* (S2d, REQ-SLP-9). While `mode:sleeping` or `action:bed`
+    runs, the stall clock is held: on entry the work time up to then is charged
+    (`Work.holdStall` saves), during the hold every save advances the clock
+    without charging, and the hold closes in the routine's `finally`, before
+    the task resumes (`Work.releaseStall` restarts the clock), so no sleep time
+    reaches a later save. Real stall time is never reset. Both interruption
+    classifiers (`afterInterruptedRun` and the self-heal tick's `by` fill) keep
+    the step's `last_cause` for these two labels while still recording
+    `interruptions.last.by` and counting the interruption.
 
 ### 7.3 Resume check
 
@@ -680,7 +695,9 @@ silently recording every pillar as `own`.
 | Mode interrupt (combat, creeper, low health, unstuck) | mode action label | resume on `idle` | 0 |
 | Run ended by no-progress deadline or timeout | runner / self-heal timer | resume by timer; `attempts++` | 0 |
 | Crash restart | `init_message` and no `clean_stop` | resume (REQ-REC-7) | 0 |
-| Night | — | work goes on; combat modes interrupt and resume (always `continue` until the survival iteration) | 0 |
+| Night, with a bed (S2d) | the `sleeping` mode (`mode:sleeping`, REQ-SLP-2) | she sleeps; the task resumes the same step on `idle`; the stall clock is held and `last_cause` kept (REQ-RES-16) | 0 |
+| Bed pickup by day (S2d) | `action:bed` from `Work.tick` (REQ-SLP-5) | resume on `idle`, as after a mode; hold and cause as above | 0 |
+| Night, no bed or a done night | — | work goes on; combat modes interrupt and resume (always `continue` until the survival iteration) | 0 |
 | Night (`shelter`) `[Surv]` | dusk or repeated night interruptions | code dig-in; resume after the night (REQ-RES-15) | 0 |
 | Owner `!stop` | change in `agent.stop_epoch` | `cancelled` | 0 |
 | Death | bot `death` event | `paused(died)`; the existing death prompt | 1 |
@@ -693,12 +710,18 @@ silently recording every pillar as `own`.
 | Plan revision | `!taskRevise` | — | 1 |
 
 - **REQ-RES-13** [I1] Cancellation causes are recorded from these events, never
-  inferred from a missing `resume_func`.
+  inferred from a missing `resume_func`. (S2d) A sleep or a bed pickup is
+  recorded as the interruption's `by` (`mode:sleeping`, `action:bed`) but is
+  never the step's `last_cause`: a later stall block names the cause before it
+  (REQ-RES-16). Neither is a quiet action's AUTO MESSAGE cause: a mode that cuts
+  them prompts no model call (REQ-SLP-9).
 
 ### 7.6 Night policy (owner amendment E1.2) `[Surv]`
 
 Until the survival iteration the behaviour is always `continue` and there is no
-`work.night_policy` key; the key returns with `shelter`.
+`work.night_policy` key; the key returns with `shelter`. (S2d) Sleeping (§7.9,
+`work.sleep`) is separate from this policy: the night policy applies only when
+no sleep happens (no bed, or the night is done).
 
 - **REQ-RES-14 Night policy.** [Surv] `work.night_policy: continue | shelter`, set in the
   bot profile with the other work settings; default **`continue`**. The owner's
@@ -716,7 +739,9 @@ Until the survival iteration the behaviour is always `continue` and there is no
 
 ### 7.7 Model calls per event (summary)
 
-0 for combat, creepers, unstuck, timeouts, crash restarts, night, pending owner
+0 for combat, creepers, unstuck, timeouts, crash restarts, night, a night's
+sleep and the bed pickup (S2d; a goal cut by either restarts its loop with the
+next turn it would make anyway), pending owner
 questions (I1 for the clear step) and the bot's own tidy sweeps (no decision
 calls: a tidy line enters history and can contribute to a
 memory-summary call, which the live trials count separately). While the model
@@ -799,6 +824,234 @@ telling the owner (ISSUES, cube analysis item 8).
     the flag restarts the probe and takes the outage as still on, with no new
     notice, so only a probe or a request that succeeds in this process resumes
     the goal (and then the recovery notice is posted).
+
+### 7.9 Sleeping through the night `[I1]` (S2d)
+
+Owner rulings: DECISIONS 2026-11-11 "Sleeping through the night (slice S2d)"
+(she sleeps every night by default, also mid-task, mid-goal and while
+following; the resume must be solid; the bed goes down only to sleep and comes
+straight back; one sleeper skips the night on his server; the respawn point
+moving to the bed is accepted; chat quiet unless something needs him) and
+2026-11-12 (one chat switch). Design:
+`runtime/diagnostics/i1-build/sleep-council/recommended-design.md` r3 with its
+§14, amended by `junk-council/recommended-design.md` r7 §5 (the 2-free-slot
+pickup launch, the resume-timeout carry). Live facts: probe P14 (PLAN §4).
+There is no `work.sleep.announce` key (main-seat ruling: one chat switch, the
+owner lines are `alert`s).
+
+- **REQ-SLP-1 The mode and the module.** [I1] A mode `sleeping` (modes.js
+  carry, §5.3) right after `self_defense`, `interrupts: ['all']`, on by
+  default; its `update` asks `agent.work.sleeper.next()` and `execute()`s the
+  routine it returns as `mode:sleeping` (timeout −1). All policy and logic live
+  in `work/sleep.js` (`Sleeper`): each start re-derives what to do from the
+  world and the ledger (observe, then act); there is no persisted phase. The
+  bed pickup outside the routine runs from `Work.tick` as the quiet action
+  `action:bed`, so `!setMode sleeping off` (model-callable) cannot strand a
+  placed bed. `work.sleep.when` (§14): `always` (default), `idle` or `off`; an
+  unknown value is logged once and means `always`. `off`, or the mode switched
+  off for the session, stops new sleeps; the pickup still runs.
+- **REQ-SLP-2 When she sleeps.** [I1] `next()` is cheap and returns a routine
+  only when all hold: sleeping is enabled; the overworld; `timeOfDay`
+  12541–23000 (mineflayer's window start; later is not worth a bed; daytime
+  thunderstorms: no); a `*_bed` item in the inventory or *my bed* (REQ-SLP-6)
+  live and loaded within 16 blocks; this night not done (the night id is
+  `bot.time.day`, from the world's day time, captured when a try starts, so a
+  sleep ending after dawn marks its own night; in memory, REQ-SLP-7); 30 s
+  since the last failed try; no hostile in mineflayer's monster box around her
+  (x −8…+7, y −6…+4, z −8…+7; mineflayer's `Hostile mobs` kind or our
+  `isHostile`); no stop in progress; and what runs may be cut:
+  - `always`: the agent idle, unless a goal is ACTIVE with its loop running
+    (its model call is in flight: she fires at its next action); `action:task`;
+    the pending resumable owner action (`label === resume_name`) unless a goal
+    is ACTIVE (upstream would not resume it, action_manager.js:63; it is waited
+    out); a goal's own action (started in her own turn while the goal was
+    ACTIVE, recorded by the `runAction` wrap). Never a `mode:*` action,
+    `action:tidy`, `action:bed` or a one-off action (an owner's command; it is
+    waited out).
+  - `idle`: only with the agent idle, no task active, no goal active and no
+    `resume_func` pending.
+- **REQ-SLP-3 The spot and the placement.** [I1]
+  - *My bed* within 16 is reused (walked to), re-validated like a new spot.
+    Otherwise up to 3 stand cells B, nearest first within 6 blocks of her and
+    |dy| ≤ 2, each standable (feet and head cells passable, not liquid; a
+    solid floor), with the first cardinal d that fits: foot F = B + d, head
+    H = B + 2d; F and H air (not grass or another replaceable, not liquid),
+    air above both, a full cube under both, no liquid beside either (above and
+    the four sides), no player or mob in B, F or H, none of F, H and their
+    supports in an active clear box or its kept shell, no hostile in the
+    monster box around H. (No live build blueprint exists before S3; S3 adds
+    its footprint to this check.) A candidate she cannot walk to is skipped;
+    none left: the try failed.
+  - *Placement.* She walks to B and must stand in it (no 2-block tolerance, no
+    `skills.placeBlock` move-away); the cells are re-checked (and the
+    dimension); she equips the bed and clicks the top of F's support
+    (`bot.placeBlock(blockAt(F − up), up)`: mineflayer looks toward F first, so
+    the head goes the way she faces). Both halves are verified from the block
+    states (foot at F facing d, head at H). The cells and the dimension are
+    re-checked after the equip (it awaits). An equip error or a refusal: the
+    try failed. An issued placement that timed out (Mineflayer gives up after
+    5 s with no update for F, so `blockPlaced` never fires and nothing is
+    recorded; the bed may still arrive): she watches F for up to 2 s and
+    records the bed as her own (`mode:sleeping`) only when her bed appears
+    there **and** her count of that bed item dropped by one, then carries on;
+    otherwise nothing new (a bed there stays protected) and the try failed
+    (rulings r1, S6 + N1). Half a bed or the head elsewhere: her bed
+    is picked up (REQ-SLP-5) and the try failed. Then the ledger is flushed
+    synchronously before she sleeps; a write failure aborts and picks the bed
+    up. A bed that `blockPlaced` reported but the ledger did not record is
+    protected like any non-natural block: she leaves it and says so
+    (REQ-SLP-8).
+- **REQ-SLP-4 Sleep and the night in bed.** [I1] Dimension and window
+  re-checked (the window ended: she picks the bed up and the night is done);
+  `bot.modes.pause('unstuck')`; `await bot.sleep(bed)`. An error ("there are
+  monsters nearby", "bot is not sleeping" within 3 s) is a failed try, and the
+  routine picks the bed up before it returns; the next try places again. In
+  bed she polls every 500 ms:
+  - woken by the server: the night skipped (the day id changed or the window
+    ended) is a completed sleep; any other wake (damage, a broken bed) is a
+    failed try. Either way she picks the bed up.
+  - still asleep after 15 s: the night did not skip (on the owner's server one
+    sleeper skips it, P14; this is the fallback): the guarded wake, the night
+    is done, the owner is told once per session, she picks the bed up.
+  - interrupted (a mode, another action, `!stop`): the guarded wake, and the
+    routine returns; the bed stays (she lies down in it again after the
+    cooldown, or `Work.tick` picks it up when allowed).
+  - *The guarded wake*: the `wake` listener first; `bot.wake()` only while
+    `bot.isSleeping` (it throws when awake), its error caught; at most 3 s for
+    `wake`; return either way, well inside the 10 s stop watchdog, and at most
+    once per routine. A wake not confirmed in 3 s is logged and said as a
+    `detail` line; the next action may stall until the server wakes her, and if
+    the watchdog fires the crash restart wakes her (§16).
+- **REQ-SLP-5 The pickup.** [I1]
+  - *Free slots.* `Work.tick` launches a pickup, or a receipt's collection,
+    only with at least 2 free inventory slots (junk design §5, amendment 1),
+    checked before the launch; with fewer the bed (or its drop) stays and the
+    owner is told once (no model turn). A collection that finds no room for
+    the bed keeps the receipt until there is room or it expires (not lost;
+    rulings r1, S7). The pickup itself, also inside the sleep routine, needs only
+    the bed's own slot (at least 1 free; placing the bed freed it, so a full
+    bag still sleeps and takes the bed back); with none the bed stays, told
+    once (rulings r1, #5 reversed).
+  - *Dig.* Within reach (a bounded walk first: the seam's own approach,
+    `move: true`, has no time bound, and every walk is bounded, REQ-SLP-10),
+    both halves are checked: a player or mob in or on either is a soft refusal
+    (retry later); liquid beside either or a falling block above is a hard
+    one. Then `digCell(bot, foot, { move: false, hand: true, ownBed: entry,
+    standing: true, final })`, the S2c dig seam with the own-bed exemption
+    (REQ-SLP-6); `final` re-checks, synchronously right before the dig packet
+    (the tidy sweep's pattern), that the entry is still the live one, the bed
+    is whole, and both halves are free of players, mobs, liquid beside and a
+    falling block above; a veto is a soft refusal. A recorded bed whose loaded
+    cell shows another block is a lost bed (REQ-SLP-8); an unloaded cell is a
+    soft refusal.
+  - *Collect.* The dig leaves an in-memory collection receipt (cell,
+    dimension, bed item, time, bed count) until the bed count rises or the
+    loss is reported: she waits up to 1 s for the dropped bed within 5 blocks
+    (contact pickup often takes it at once), walks to it (bounded) and checks
+    the count. A rise seen anywhere (any pickup) closes the receipt; an
+    interrupted collect keeps it for `Work.tick`; no drop, or no rise after
+    the walk, or a receipt older than 5 minutes (the item's life) is a lost
+    bed.
+  - *Refusals.* Soft (occupied, interrupted, not loaded, changed, vetoed):
+    retried later (at most every 30 s from `Work.tick`). Unreachable (the
+    bounded walk did not bring her within reach): the obligation is kept, as
+    for a bed beyond 16: "I left my bed at x, y, z.", told once, and retried
+    after the same 30 s back-off (rulings r1, #8 reversed), but only while she
+    has nothing to do (no task, goal or follow; the `idle` cut rule), so the
+    retries never cut her work (N3); the mark goes once she reaches it or the
+    obligation resolves. At night the sleep routine may still walk to it to
+    sleep, and failing that is a try. Hard (next to
+    water, under a falling block, protected, a failed dig): "I left my bed at
+    x, y, z.", told once, and the entry goes (the bed is no longer hers). Lost:
+    "I lost my bed at x, y, z.", told once.
+  - *From `Work.tick`* (before its active-task guard, whatever
+    `work.sleep.when` says): a pending receipt's drop within 16 is collected
+    first, also at night (a placed bed is reserved for sleeping, a drop is
+    not), and `next()` starts no sleep while a receipt is pending, so no new
+    pickup overwrites it; when my bed is within 16 and not wanted for sleeping
+    (day, the night done, or sleeping off), she takes it back. Either runs as
+    `runAction('action:bed', …, { timeout: -1 })` (no resume), cutting only
+    what sleep may cut under the current `when` (REQ-SLP-2; under `off` as
+    under `idle`). One synchronous latch, cleared when the action ends; nothing
+    launches while a stop is in progress; an ACTIVE goal's loop is stopped
+    (`stopLoop()`, not awaited) as `execute()` does; the callback re-validates
+    `stop_epoch`, the entry and the policy (a placed bed only) when it starts.
+    A bed obligation is kept whatever the distance: beyond 16, loaded or not
+    (loading is needed only to reuse or dig it), the owner is told once ("I
+    left my bed at x, y, z.") and the entry stays, so she takes it when she
+    comes back within 16. A recorded bed whose loaded cell shows another block
+    (broken before a restart, or while its update was missed) is retired as a
+    lost bed. This also covers a bed found after a restart.
+- **REQ-SLP-6 My bed.** [I1] A bed placed while the action label is
+  `mode:sleeping` is recorded at its foot as kind `own`, `by: 'mode:sleeping'`
+  (the ledger's context kind, REQ-OWN-2): protected from the pathfinder,
+  collection and the tidy sweep like any `own` entry, and exempt only for the
+  sleep routine's own pickup dig, scoped to that exact live entry
+  (`Protector.withOwnBed`, honoured by both protection checks of the dig seam:
+  the predicate and the patched `safeToBreak`). *My bed* = such an entry in this
+  dimension whose block is still that bed. `own` entries survive restarts
+  (REQ-OWN-4 marks only scaffold), so a bed is reused at night or picked up by
+  day after a crash.
+- **REQ-SLP-7 The night done, and the owner.** [I1] A night is done after a
+  completed sleep, a night that did not skip, a `!stop` during the routine
+  (`stop_epoch` changed), a non-mode action that cuts the sleep, a new
+  resumable action starting during the night (window), 3 failed tries, or
+  `work.sleep.max_mode_cuts` (6) mode cuts. The
+  task runner's own runs and resumes (`action:task`, `resume_func ===
+  runner.runFn`) and `action:bed` never mark it, so a crash or self-heal
+  restart or a `!taskStart` at dusk does not cancel the night; a resume through
+  `resumeAction()` is not a new action. A failed try (no spot, a refusal
+  including `bot.sleep`'s "monsters nearby", an early wake, an interruption
+  that did not end the night and was not a mode) starts the 30 s cooldown. A
+  protective mode's cut (a fight; phantoms come every night, P14) is not a
+  failed try: it starts the same cooldown and counts toward its own cap
+  (rulings r1, #3 changed); the bed stays and she lies down in it again. The record is in memory: a crash restart in
+  the same night may try again (§16). `!stop` in bed: the guarded wake, the
+  night is done, the S2 wrapper cancels any task as today, and `Work.tick` takes
+  the bed back when idle. Queries start no action and change nothing. A task
+  cut by a new owner `!followPlayer` is `paused(replaced)`, as today.
+- **REQ-SLP-8 What she says.** [I1] Console `[sleep]` lines per phase (spot,
+  placed, slept, woke and why, skipped or not, dug, took back, left, lost,
+  each night done and failed try). `behavior_log`: "Sleeping." and "Took my bed
+  back.". Owner chat only through the chat gate (REQ-CHAT-1) and only when he
+  needs to know, as `alert` lines through `postReport` (history too): "I left
+  my bed at x, y, z.", "I lost my bed at x, y, z." and "My bag is too full to
+  take my bed back (N free slots needed); it stays at x, y, z." (N is 2 for
+  the `Work.tick` launch, 1 inside the pickup; each count is its own line, so
+  the launch's line still comes after the night's, N2), each once per obligation (one
+  placed bed and its drop, keyed by its entry; forgotten when it resolves:
+  taken back, lost or no longer hers, so a later bed at the same spot is told
+  again), and "The night did not skip, so I got up." (once per session). A
+  bed of hers whose entry the ledger retires on a block update (a player, a
+  creeper, a broken support; not her own pickup dig, which the ledger marks
+  `removing`) is a lost bed, told once. The unconfirmed wake, "I could not get
+  out of bed; I am still asleep.", is `detail` (once per session). The task view says "Sleeping now: the task resumes by itself after
+  the night." while she is asleep (only while a task record exists). Request
+  log: 0 model calls per sleep.
+- **REQ-SLP-9 Resume is not hurt.** [I1] `mode:sleeping` and `action:bed` are
+  quiet actions (`Work.isQuietAction`, with `action:tidy`): a mode that cuts
+  them prompts no model call. The stall clock is held while they run and the
+  step's `last_cause` is kept (REQ-RES-16). The no-progress deadline and the
+  run bound are per run and unaffected; the resume check and the `work_pos`
+  return work unchanged after waking (a new spot is within 6; a reused bed may
+  be up to 16 away, beyond `return_radius`, and the runner's return walk
+  brings her back). A resumed `!followPlayer`, and a resumed task run, keep
+  "no timeout" (the `action_manager.js` carry, §4.2).
+
+| Event | Task | Resumable owner action | Goal | Previously idle |
+|---|---|---|---|---|
+| Sleep, a handled failed try or a mode cut | same step, 0 decision calls | same function (not cut while a goal is ACTIVE) | next decision turn; the cut action is not replayed (a day pickup that cuts a goal's action costs that turn too) | idle |
+| A protective mode cuts the sleep | resumes after the fight | same | restarts once idle | quiet, no AUTO MESSAGE |
+| Owner `!stop` | cancelled (S2 wrapper) | resume slot cancelled | stopped | the bed is taken back when idle |
+| Crash restart | the existing active-task recovery | not persisted (as today) | its saved state; may call the model | bed reconciled from the ledger; a receipt is lost |
+
+- **REQ-SLP-10 Boundaries.** [I1] Both routines are non-throwing: every
+  expected failure is a bounded outcome (a failed try, a soft retry, left,
+  lost); the wake and the night's accounting run in `finally`; the launcher's
+  rejection is observed. Every walk (spot approach, bed reuse, pickup, drop)
+  uses no-dig, no-tower, no-scaffold movements (`goToGoal` with `configure`)
+  and is bounded by 10 s (the pathfinder's goal is cleared then);
+  unreachable is a controlled outcome.
 
 ## 8. Plan mode and validation
 
@@ -1700,7 +1953,7 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
 | `station` | a crafting table or furnace the bot placed outside any blueprint | exempt, as today |
 | `scaffold` | a pathfinder placement, told by tell A (REQ-OWN-3) | exempt everywhere while live; removed by the tidy sweep (REQ-OWN-7) |
 | `building` | blueprint cells (S3, REQ-BLD-35) and `!buildStructure` placements | protected after its build (a `!buildStructure` build ends when that action returns) |
-| `own` | placements by code or `!placeHere`, task-time placements that are not blueprint cells, and scaffold the owner kept (REQ-OWN-9) | protected outside an active clear box whatever its material (a dirt or stone house the bot built must not look natural), exempt inside one |
+| `own` | placements by code or `!placeHere`, task-time placements that are not blueprint cells, scaffold the owner kept (REQ-OWN-9), and (S2d) the sleep routine's bed, recorded at its foot with `by: 'mode:sleeping'` whatever else runs (REQ-SLP-6) | protected outside an active clear box whatever its material (a dirt or stone house the bot built must not look natural), exempt inside one; the sleep routine's bed is also exempt for its own pickup dig only (`ownBed`, the exact live entry, both protection checks of the dig seam) |
 
 - **REQ-OWN-3 Recording: context at the attempt, block from the cell.** [I1]
   (Live probe P13, 2026-11-10; §4.2.)
@@ -2320,6 +2573,8 @@ About 13 tools in all.
 | `work.ledger_max` | 2000 | Cap on live `scaffold` entries per world, applied also once after load (REQ-OWN-5). S2c; per world from S2c-fu. | clear council |
 | `work.tidy.enabled` | true | Automatic tidy triggers on or off; `!tidy` always works (REQ-OWN-8). S2c. | clear council |
 | `work.chat` | quiet | `quiet` (every chat category but `detail`) or `debug` (today's full output); an unknown value is logged once and means quiet (REQ-CHAT-1). Read through `prompter.work_config`, so it exists before `Work`. S2c-fu. | owner (2026-11-11, 2026-11-12); quiet council |
+| `work.sleep.when` | always | `always` (she sleeps every night, also mid-task, mid-goal and while following), `idle` (only with nothing to do) or `off` (no new sleeps; the bed pickup still runs); an unknown value is logged once and means always (REQ-SLP-1, 2). There is no `announce` key: the owner lines are `alert`s under `work.chat`. S2d. | owner (2026-11-11); sleep council r3; main-seat ruling (no announce) |
+| `work.sleep.max_mode_cuts` | 6 | protective-mode cuts (fights) a night allows before it is done; they are not among the 3 failed tries (REQ-SLP-7); anything but a positive integer means 6. S2d fix wave 1. | main-seat rulings r1 (#3 changed; P14: phantoms every night) |
 
 The four model keys are flat keys of the profile's `work` section, so the
 one-level merge never drops one of them; S2b adds them to the defaults in
@@ -2327,8 +2582,8 @@ one-level merge never drops one of them; S2b adds them to the defaults in
 `loadWorkConfig(profile.work)` itself and hands the timeout and retry count to
 the provider it builds (main-seat ruling, OQ-21).
 From S2c, `loadWorkConfig` merges object defaults one level deep (`work.clear`,
-`work.tidy`), so a profile that sets one sub-key keeps the other defaults; other
-values still replace the default whole.
+`work.tidy`, from S2d `work.sleep`), so a profile that sets one sub-key keeps the
+other defaults; other values still replace the default whole.
 
 Constants in code (not keys): the junk drop's 5-minute drop-point memory, its
 3-block skip radius and its two re-runs per step; the resume check's hostile radius 8 (the same as
@@ -2342,7 +2597,14 @@ window, 3 s revert window and 10 000-entry log warning; the tidy sweep's reach
 pillar-down wait, 5 s task-end launch window, 5 s re-check for up to 60 s after a
 mode, and the 60 s window in which a model `!stop` counts as the owner's. From
 S2c-fu: the component guard's 64-member limit and its one-tick (50 ms) memo
-(REQ-OWN-4).
+(REQ-OWN-4). From S2d (`work/sleep.js` `SLEEP`): the night window 12541–23000,
+3 tries a night, the 30 s cooldown after a failed try or a mode cut (also
+between soft and unreachable pickup retries), the 15 s skip wait, the 6-block spot radius with |dy| ≤ 2 and 3
+candidates, the 16-block reuse and pickup radius, the 3 s wake bound, the 10 s
+bound on every walk, the 500 ms poll in bed, the 5-block drop radius and 1 s
+drop wait, the 5-minute receipt (an item's life), the 2 free slots the
+`Work.tick` pickup or collection launch needs and the 1 the pickup itself
+needs, and the 2 s watch for a bed after a timed-out placement.
 
 **Keys of later iterations** (added to `config.js` when their iteration is built)
 
@@ -2445,9 +2707,9 @@ agent log, and every dropped line is logged).
 |---|---|---|
 | `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10) |
 | `question` | shown | the work layer's owner questions (REQ-REC-12) |
-| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2) |
+| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8) |
 | `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
-| `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror |
+| `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror; (S2d) the unconfirmed wake (REQ-SLP-8) |
 
   - *The model's replies.* In quiet a branch around the whole
     `show_command_syntax` dispatch (agent.js) sends only the text before the
@@ -2791,6 +3053,63 @@ Recorded, not built:
     `(AUTO MESSAGE)` reprompt turn; it waits through the outage and is answered
     first at recovery, and the goal resumes up to one probe interval later
     (live-fix review, 2026-11-11).
+- Sleeping through the night (§7.9, S2d; design r3 §12 and the council's
+  residuals; LOW unless noted):
+  - the night record and the collection receipt are in memory: a crash restart
+    in the same night may try again, and a crash between the pickup dig and the
+    pickup loses the drop (it despawns after 5 minutes);
+  - a crash between the server placing the bed and the client seeing it leaves
+    an unrecorded bed, protected like any non-natural block (a placement
+    answered late without a crash is adopted, REQ-SLP-3);
+  - a wake not confirmed within 3 s: the next action may stall until the server
+    wakes her, and if the stop watchdog fires the crash restart is what wakes
+    her (P14 has not measured `bot.wake()` yet);
+  - with a goal ACTIVE and an endless follow she never sleeps (upstream does
+    not resume a follow while a goal is ACTIVE, so sleep waits it out);
+  - there is no command to get her up and go on with the task: any instruction
+    that starts an action does it; `!stop` cancels the task;
+  - her respawn point moves to the bed and picking the bed up clears it
+    (accepted by the owner, design OQ-3; matters only once damage is on);
+  - after a `!stop` she takes the bed back without a line (the owner lines
+    cover only problems, OQ-4);
+  - a server that reverts the pickup dig (within the ledger's 3 s window) can
+    make her report a lost bed while the bed stands again; the next tick takes
+    it as hers again;
+  - a server wake that arrives before the time update that ends the night is
+    counted as an early wake (a failed try); the next tick sees the morning;
+  - with fewer than 2 free slots (by day) or no free slot (inside the
+    routine) the bed stays placed until space frees: the item cleanup that
+    would free it is S2e;
+  - (review r1, LOW) someone standing on her bed by day makes `Work.tick` cut
+    a running task every 30 s (each time she walks up to 16 blocks, refuses and
+    the run walks back to `work_pos`); no stall time is charged, but throughput
+    drops while it lasts (an unreachable bed waits for idle, REQ-SLP-5);
+  - (review r2, LOW) a reverted pickup dig can say "I lost my bed" twice: the
+    receipt is lost and told, the entry revives, and if that bed later breaks
+    it is told again;
+  - (review r2, LOW) a crash right after a pickup, before the ledger drops the
+    entry (the revert window and the write throttle), makes the restart see
+    air and say "I lost my bed at …" while the bed is in her bag;
+  - (review r1, LOW) with a bed in the bag and a placed bed of hers that fails
+    re-validation for a lasting reason (water beside it), the placed bed wins
+    every try: she spends the tries and the night instead of placing the bed she
+    carries (moot with one bed, the usual case);
+  - (review r1, LOW) "I left my bed at x, y, z." means two states: a bed no
+    longer hers (a hard refusal) and a bed kept as an obligation (beyond 16 or
+    unreachable for now); the owner cannot tell which;
+  - (review r1, LOW) `othersIn` counts arrows and other non-blocking entities
+    as occupants (over-strict: a spot or a pickup is refused or retried);
+  - (review r1, LOW) a catalog `!buildStructure` cut by sleep has no blueprint
+    check: the bed may land in its unbuilt footprint (S3 adds the footprint
+    check);
+  - (review r1, LOW) untested by the offline suite (the code reads correctly):
+    the dimension and window re-check before `bot.sleep`, the unstuck pause,
+    and the walks' behaviour against a real pathfinder (the fixture teleports;
+    the no-dig movements and the 10 s bound are asserted);
+  - left out by design §12: making a bed, beds already in the world (upstream
+    `!goToBed` stays for those, with its `!stop` defect in ISSUES), fetching a
+    bed left far away (the owner is told), daytime thunderstorms, restoring the
+    respawn point.
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.
@@ -2820,7 +3139,7 @@ Recorded, not built:
 | OQ-11 | Offline design revision limit. | DX |
 | OQ-12 | (closed by W1: the owner-question contract, REQ-REC-12; deferred to the survival iteration by W3; its core brought into I1 for the clear step by the owner's approval of the clear design, 2026-11-11.) | — |
 | OQ-13 | (closed by W3: one 120 s no-progress deadline covers craft calls, REQ-RES-5.) | — |
-| OQ-14 | (closed by E1.2: night costs no model call under either policy, so no sleep decision exists in v1.) | — |
+| OQ-14 | (closed by E1.2: night costs no model call under either policy, so no sleep decision exists in v1. S2d sleeps by code, still with no decision call, §7.9.) | — |
 | OQ-15 | (closed by W1: the ledger persists in the task record, REQ-BLD-22; W3 kinds `permanent` and `station`, `scaffold` from I3. Superseded from S2c: its own file with kinds `station`, `scaffold`, `building` and `own`, REQ-OWN-1, 2.) | — |
 | OQ-16 | Plan quality of the quantized Qwen with the text DSL (I1) and the typed schema (I2); whether DX arm A (parts only) meets the bar. | S2/S3 trials, I2 trials, DX |
 | OQ-17 | Which entity types `mc.isHostile` (utils/mcdata.js:113-116) classifies as hostile on the deployed version; the resume check and `self_defense` rely on it. P11 ran: `allay` and `copper_golem` were classified hostile and are now excluded (§5.3); `hoglin`, which the function misses, is Nether-only and left as is. | S0-lite, probe P11 |

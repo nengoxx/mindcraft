@@ -85,7 +85,7 @@ export function standingOn(bot, ledger) {
 // A full cube: one collision box filling the cell (a slab or a fence is not,
 // though both have boundingBox 'block').
 const FULL = [0, 0, 0, 1, 1, 1];
-const fullCube = block => block?.shapes?.length === 1 && block.shapes[0].every((v, i) => v === FULL[i]);
+export const fullCube = block => block?.shapes?.length === 1 && block.shapes[0].every((v, i) => v === FULL[i]);
 
 // Pillar-down: the block under the bot, when the structure it stands on is a
 // plain vertical column of live scaffold (passing `want`) on a loaded full

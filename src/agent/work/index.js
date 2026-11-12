@@ -12,6 +12,7 @@ import { Protector, installSafeToBreakPatch, guardBot, unguardBot, installCleanS
 import { Ledger, ledgerPath } from './ledger.js';
 import { clearScope } from './steps/clear.js';
 import { Tidy } from './tidy.js';
+import { Sleeper, SLEEP_LABELS } from './sleep.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
 import { stepResult, doneReport, doneLine, blockedReport, blockedAgainLine, deathLine, failedReport, goalStopped, chatLines } from './report.js';
@@ -53,6 +54,9 @@ export class Work {
         this.record = null;
         this.ledger = null;      // the placements ledger (ledger.js, REQ-OWN-1)
         this.tidy = null;        // tidying the bot's own scaffold (tidy.js, REQ-OWN-7 … 10)
+        this.sleeper = null;     // sleeping through the night (sleep.js, REQ-SLP-1 … 10)
+        this.lastStart = null;   // {label, voice, goal}: the last action started (the runAction wrap)
+        this.stallHeld = false;  // the stall clock's hold while she sleeps (REQ-RES-16)
         this.planGeneration = 0;
         this.goalEpoch = 0;
         this.reportWaitMs = REPORT_WAIT_MS;
@@ -118,6 +122,8 @@ export class Work {
         this.ledger.hygiene(() => true, 'at start');
         this.tidy = new Tidy(this);
         this.disposers.push(() => this.tidy.dispose());
+        this.sleeper = new Sleeper(this);
+        this.disposers.push(() => this.sleeper.dispose());
         this.adopt(record);
         // REQ-REC-7/9: a crash restart is init_message 'Agent process restarted.'
         // with no clean_stop; anything else is a fresh start. clean_stop is
@@ -233,13 +239,15 @@ export class Work {
     // REQ-OWN-7: the tidy sweep learns which action interrupted it (only a
     // mode's interruption keeps a remainder). Runtime wrap; every caller
     // (modes, commands, the runner) starts actions through runAction.
+    // REQ-SLP-2, 7: the sleeper learns the same, and the turn and goal state
+    // each action started in (a goal's own action may be cut by sleep).
     guardActions() {
         const actions = this.agent.actions;
         if (typeof actions?.runAction !== 'function') return;
         const runAction = actions.runAction;
         const work = this;
         const wrapped = function (label, ...rest) {
-            work.tidy?.onActionStart(label);
+            work.onActionStart(label, rest[0], rest[1]);
             return runAction.call(this, label, ...rest);
         };
         actions.runAction = wrapped;
@@ -464,6 +472,25 @@ export class Work {
         this.stallClock = this.now();
     }
 
+    // REQ-RES-16 (S2d): an explicit hold while mode:sleeping or action:bed
+    // runs. On entry the work time up to then is charged; during the hold the
+    // clock advances without charging; the hold closes before the task
+    // resumes (the routines' finally), so no sleep time reaches a later save.
+    holdStall() {
+        if (this.stallHeld) return;
+        try {
+            this.save();
+        } catch (err) {
+            console.error('[work] could not save before the sleep hold:', err?.message ?? err);
+        }
+        this.stallHeld = true;
+    }
+
+    releaseStall() {
+        this.stallHeld = false;
+        this.stallClock = this.now();
+    }
+
     // Every write of an active task adds the elapsed process time to the
     // current step's stalled_s, so it carries across restarts while time with
     // the process down does not count; at work.step_stall_s the step blocks
@@ -477,7 +504,7 @@ export class Work {
         const step = record.status === 'active' ? record.plan[record.cursor] : null;
         if (step?.progress) {
             if (sample && updateProgress(step, STEPS[step.skill].measure(this.runner.ctx(), step), now)) this.stallClock = now;
-            step.progress.stalled_s = Math.round((step.progress.stalled_s + (now - this.stallClock) / 1000) * 10) / 10;
+            if (!this.stallHeld) step.progress.stalled_s = Math.round((step.progress.stalled_s + (now - this.stallClock) / 1000) * 10) / 10;
             this.stallClock = now;
             if (step.progress.stalled_s >= this.config.step_stall_s) {
                 const minutes = Math.round(this.config.step_stall_s / 60);
@@ -517,7 +544,8 @@ export class Work {
     }
 
     view() {
-        return renderView(this.record, { bot: this.agent.bot, selfPromptActive: !this.agent.self_prompter?.isStopped(), now: this.now() });
+        return renderView(this.record, { bot: this.agent.bot, selfPromptActive: !this.agent.self_prompter?.isStopped(), now: this.now(),
+            sleeping: Boolean(this.sleeper?.asleep()) });
     }
 
     neededItems() {
@@ -564,6 +592,23 @@ export class Work {
     // REQ-OWN-8: the modes carry calls this at the end of every mode action.
     onModeEnd(name, codeReturn) {
         this.tidy?.onModeEnd(name, codeReturn);
+    }
+
+    // Every action start (the runAction wrap, guardActions).
+    onActionStart(label, fn, opts) {
+        this.lastStart = { label, voice: this.turnVoice(), goal: Boolean(this.agent.self_prompter?.isActive()) };
+        this.tidy?.onActionStart(label);
+        try {
+            this.sleeper?.onActionStart(label, fn, opts);
+        } catch (err) {
+            console.error('[sleep] could not mark the night:', err?.message ?? err);
+        }
+    }
+
+    // The actions a mode may cut without a model call (the modes carry,
+    // REQ-OWN-8, REQ-SLP-9): the tidy sweep, the sleep routine, the bed pickup.
+    isQuietAction(label) {
+        return label === 'action:tidy' || SLEEP_LABELS.has(label);
     }
 
     // REQ-CHAT-2: her death is one code `alert` line; the model's turn for it
@@ -619,7 +664,8 @@ export class Work {
         const pos = this.agent.bot.entity.position;
         record.interruptions.count++;
         record.interruptions.last = { by: null, at: this.now(), step: step?.n ?? null, pos: { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) } };
-        if (step?.progress) step.progress.last_cause = 'interruption';
+        // REQ-RES-16 (S2d): sleep and the bed pickup keep the step's last cause.
+        if (step?.progress && !SLEEP_LABELS.has(this.lastStart?.label)) step.progress.last_cause = 'interruption';
         this.log('run interrupted');
         this.save();
     }
@@ -633,6 +679,13 @@ export class Work {
 
     // The self-heal timer (REQ-RES-10), also the stall clock while no run writes.
     tick() {
+        // REQ-SLP-5: the bed pickup, before the active-task guard and whatever
+        // work.sleep.when says.
+        try {
+            this.sleeper?.reconcile();
+        } catch (err) {
+            console.error('[sleep] the bed check failed:', err);
+        }
         const record = this.record;
         if (record?.status !== 'active') { this.idleSince = null; return; }
         this.watch();
@@ -641,7 +694,8 @@ export class Work {
         const last = record.interruptions.last;
         if (last && last.by == null && actions.currentActionLabel && actions.currentActionLabel !== 'action:task') {
             last.by = actions.currentActionLabel;
-            if (record.plan[record.cursor]?.progress) record.plan[record.cursor].progress.last_cause = `${last.by} interruption`;
+            // REQ-RES-16 (S2d): sleep and the bed pickup keep the step's last cause.
+            if (record.plan[record.cursor]?.progress && !SLEEP_LABELS.has(last.by)) record.plan[record.cursor].progress.last_cause = `${last.by} interruption`;
             this.save(); // the next run reloads the record from disk
         }
         const now = this.now();

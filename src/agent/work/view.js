@@ -33,7 +33,7 @@ function clip(text, max = VIEW_MAX) {
 
 // Returns null when the record should not replace the prompt text: no record,
 // or a finished task while a !goal self-prompt is active.
-export function renderView(record, { bot, selfPromptActive = false, now = Date.now() } = {}) {
+export function renderView(record, { bot, selfPromptActive = false, now = Date.now(), sleeping = false } = {}) {
     if (!record) return null;
     if (isTerminal(record)) {
         if (selfPromptActive) return null;
@@ -59,6 +59,8 @@ export function renderView(record, { bot, selfPromptActive = false, now = Date.n
         }
         parts.push(line + '.');
     }
+    // REQ-SLP-9: while she sleeps the task waits and resumes by itself.
+    if (sleeping) parts.push('Sleeping now: the task resumes by itself after the night.');
     const last = record.interruptions?.last;
     if (last) parts.push(`Last interruption: ${last.by ?? 'unknown'}, ${ago(now - last.at)} ago (${record.interruptions.count} in total).`);
     // REQ-REC-12: an open owner question is answered by the owner only.

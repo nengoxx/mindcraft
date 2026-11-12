@@ -51,11 +51,20 @@ export const WORK_DEFAULTS = Object.freeze({
     // the owner) or 'debug' (today's full output). Read through
     // agent.prompter.work_config by work/chat.js, so it exists before Work.
     chat: 'quiet',
+    // Sleeping through the night (REQ-SLP-1): 'always' (also mid-task,
+    // mid-goal and while following), 'idle' (only with nothing to do) or
+    // 'off'. The bed pickup runs whatever this says. `max_mode_cuts`: the
+    // protective-mode cuts (fights) a night allows before it is done; they do
+    // not count toward the 3 failed tries (REQ-SLP-7).
+    sleep: Object.freeze({
+        when: 'always',
+        max_mode_cuts: 6,
+    }),
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one
 // sub-key keeps the other defaults.
-const MERGED = new Set(['clear', 'tidy']);
+const MERGED = new Set(['clear', 'tidy', 'sleep']);
 
 // A profile value replaces the default whole (junk_keep included), except the
 // MERGED objects. Unknown keys are ignored (logged), so a key of a later

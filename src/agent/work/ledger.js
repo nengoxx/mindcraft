@@ -61,6 +61,7 @@ export class Ledger {
         this.settleMs = settleMs;
         this.revertMs = revertMs;
         this.entries = new Map();   // dim|x,y,z -> entry, of the current world only
+        this.onRetire = [];         // (entry, why) after an entry is retired (the sleeper's lost bed, S2d)
         this.world = null;          // worldId at load; null: an unknown world, nothing is written
         this.otherWorlds = {};      // the file's other worlds, written back untouched
         this.generation = 0;        // bumped on every block or entry change (the component guard's memo)
@@ -289,6 +290,13 @@ export class Ledger {
         this.entries.delete(key);
         this.log(`retired ${entry.kind} ${entry.block} at ${fmt(entry.pos)}: ${why}`);
         this.changed();
+        for (const listener of this.onRetire) {
+            try {
+                listener(entry, why);
+            } catch (err) {
+                this.log(`a retire listener failed: ${err?.message ?? err}`);
+            }
+        }
     }
 
     // REQ-OWN-4: scaffold records are kept through a stop, a crash and an
@@ -442,7 +450,9 @@ export class Ledger {
     }
 
     // The context kind of a placement that is not the pathfinder's (REQ-OWN-2).
+    // The sleep routine's bed is `own` (by mode:sleeping) whatever else runs.
     contextKind(expected) {
+        if (this.label() === 'mode:sleeping') return { kind: 'own' };
         if (this.building) return { kind: 'building', build_id: this.building };
         if (STATION_BLOCKS.includes(expected)) return { kind: 'station' };
         return { kind: 'own' };
