@@ -16,6 +16,15 @@
 - **One stack for now** (the owner's ask, temporary, no code change): the private profile's `work.inventory.items`
   sets `gunpowder`, `ender_pearl`, `iron_ingot`, `carrot`, `grass_block` to `"stack"` (applied live); which items get
   more than one stack is for later. The trial clutter was discarded; she is at 21 of 36 slots.
+- **The owner's gear** (2026-11-12 night; copies, ours to use): she wears his epic leather chestplate, leggings and
+  boots (diamond-level armour values, Protection V, unbreakable) and carries his epic iron axe (damage 9 + Sharpness
+  VII, attack speed 4, Looting III, unbreakable). His epic silk-touch iron pickaxe stays in his chest at -475 71 1800
+  (silk touch is refused on stone and ores, so she would not use it); her diamond sword is in that chest too. Found:
+  the 26.1 registry has no `attackDamage`, so `equipHighestAttack` (skills.js) does not sort and picks the first sword
+  or axe; mineflayer-pvp times swings by item name; mineflayer-armor-manager ranks armour by material name (leather
+  lowest), so picked-up iron armour would replace his. Proposed next slice: rank weapons by real damage over time
+  and armour by real armour values from the item's components (vanilla fallback), never swap an unbreakable piece
+  for a weaker one. Item dump: `~/.cache/tmp/s2efu/probe/chest.txt`.
 - Owner asks still open: prefer his own gear (epic rarity, unbreakable, enchanted, with lore) when she picks a weapon
   or tool, with nuance (silk touch not for stone); his axe has the highest attack speed, not the highest damage, so
   today's choice by attack damage would not pick it. Coming back after a far respawn ("come to me" needs him within
