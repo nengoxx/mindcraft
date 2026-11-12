@@ -1388,10 +1388,11 @@ owner lines are `alert`s).
     `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) measured
     3.1–3.2 blocks on flat ground with the 2-tick wait, the toss flying the
     old way without it (G1), and no pickup standing still for 6 s (P15 tossed
-    with `bot.toss`). Not proven live until the S2e trials (design r7 §8): an
-    obstacle within 3 blocks (the facing rule excludes it), the guard against
-    `pickupNearbyItems` (offline tests), and the one-slot `bot.transfer` path
-    with whole-stack tosses through ViaProxy.
+    with `bot.toss`). The S2e and S2e-fu live trials ran the one-slot
+    `bot.transfer` path with whole-stack tosses through ViaProxy (nothing came
+    back while she stood still). Not proven live: an obstacle within 3 blocks
+    (the facing rule excludes it) and the guard against `pickupNearbyItems`
+    (offline tests; the `item_collecting` mode is off).
   - **In a task.** Before a step that needs free slots (`obtain`, `give`, a
     `build`'s materials; the `clear` step's `drop-only`), if
     `bot.inventory.emptySlotCount()` is below `work.min_free_slots` (4), the
@@ -3259,9 +3260,9 @@ Recorded, not built:
     `pickupNearbyItems`;
   - probe P15 measured the landing on flat ground only: a step ahead
     shortens it (2.38 blocks onto a one-block step; the facing rule excludes
-    that direction); an obstacle within 3 blocks, the guard against
-    `pickupNearbyItems` and the one-slot `bot.transfer` path with whole-stack
-    tosses through ViaProxy (P15 used `bot.toss`) wait for the S2e trials;
+    that direction); an obstacle within 3 blocks and the guard against
+    `pickupNearbyItems` are unproven live (the S2e trials ran the one-slot
+    `bot.transfer` path through ViaProxy);
   - a model-issued `!stop` during a pass ends it but does not hold the
     cleanup (only the owner's raw `!stop` holds it, 10 minutes); the hold
     arms only while a pass runs (well under a second), so it is nearly

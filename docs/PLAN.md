@@ -47,7 +47,9 @@ live trials"); the owner ruled on its findings (DECISIONS 2026-11-12 "After
 the S2e live trials"). The follow-up slice S2e-fu (junk in her hand, the pit,
 the kept report, the list) is merged and deployed (`13b7b86`); live trials 1–5
 pass (ISSUES "S2e-fu live trials"); trial 6 (one best slot of bottles and
-banners) waits for the owner to hand her the items.
+banners) waits for the owner to hand her the items. Next, before S3: a gear
+slice (the owner's rulings, DECISIONS 2026-11-12 night "The owner's gear and
+a one-stack cap"); its section is written from its design.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
