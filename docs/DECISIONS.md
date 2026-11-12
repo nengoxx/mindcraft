@@ -250,3 +250,7 @@ The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials
   whatever the stack size). Bows and crossbows join the list: keep the best one of each and
   drop plain spares (common loot); arrows stay at one stack. These kept weapons and arrows are
   for the owner (she fights with melee) and may be thrown when there is no space at all.
+- **No "throw if no space" tier** (supersedes the last sentence above). The kept weapons and
+  arrows are plainly kept: no new list kind. When the bag is full of kept items and she needs to
+  collect something, the answer is S2e part B, putting things in a chest, not throwing them. Part
+  B stays parked until the owner's word; this need goes with it.
