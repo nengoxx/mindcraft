@@ -32,6 +32,11 @@ a design council on clearing, the bot's own blocks, model outages and
 observation; the owner approved its lean version (DECISIONS 2026-11-11). Two
 slices go before S3: S2b, then S2c. Next: S2b.
 
+**Status (2026-11-12):** S2b, S2c and S2c-fu are built, deployed and passed their
+live trials. S2d is built and deployed, but its live trials failed on the bed's
+placement check and one lost bed (ISSUES "S2d live trials"). Next: the S2d fix,
+then S2e (inventory upkeep, DECISIONS 2026-11-11), then S3.
+
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
 

@@ -117,6 +117,33 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2d live trials, 2026-11-12 morning (an Opus trial lane acting as the owner)
+
+Deployed `17ebb09` by an agent restart. Six nights, stopped early on night 6 by an
+agent crash (F4). Report and receipts:
+`runtime/diagnostics/i1-build/s2d-review/s2d-live-trials-report.md`. On every night
+the sleep made 0 model calls and the night skipped about 5 s after she lay down.
+**S2d does not pass its live acceptance yet: a fix slice comes first (F1, F2).**
+
+| Trial | Result |
+|---|---|
+| No bed | pass (no `[sleep]` line, 0 calls) |
+| Mid-`obtain` at dusk | pass: the same step resumed twice, `stalled_s` 0, no call (with F1) |
+| Idle at dusk | **fail**: the bed was lost at the pickup (F2) |
+| Phantom night (mode-cut cap) | partial: phantoms near, no cut, the cap not exercised |
+| Active goal at dusk | not exercised: a gathering goal starts a task, which stops the goal (F5) |
+| `!stop` in bed, clear at dusk, full bag | not run (stopped on the crash) |
+| Following the owner, a follow still on 10+ min later, crash in bed | not run (need the owner online or restarts) |
+
+| Finding | Effect | Idea |
+|---|---|---|
+| F1. The first placement fails its whole-bed check every night (5/5): "try 1 failed: the bed was not placed whole where planned", yet 30 s later the same bed checks whole and she sleeps in it. The routine's pickup in that branch does nothing and logs nothing. | One failed try and a 30 s cooldown every night; the placed bed stays put meanwhile, and twice she went back to work leaving it (F3). | Likely cause (code reading, not proven live): `place()` reads the head cell as soon as `bot.placeBlock` resolves (`src/agent/work/sleep.js` ~:631), and the patched `placeBlock` resolves on the foot cell's update only (`place_block.js` ~:28); the head arrives in a later update. Probe first: log both cells' updates after a placement. |
+| F2. On night 3 the pickup logged "dug my bed …; collecting it", then at once "lost my bed", with no walk; the item never came back. On every other night the bed came back only by contact pickup. | The P14 black bed is gone; a lost bed means no sleep until she gets another. | Unproven: `drop()` may never recognise a dropped bed item on this server (`getDroppedItem()` through ViaProxy, 26.1), and the item drops from the head half, a block from the foot. Probe: break a bed foot and log the item entities for 2 s. |
+| F3. After F1 left the bed placed, her own blocked-task turn ran `!searchForBlock("oak_log", 256)` and walked her about 50 blocks away from it. | A placed bed left far from her at night (white bed at −476 76 1802..1803, recorded `own`); she takes it back only within 16 blocks by day. | Goes with F1: a failed try should take the bed back before anything else runs. |
+| F4. The agent process exited while `mode:unstuck` interrupted her `!goToSurface` (the stop watchdog), and was crash-restarted. | One crash; a blocked task record (`tmwd82ldo`) stayed. | Not S2d code; the known unstuck kill (SPEC §4.1). |
+| F5. A gathering `!goal` starts a task at once and the S2 rule stops the goal. | The goal-at-dusk trial needs a goal made of one-off commands. | Trial staging only. |
+| F6. Shown lines (`alert`, `reply`) are whispers and reach neither the log nor `ms.mjs listen`. | The bed-lost and bed-left alerts cannot be checked without the owner. | Log shown lines at debug level, or check with the owner. |
+
 ### S2c-fu live trials, 2026-11-12 (an Opus probe lane acting as the owner)
 
 Deployed `168dfd2` by set-agent-settings (new profile text): the ledger folded
