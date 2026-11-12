@@ -261,3 +261,17 @@ The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials
 - **One slot of the best** for ominous bottles and banners: of their variants that do not stack together (bottle
   strengths, banner patterns) she keeps one slot, the best (for bottles the strongest), and drops the rest. Other
   items keep the count rule.
+
+## 2026-11-12 (night) — The owner's gear and a one-stack cap (next slice)
+
+The owner gave her his own gear (copies: ours to use) and ruled, for the next slice:
+- **One stack for anything not listed** (for now, to keep her bag uncluttered): every stackable item that is on no
+  list keeps at most one stack. Items that do not stack (tools, weapons, armour, the bed) are outside the cap. Until
+  it is built, the private profile lists her current unlisted stackables at `"stack"`.
+- **She uses the best gear she can, which is his.** The real values decide, not the material name: weapons by damage
+  over time (damage with Sharpness, times attack speed, read from the item's own attributes, with vanilla values as
+  the fallback); armour by its real armour values; tools by real mining speed. An item that is truly unbreakable
+  (the `unbreakable` component, not the Unbreaking enchantment) takes priority. The silk-touch nuance stays (no
+  silk touch where it changes the drop). Picked-up armour must never replace his.
+- **Her diamond sword** may go (it is in his chest). **His pickaxe** without silk touch: the owner gives her a copy
+  (same item, no Silk Touch) to keep and use.
