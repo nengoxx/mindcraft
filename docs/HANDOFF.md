@@ -1,20 +1,32 @@
 # Handoff
 
-## 2026-11-12 (afternoon) — S2d and S2e deployed; S2e solo trials running
+## 2026-11-12 (afternoon, closing) — S2e deployed and trialled; three design questions open
 
-- The operator runs under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112b.log`).
-  After a server restart, a full operator Stop/Start (fresh proxy) is what logs her in again (ISSUES "Operator").
-- S2d: F1 `65fce4a`, F2 `33a0c5d`, deployed; solo trials pass. Left for the owner: the two follow trials.
-- S2e part A merged `0da559e` (review: Sol + Opus adversary, three rounds, closed; rulings and reports in
-  `runtime/diagnostics/i1-build/s2e-review/`; residuals in SPEC §16), deployed by an agent restart at 12:36 UTC. Its
-  first idle pass ran by itself at once (2 wheat seeds, 1 spider eye, 21 dirt; no model call).
-- **Running:** an Opus trial lane on S2e's solo trials (brief and report `s2e-review/brief-trials.md`,
-  `live-trials-report.md`). **If this session ends now:** read that report when it exists; nothing unreviewed is
-  left in a worktree.
-- Next after the trials: the owner's follow trials (S2d and S2e), then the chest (S2e part B, parked until the owner's
-  word after S2e's trials), then S3.
+- **First in the next session: the owner answers three questions** from the S2e live trials (ISSUES "S2e live
+  trials", report `runtime/diagnostics/i1-build/s2e-review/live-trials-report.md`). The main seat's
+  recommendations, not yet ruled:
+  - F2, the pit: gathering dirt leaves her 1 deep, walled in, with no free direction, so no drop runs (a task step
+    blocks; idle waits until she moves). Recommended: when no direction is free, walk to the nearest spot within a
+    few blocks that has one, then drop. It changes r7's "stand still" rule.
+  - F3, the model discarded a kept stack: the "inventory full" report lists her largest stacks and the model ran
+    `!discard("dirt", 64)`. Recommended: the report says everything left is on her keep list and she asks the owner
+    what to drop. The alternative (refuse a model `!discard` of kept items) would also limit the owner's own command.
+  - F4, junk in the selected hotbar slot is never dropped. Recommended: select a tool or an empty slot first.
+  If he agrees, they make one small follow-up slice (design note, build, Sol + adversary review, trials). Then he
+  decides whether to start the S3 design check (re-check PLAN S3 against today's code through a council).
+- Done today: S2d F1/F2 (`65fce4a`, `33a0c5d`); S2e part A merged `0da559e` (three review rounds, closed; residuals
+  in SPEC §16); the trial-found runner fix `6362eaf` (a met step no longer blocks on a full bag; quick review SHIP),
+  deployed. S2e solo trials: 5 of 7 pass, the pile pickup is the known residual, the task trial failed on F1 (fixed),
+  F2 and F4.
+- The operator was stopped at the session's end (the owner's word), so the server may shut down. Start it with
+  `operator/mindcraft.sh start` as a background job; a full start begins with empty memory (`load_memory: false`).
+- Still waiting for the owner: the follow trials (S2d and S2e), U1, the death line's cause, the operator as a user
+  service and an auto-retry after a server restart, memory across full restarts; S2e part B (the chest) is parked
+  until his word.
+- In the world: the 3x3 pit at x -475..-473, y 69, z 1808..1810; about 13 dug cells of natural dirt and grass
+  from the S2e trials (listed in the trial report); the older leftovers below.
 
-**Test card for the owner (this afternoon).** Watch a night: she places her bed beside her, sleeps, the night skips,
+**Test card for the owner (next session).** Watch a night: she places her bed beside her, sleeps, the night skips,
 and she takes the bed back every time. Tell her to follow you at dusk: she sleeps, then follows again, and still
 follows 10+ minutes later. Inventory: with her bag nearly full (fewer than 4 free slots), she drops her junk and
 surplus by herself within seconds, idle or while following you, in front of her and away from you; she should not
