@@ -1,32 +1,22 @@
 # Handoff
 
-## 2026-11-12 (evening) — S2e-fu merged and deployed; live trials running
+## 2026-11-12 (evening) — S2e-fu done: merged, deployed, trials 1–5 pass
 
 - The owner ruled on F2–F4 and the list (DECISIONS 2026-11-12 "After the S2e live trials" and its later bullets).
-  Probe P16, design, briefs, reviews and rulings: `runtime/diagnostics/i1-build/s2efu/`.
+  Probe P16, design, briefs, reviews, rulings and the trial report: `runtime/diagnostics/i1-build/s2efu/`.
 - S2e-fu merged `13b7b86` (review: Sol + Opus adversary, three rounds, closed; offline 451/451), deployed by an agent
-  restart about 20:47 UTC.
-- An Opus trial lane runs PLAN S2e-fu trials 1–5 (report `runtime/diagnostics/i1-build/s2efu/live-trials-report.md`).
-  If this session ends now: read that report; trial 6 (ominous bottles of different strengths, two banner stacks, an
-  enchanted bow) needs the owner to hand her the items.
-- The operator is running (started this session as a background job, log `runtime/logs/operator-start-20261112c.log`).
-  In the world: a 1-deep hole at -473 69 1814 from P16. The worktree `~/.cache/tmp/mindcraft-s2efu` (branch `s2efu`,
-  merged) can be removed.
+  restart at 19:47 UTC. Live trials 1–5 pass (ISSUES "S2e-fu live trials").
+- **Next:** trial 6 when the owner hands her ominous bottles of different strengths, two stacks of one banner colour
+  and, if he has one, an enchanted bow (fill her bag below 4 free slots; she keeps the strongest bottle slot, the
+  larger banner stack, the enchanted bow). Then the owner decides whether to start the S3 design check.
+- Her bag is at 33 of 36 slots with nothing left on the list to drop, so a task that needs slots blocks as "full of
+  things I keep" until something goes (the chest, part B, is parked).
+- The operator is running (a background job of this session, log `runtime/logs/operator-start-20261112c.log`); the
+  running agent process still holds the P16 probe hook in memory (inert; the file is restored, it goes at the next
+  restart). In the world: a one-deep pit at -480 69 1815 and a two-deep hole at -473 68..69 1814 (trials and P16).
 
-## 2026-11-12 (afternoon, closing) — S2e deployed and trialled; three design questions open
+## 2026-11-12 (afternoon, closing) — S2e deployed and trialled (its questions: ruled, see the evening block)
 
-- **First in the next session: the owner answers three questions** from the S2e live trials (ISSUES "S2e live
-  trials", report `runtime/diagnostics/i1-build/s2e-review/live-trials-report.md`). The main seat's
-  recommendations, not yet ruled:
-  - F2, the pit: gathering dirt leaves her 1 deep, walled in, with no free direction, so no drop runs (a task step
-    blocks; idle waits until she moves). Recommended: when no direction is free, walk to the nearest spot within a
-    few blocks that has one, then drop. It changes r7's "stand still" rule.
-  - F3, the model discarded a kept stack: the "inventory full" report lists her largest stacks and the model ran
-    `!discard("dirt", 64)`. Recommended: the report says everything left is on her keep list and she asks the owner
-    what to drop. The alternative (refuse a model `!discard` of kept items) would also limit the owner's own command.
-  - F4, junk in the selected hotbar slot is never dropped. Recommended: select a tool or an empty slot first.
-  If he agrees, they make one small follow-up slice (design note, build, Sol + adversary review, trials). Then he
-  decides whether to start the S3 design check (re-check PLAN S3 against today's code through a council).
 - Done today: S2d F1/F2 (`65fce4a`, `33a0c5d`); S2e part A merged `0da559e` (three review rounds, closed; residuals
   in SPEC §16); the trial-found runner fix `6362eaf` (a met step no longer blocks on a full bag; quick review SHIP),
   deployed. S2e solo trials: 5 of 7 pass, the pile pickup is the known residual, the task trial failed on F1 (fixed),

@@ -45,7 +45,9 @@ is parked until his word after S2e's trials.
 **Status (2026-11-12, evening):** S2e was deployed and trialled (ISSUES "S2e
 live trials"); the owner ruled on its findings (DECISIONS 2026-11-12 "After
 the S2e live trials"). The follow-up slice S2e-fu (junk in her hand, the pit,
-the kept report, the list) is built offline; its live trials come next.
+the kept report, the list) is merged and deployed (`13b7b86`); live trials 1–5
+pass (ISSUES "S2e-fu live trials"); trial 6 (one best slot of bottles and
+banners) waits for the owner to hand her the items.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.

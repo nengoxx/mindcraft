@@ -117,6 +117,24 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### S2e-fu live trials, 2026-11-12 evening (an Opus trial lane acting as the owner)
+
+After the deploy (`13b7b86`), PLAN S2e-fu trials 1–5, report `runtime/diagnostics/i1-build/s2efu/live-trials-report.md`.
+All five pass; every cleanup pass made 0 model calls and no chat, and nothing off the list was dropped.
+- 1 junk in hand: a surplus bow, and later a picked-up wheat_seeds, in her selected slot were dropped after she
+  switched her hand to the dirt slot.
+- 2 one-deep pit: dropped over the lip without moving; nothing came back.
+- 3 two-deep pit: idle she placed nothing and held ("waiting: no free direction nearby"); in a task she towered one
+  dirt, dropped on the surface, and the step finished; the task-end tidy took the scaffold back.
+- 4 bag full of kept items: "inventory full of things I keep"; the model told the owner and ran no command.
+- 5 the list: 4 bows and 3 crossbows dropped; the kept ones are the least worn (main-seat probe after the trials: bow
+  164/384 used, crossbow 330/465).
+- Seen, not new: walking over her own fresh drops picks them up and the next pass drops them again (the S2e
+  residual); one 503 from the model engine (recovered by itself).
+- **New, LOW:** the task-end tidy dug its scaffold dirt from the surface beside the two-deep pit and the item fell to
+  the pit's bottom, out of reach: one dirt lost by the tidy (S2c), not by the cleanup.
+- Trial 6 (bottles of different strengths, two banner stacks, an enchanted bow) needs the owner's items.
+
 ### S2e live trials, 2026-11-12 afternoon (an Opus trial lane acting as the owner)
 
 Seven solo trials after the deploy (`0da559e`). Every cleanup pass: 0 model calls, no chat, no kept item dropped by
