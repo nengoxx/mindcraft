@@ -6,32 +6,39 @@
   Probe P16, design, briefs, reviews, rulings and the trial report: `runtime/diagnostics/i1-build/s2efu/`.
 - S2e-fu merged `13b7b86` (review: Sol + Opus adversary, three rounds, closed; offline 451/451), deployed by an agent
   restart at 19:47 UTC. Live trials 1–5 pass (ISSUES "S2e-fu live trials").
-- **Next:** trial 6 when the owner hands her ominous bottles of different strengths, two stacks of one banner colour
-  and, if he has one, an enchanted bow (fill her bag below 4 free slots; she keeps the strongest bottle slot, the
-  larger banner stack, the enchanted bow). Then the owner decides whether to start the S3 design check.
-- **Sleeping is off for now** (the owner's ask, 2026-11-12 evening: he wants night mobs to spawn): the private
-  profile's `modes.sleeping` is `false` (applied live with `live.mjs set`; backup
-  `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Turn it back on only on his word (`true`, then
-  `live.mjs settings`/`set`).
-- **One stack for now** (the owner's ask, temporary, no code change): the private profile's `work.inventory.items`
-  sets `gunpowder`, `ender_pearl`, `iron_ingot`, `carrot`, `grass_block` to `"stack"` (applied live); which items get
-  more than one stack is for later. The trial clutter was discarded; she is at 21 of 36 slots.
-- **The owner's gear** (2026-11-12 night; copies, ours to use): she wears his epic leather chestplate, leggings and
-  boots (diamond-level armour values, Protection V, unbreakable) and carries his epic iron axe (damage 9 + Sharpness
-  VII, attack speed 4, Looting III, unbreakable). His epic silk-touch iron pickaxe stays in his chest at -475 71 1800
-  (silk touch is refused on stone and ores, so she would not use it); her diamond sword is in that chest too. Found:
-  the 26.1 registry has no `attackDamage`, so `equipHighestAttack` (skills.js) does not sort and picks the first sword
-  or axe; mineflayer-pvp times swings by item name; mineflayer-armor-manager ranks armour by material name (leather
-  lowest), so picked-up iron armour would replace his. Proposed next slice: rank weapons by real damage over time
-  and armour by real armour values from the item's components (vanilla fallback), never swap an unbreakable piece
-  for a weaker one. Item dump: `~/.cache/tmp/s2efu/probe/chest.txt`.
-- Owner asks still open: prefer his own gear (epic rarity, unbreakable, enchanted, with lore) when she picks a weapon
-  or tool, with nuance (silk touch not for stone); his axe has the highest attack speed, not the highest damage, so
-  today's choice by attack damage would not pick it. Coming back after a far respawn ("come to me" needs him within
-  sight range; the End needs portal coordinates) is not built: a survival/navigation topic.
-- The operator is running (a background job of this session, log `runtime/logs/operator-start-20261112c.log`); the
-  running agent process still holds the P16 probe hook in memory (inert; the file is restored, it goes at the next
-  restart). In the world: a one-deep pit at -480 69 1815 and a two-deep hole at -473 68..69 1814 (trials and P16).
+- **Next (a clean session): the gear slice**, the owner's rulings in DECISIONS 2026-11-12 (night) "The owner's gear
+  and a one-stack cap". Design first (council per the user rules), then build, review, deploy, trials. Scope:
+  1. a one-stack cap for every stackable item on no list (a config default, e.g. `work.inventory.default`, set in the
+     private profile; the public default keeps today's "unlisted is kept"); non-stackables outside the cap;
+  2. weapon choice by damage over time from the item's own attributes (`attribute_modifiers` base_attack_damage and
+     base_attack_speed, Sharpness), vanilla values as the fallback, and swing timing from the real speed: the 26.1
+     registry has no `attackDamage`, so `equipHighestAttack` (skills.js) does not sort today, and mineflayer-pvp
+     times swings from a by-name table;
+  3. armour by real armour and toughness values (components, vanilla fallback), Protection next; picked-up armour
+     never replaces his (mineflayer-armor-manager ranks by material name, leather lowest);
+  4. tools by real mining speed (the `tool` component, Efficiency), the silk-touch rule kept;
+  5. a truly unbreakable item (the `unbreakable` component) takes priority in all three.
+  His words, for the brief: "I want the damage over time and our real armor values to be the actual decision. And
+  obviously, if there's anything that is unbreakable, like legit unbreakable, not just enchanted with unbreaking
+  [...] that should take priority"; "I just want to make sure that [...] she's using the best gear that she can use,
+  which happens to be mine"; "any item that is not in any list [...] maximum one stack [...] I don't want to clutter
+  her inventory right now."
+- **The owner's gear** (copies, ours to use): she wears his epic leather chestplate, leggings and boots (diamond-level
+  armour values, Protection V, unbreakable) and carries his epic iron axe (damage 9 + Sharpness VII, attack speed 4,
+  Looting III, unbreakable). His epic iron pickaxe (tool speed 9 on all pickaxe blocks, Efficiency V, Silk Touch,
+  unbreakable) stays in his chest at -475 71 1800 with her diamond sword (it may be thrown away). He will give her a
+  copy without Silk Touch (a `/give` was suggested to him). Item dump: `~/.cache/tmp/s2efu/probe/chest.txt`.
+- **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): the private profile's
+  `modes.sleeping` is `false` (backup `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Back on only on
+  his word.
+- **One stack for now** (until the cap is built): the private profile's `work.inventory.items` sets `gunpowder`,
+  `ender_pearl`, `iron_ingot`, `carrot`, `grass_block`, `redstone`, `sugar`, `stick` to `"stack"`. Profile changes
+  go live with `live.mjs settings` / edit / `set`.
+- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow; the owner has none
+  now); then the S3 design check. Coming back after a far respawn is not built ("come to me" needs him within sight;
+  the End needs portal coordinates): a survival and navigation topic.
+- The operator is running (a background job of this session, log `runtime/logs/operator-start-20261112c.log`). In the
+  world: a one-deep pit at -480 69 1815 and a two-deep hole at -473 68..69 1814 (trials and P16).
 
 ## 2026-11-12 (afternoon, closing) — S2e deployed and trialled (its questions: ruled, see the evening block)
 
