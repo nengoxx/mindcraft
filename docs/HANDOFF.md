@@ -9,6 +9,10 @@
 - **Next:** trial 6 when the owner hands her ominous bottles of different strengths, two stacks of one banner colour
   and, if he has one, an enchanted bow (fill her bag below 4 free slots; she keeps the strongest bottle slot, the
   larger banner stack, the enchanted bow). Then the owner decides whether to start the S3 design check.
+- **Sleeping is off for now** (the owner's ask, 2026-11-12 evening: he wants night mobs to spawn): the private
+  profile's `modes.sleeping` is `false` (applied live with `live.mjs set`; backup
+  `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Turn it back on only on his word (`true`, then
+  `live.mjs settings`/`set`).
 - Her bag is at 33 of 36 slots with nothing left on the list to drop, so a task that needs slots blocks as "full of
   things I keep" until something goes (the chest, part B, is parked).
 - The operator is running (a background job of this session, log `runtime/logs/operator-start-20261112c.log`); the
