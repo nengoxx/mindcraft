@@ -1,5 +1,18 @@
 # Handoff
 
+## 2026-11-12 (evening) — S2e-fu merged and deployed; live trials running
+
+- The owner ruled on F2–F4 and the list (DECISIONS 2026-11-12 "After the S2e live trials" and its later bullets).
+  Probe P16, design, briefs, reviews and rulings: `runtime/diagnostics/i1-build/s2efu/`.
+- S2e-fu merged `13b7b86` (review: Sol + Opus adversary, three rounds, closed; offline 451/451), deployed by an agent
+  restart about 20:47 UTC.
+- An Opus trial lane runs PLAN S2e-fu trials 1–5 (report `runtime/diagnostics/i1-build/s2efu/live-trials-report.md`).
+  If this session ends now: read that report; trial 6 (ominous bottles of different strengths, two banner stacks, an
+  enchanted bow) needs the owner to hand her the items.
+- The operator is running (started this session as a background job, log `runtime/logs/operator-start-20261112c.log`).
+  In the world: a 1-deep hole at -473 69 1814 from P16. The worktree `~/.cache/tmp/mindcraft-s2efu` (branch `s2efu`,
+  merged) can be removed.
+
 ## 2026-11-12 (afternoon, closing) — S2e deployed and trialled; three design questions open
 
 - **First in the next session: the owner answers three questions** from the S2e live trials (ISSUES "S2e live
