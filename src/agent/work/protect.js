@@ -102,6 +102,9 @@ export class Protector {
             if (scope.granted(block.position, name)) return false;
             if (scope.containers.has(name)) return true;
         }
+        // REQ-OWN-2: the bed the sleep routine placed is exempt only for its
+        // own pickup dig, scoped to that exact live entry (withOwnBed).
+        if (recorded && recorded === this.ownBed) return false;
         // REQ-OWN-4: a lapsed old scaffold entry falls through to the default
         // predicate, as an unrecorded block (its record is kept).
         if (recorded && !this.lapsed(recorded, inBox)) return !this.exempt(recorded, inBox);
@@ -113,6 +116,22 @@ export class Protector {
         // clear step digs buried ores inside its box (REQ-SAFE-1, REQ-CLR-5).
         if (name.endsWith('_ore')) return this.running && !inBox ? !this.isExposed(block) : false;
         return !isNaturalBlockName(name);
+    }
+
+    // REQ-OWN-2, REQ-SLP-6: the sleep routine's bed (an `own` entry by
+    // mode:sleeping, still live) is exempt while `fn` runs, synchronously, for
+    // every protection check inside it (the dig seam's and the patched
+    // safeToBreak's); any other entry, or none, changes nothing.
+    withOwnBed(entry, fn) {
+        const mine = entry?.kind === 'own' && entry.by === 'mode:sleeping' && this.ledger?.get(entry.pos) === entry;
+        if (!mine) return fn();
+        const before = this.ownBed;
+        this.ownBed = entry;
+        try {
+            return fn();
+        } finally {
+            this.ownBed = before;
+        }
     }
 
     // --- the component guard (REQ-OWN-4) ---------------------------------------

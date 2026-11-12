@@ -21,7 +21,7 @@ are deliberately absent from tracked source.
 
 `process/agent_process.js` remains upstream; `self_prompter.js` is carried since
 I1 S2b (the outage pause, below) and `modes.js` since I1 S2c (the tidy carry,
-below).
+below; grown in I1 S2d by the `sleeping` mode).
 Native retry: exit code >1 ends parent; otherwise a nonzero/non-SIGINT exit after
 at least 10 seconds reloads memory and retries; early crashes stay down. Full manual
 Start defaults to memory disabled. This is distinct from an autostart service.
@@ -523,3 +523,56 @@ The work fixture's agent gets `prompter.work_config` with `work.chat: 'debug'`
 (`bot.game.hashedSeed`, built by `F.i64` with protodef's own i64 reader);
 `F.ledgerEntries`
 reads the current world's written entries.
+
+I1 S2d (sleeping through the night; SPEC §7.9 REQ-SLP-1 … 10). Why: she
+should sleep every night by default, also mid-task, and pick the bed straight
+back up, without hurting the resume (DECISIONS 2026-11-11 "Sleeping through
+the night (slice S2d)", 2026-11-12; design
+`runtime/diagnostics/i1-build/sleep-council/recommended-design.md` r3 with the
+junk design r7 §5 amendments). Our own new file is `work/sleep.js` (`Sleeper`:
+when she sleeps, what sleep may cut, the `mode:sleeping` routine, the
+`action:bed` pickup launched from `Work.tick`, the in-memory night record and
+collection receipt, its constants `SLEEP`). In our own files: `work.sleep`
+(`when`, merged one level deep) joins `work/config.js`; the `runAction` wrap
+also records the turn's voice and whether a goal was ACTIVE (`work.lastStart`)
+and tells the sleeper; `Work.isQuietAction`, `holdStall`/`releaseStall` (the
+stall hold, REQ-RES-16) and the two interruption classifiers keep the step's
+`last_cause` for the sleep labels; `Work.tick` reconciles the bed first;
+`Protector.withOwnBed` exempts the routine's own bed for its pickup dig only,
+and `digCell`/`safetyReason` take `ownBed`; the ledger's context kind names
+`mode:sleeping` `own` first; the owner lines join `work/report.js` (`bedLine`)
+and go through `postReport` (the S2c-fu chat gate, `alert` except the
+unconfirmed wake); the task view gains the sleeping line; `tidy.js` exports
+`fullCube`; `work.sleep.max_mode_cuts` (fix wave 1) caps the fights a night
+allows; the ledger's `retire` calls its `onRetire` listeners (the sleeper
+tells a bed broken by someone else as lost; fix wave 1). The carries into
+upstream files:
+
+- `agent/modes.js` (grown carry): the reprompt exclusion becomes
+  `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`,
+  `mode:sleeping`, `action:bed`), and one `modes_list` entry, `sleeping`, after
+  `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` executes
+  `agent.work?.sleeper?.next()`'s routine. Why: the mode slot gives sleep the
+  same interrupt-and-resume seam the fights use, and a fight that cuts a sleep
+  or a pickup must not cost a model call. Reapply check: `work-sleep.test.mjs`
+  "an idle night: she places …" and "a fight that cuts the sleep prompts no
+  AUTO MESSAGE …" (and the tidy check above). Retire the entry when upstream
+  sleeps by itself; the exclusion with the tidy carry.
+- `agent/action_manager.js` (grown carry, beside the stop settlement in the
+  table above): in `_executeResume`, a new resumable
+  action stores its timeout as `this.resume_timeout` beside `resume_func`, and
+  the resume runs with `this.resume_timeout ?? timeout` (two lines). Why:
+  upstream's `resumeAction()` passes no timeout, so a follow started with −1
+  and cut by a fight or a sleep resumed with the 10-minute default and was
+  killed 10 minutes later (junk design r7 §5, amendment 2). It applies to every
+  resumable action: a resumed task run (`action:task`, started with −1) also
+  keeps −1 and no longer gets upstream's 10-minute cap (the runner's own 300 s
+  run bound stays, REQ-RES-6). Reapply check:
+  `work-sleep.test.mjs` "a cut follow resumes with timeout -1 …" (and
+  "following at dusk …"). Retire when upstream passes the original timeout on
+  resume.
+
+The work fixture loads `work/sleep.js`, and `MODES_OFF` includes `sleeping`
+(so the older suites keep their behaviour). The runner test's night check now
+also asserts that `sleep` is the only night key and that she places and digs
+nothing at night with no bed.

@@ -34,9 +34,9 @@ const done = agent => F.until(() => agent.work.record?.status === 'done', { time
 
 for (const night of [false, true]) {
     test(`a mode interrupt resumes with no AUTO MESSAGE and no model call${night ? ' (at night, no dig-in)' : ''}`, async () => {
-        const agent = setup({ world: forest(), modes: { self_defense: true } });
+        const agent = setup({ world: forest(), modes: { self_defense: true, sleeping: true } });
         const { bot } = agent;
-        if (night) bot.time = { timeOfDay: 18000, isDay: false };
+        if (night) bot.time = { timeOfDay: 18000, isDay: false, day: 3 };
         let first = true;
         let nightAtFight = null;
         bot.hooks.collect = async () => {
@@ -55,10 +55,13 @@ for (const night of [false, true]) {
         const { interruptions } = agent.work.record;
         assert.equal(interruptions.count, 1);
         assert.equal(interruptions.last.by, 'mode:self_defense');
-        // No dig-in: nothing was placed or dug besides the logs, and no night policy exists in I1.
+        // No dig-in: nothing was placed or dug besides the logs, and no night policy exists in I1;
+        // the night's only configuration is sleeping (S2d, work.sleep), and with no bed she does not sleep.
         assert.equal(bot.calls.filter(c => c[0] === 'collect').every(c => c[1] === 'oak_log'), true);
+        assert.equal(bot.calls.some(c => c[0] === 'place' || c[0] === 'dig'), false);
         const { WORK_DEFAULTS } = await import('../src/agent/work/config.js');
         assert.equal(Object.keys(WORK_DEFAULTS).some(k => /night|shelter/.test(k)), false);
+        assert.deepEqual(Object.keys(WORK_DEFAULTS).filter(k => /sleep/.test(k)), ['sleep']);
     });
 }
 

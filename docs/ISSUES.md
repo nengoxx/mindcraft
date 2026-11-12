@@ -161,6 +161,12 @@ her), `!tidy` sending no sweep while a task ran.
 | "Under a block that stays" is also given when the block above is merely out of reach. | Misleading reason. | Name the out-of-reach block. |
 | The model obeyed "toss the phantom membranes" but not "then carry on"; the blocked task waited for `!taskResume`. The block was "inventory full" (S2e). | One extra owner step. | S2e. |
 
+### Upstream `!goToBed` and `!stop` (found in the S2d design, 2026-11-11)
+
+| Finding | Effect | Idea |
+|---|---|---|
+| Upstream `goToBed` (skills.js:1612) waits in bed with `while (bot.isSleeping) await wait(500)` (:1637) and never reads `bot.interrupt_code`. A `!stop` while it sleeps waits until the server wakes her; past 10 s the stop watchdog kills the process. Code reading; not seen live. | A `!stop` in an upstream sleep that does not skip the night costs a crash restart. | Not fixed (sleep design §12: the nightly sleep is our own routine, `work/sleep.js`, which wakes on an interrupt; `!goToBed` stays as upstream's owner command for beds already in the world). A small carry would add the interrupt check and a guarded `bot.wake()`. |
+
 ### Cube-clearing trials, 2026-11-08 evening: analysis
 
 The owner asked the bot to clear everything inside a box marked by 8 stripped

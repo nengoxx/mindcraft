@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -64,6 +64,9 @@ nothing the owner can see is retired.
   - S2c-fu: quiet chat (`work.chat`) and scaffold records that survive
     restarts and unloads, kept per world (DECISIONS 2026-11-11 "After the S2c
     live trials", 2026-11-12).
+  - S2d: sleeping through the night with a bed from her inventory, picked
+    straight back up, without hurting the resume (DECISIONS 2026-11-11
+    "Sleeping through the night (slice S2d)", 2026-11-12).
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -640,6 +643,98 @@ add the protected-block diff. Interventions: target 0.
   upkeep (S2e), the walking tidy (§8); per-world task records, structures and
   memory (SPEC §16).
 
+#### S2d — Sleeping through the night
+
+- **Goal.** She sleeps every night by default, also mid-task, mid-goal and while
+  following: she places a bed from her inventory near her, sleeps (on the
+  owner's server one sleeper skips the night) and picks the bed straight back
+  up; the task, a follow or a goal goes on as after a fight, with no model call
+  for the sleep and no stall time. Chat stays quiet unless something needs him
+  (a bed left, lost or kept by a full bag; once per session a night that did
+  not skip). (Owner rulings: DECISIONS 2026-11-11 "Sleeping through the night
+  (slice S2d)", 2026-11-12. Design:
+  `runtime/diagnostics/i1-build/sleep-council/recommended-design.md` r3 with its
+  §14, amended by `junk-council/recommended-design.md` r7 §5: the 2-free-slot
+  pickup launch and the resume-timeout carry. P14 passed, §4.)
+- **SPEC.** §7.9 (REQ-SLP-1 … 10, new); §7.5 (the sleep and pickup rows,
+  REQ-RES-13), REQ-RES-16 (the sleep hold), §7.6 (sleep beside the night
+  policy), §7.7; §4.1 (the Sleep row), §4.2 (the resume timeout); §11.10
+  REQ-OWN-2 (the sleep routine's bed); §15.1 (the owner lines); §14
+  (`work.sleep.when`, the merge, the constants); §5.2, §5.3 (`modes.js`,
+  `action_manager.js`); §16.
+- **Files.**
+  - `src/agent/work/`: `sleep.js` (new: `Sleeper`, `SLEEP`); `index.js` (the
+    sleeper, `lastStart` from the `runAction` wrap, `isQuietAction`, the stall
+    hold, the two classifiers, the reconcile in `tick`, the view's line);
+    `protect.js` (`withOwnBed` and the own-bed exemption); `dig.js` (`ownBed`
+    through both protection checks); `ledger.js` (the context kind of
+    `mode:sleeping`); `report.js` (`bedLine`); `view.js` (the sleeping line);
+    `config.js` (`work.sleep`, merged one level deep); `tidy.js` (exports
+    `fullCube`).
+  - Carries: `agent/modes.js` (the `sleeping` entry, `isQuietAction`),
+    `agent/action_manager.js` (the resume timeout).
+  - CHANGES.md: the two carries, our new file; ISSUES.md: the upstream
+    `!goToBed` `!stop` defect.
+- **Offline tests.** `tests/work-sleep.test.mjs` (new; a `bedServer` fixture
+  with placement, sleep, wake, dig and drop hooks): the resume-timeout carry;
+  the config merge; `next()`'s conditions and what sleep may cut under
+  `always` and `idle`; the spot grid; an idle night end to end; the flush
+  before sleeping; a night that does not skip; failed tries, a refused
+  placement and sleep, a bed facing elsewhere; reuse after a restart, and a
+  reused bed that no longer validates; a walk that does not arrive; the
+  guarded wake (also unconfirmed, and once per routine under `!stop`); `!stop`
+  in bed; the night marks with the task, runner and `action:bed` exclusions;
+  a task at dusk and the self-heal restart; mid-obtain at dusk (9-minute hold,
+  `last_cause` kept, 0 calls, the hold released and charging again); a fight
+  that cuts the sleep (no AUTO MESSAGE; a mode cut, not a try, with its own
+  cap); following at dusk (resumes with −1); the task view; the day pickup
+  cutting a task (its hold released too); no pickup while the bed is wanted,
+  and the pickup's re-validation when it starts; the 2-free-slot check before
+  the launch, and the routine's pickup with a full bag (the bed's own slot);
+  the refusals (on either half) and receipts; my bed's protection. Fix wave 1
+  (review r1): a receipt collected at night before any sleep; a bed broken by
+  someone else (and one changed before a restart) told lost; an unloaded bed
+  beyond 16 told; the final veto before the dig packet; alerts per obligation;
+  a late-answered placement adopted; an unreachable bed kept, told once and
+  retried; every walk no-dig and bounded. Fix wave 2 (review r2): the late bed
+  (arriving after the throw) adopted only with her bed item gone from the bag,
+  never after an equip error, a bed she did not place, or a later arrival
+  than the watch; the cells re-checked after the equip; the 2-slot gate for a
+  receipt and a no-room collection that keeps it; the full line per slot
+  count; an unreachable bed's retries never cutting a running task, and a try
+  at night. `work-runner.test.mjs`: the night check (no night policy key,
+  `sleep` the only night key, nothing placed or dug with no bed).
+- **Live acceptance (the test card; bot invincible; uncoached, request log
+  on; a bed in her inventory).** The design §10 trials:
+  1. Idle at dusk: she places the bed beside her, sleeps, the night skips, she
+     picks the bed back up; nothing else changed.
+  2. Mid-`obtain` at dusk: the same step resumes after the night, `stalled_s`
+     not grown, 0 model calls for the sleep.
+  3. Following the owner at dusk: she sleeps and follows again, and a follow
+     cut by a fight or by sleep still follows more than 10 minutes later.
+  4. An active goal at dusk: she sleeps at the goal's next action; its
+     restarted turn is counted separately.
+  5. `!stop` in bed: she gets up at once (no crash restart), and takes the bed
+     back when idle.
+  6. Owner "follow me" at night after waking: she follows; the night is done.
+  7. Crash in bed: the bed is reused by night or picked up by day.
+  8. No bed: as today.
+  9. A clear task at dusk: the bed goes outside the box.
+  10. (Review r1) A full bag (36/36, as in P14) at dusk: she still sleeps and
+      takes the bed back. A night with phantoms: fights cut the sleep, she lies
+      down in the same bed again, and the night ends only after
+      `work.sleep.max_mode_cuts` (6) cuts.
+  - Pass: 0 sleep decision calls (a goal's restarted turn counted apart), the
+    bed back in her inventory, no other block changed, no owner line unless
+    something went wrong.
+- **Metrics.** §2.3; sleeps per night, failed tries, mode cuts and their
+  reasons (the `[sleep]` console lines), the bed pickups (routine or `action:bed`) and owner
+  lines.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in S2d.** Making a bed, beds already in the world (upstream `!goToBed`),
+  fetching a bed left far away, daytime thunderstorms, restoring the respawn
+  point (design §12); inventory upkeep (S2e); the chest.
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
@@ -985,6 +1080,7 @@ The bot's inventory is stale, so ask the owner for each kit before its slice:
 | P11 | Hostile classification | S0-lite | Offline: list every entity type in the deployed version's registry with its `type` and the `mc.isHostile` result (utils/mcdata.js:113-116). Live cross-check: S2's resume-check log lines name each hostile seen. | OQ-17 |
 | P12 | `unstuck` during stationary work | S0-lite | Count firings during the shelter baseline (a log count, not a probe). | REQ-RES-11 |
 | P13 | Pathfinder placement tell | S2c (first; done 2026-11-10) | A temporary listener logged `blockPlaced`, the planned `toPlace` cells, nearby `blockUpdate`s and `blockAt` after each placement while the bot pillared up twice through `!goToCoordinates`. Results in the private diagnostics folder (`clear-council/clutter/live-probe/`): tell A held on 24 of 24 placements; `newBlock` was air on 23 of 24; about 3 events per cell; false positives not exercised. | REQ-OWN-3 |
+| P14 | Sleep through ViaProxy | S2d (first; done 2026-11-11) | With a bed the owner gave and a spot he agreed to, at night: place the bed from a stand cell (halves, facing against yaw), `bot.sleep`, the `sleep`/`wake` events, when the night skips with one sleeper, the server's sleep text, breaking the foot (drop, pickup). Results in the private diagnostics folder (`sleep-council/p14-live-20261111.md`): `bot.sleep` works through ViaProxy and the night skipped about 3 s after she lay down (she was the only player online; one sleeper skipping with others awake is the owner's statement). `bot.wake()` timing not measured yet (SPEC §16). | REQ-SLP-3, 4 |
 
 ## 5. Design experiment protocol (DX)
 
@@ -1089,7 +1185,8 @@ inside v1 has a named iteration (§1); this table lists what lies beyond v1.
 |---|---|
 | Levelling or site-hunting as an explicit task (clearing itself is S2c) | a new step in the registry, using the protection predicate and `work/dig.js` |
 | The complete scaffold record and cleanup (DECISIONS 2026-11-11): record every block the bot puts down, also those the lean S2c version cannot reach; remove out-of-reach scaffold by walking to it; travel bridges. Its own slice in a later iteration, not yet named; S2c's own-blocks count sets its priority. | the placements ledger (kinds, `by`, `dim`, the attempt wrap) and the one sweep `tidyNear`: a walking sweep is a new trigger around it with its own approach walk, as the build cleanup (REQ-BLD-23) wraps it, without a rewrite. The adversary's findings for a walking sweep (bridge stranding, creep, gates) are kept for that slice in the private diagnostics folder (`clear-council/clutter/adversary-report.md`). The lean version's recorded residuals are in SPEC §16. |
-| Furniture and decoration (`detail: full`); stairs, beds, gable roofs (yaw-dependent blocks) | exact cells with suffixes plus one builder handler: set yaw, place, verify `facing` |
+| Furniture and decoration (`detail: full`); stairs, beds, gable roofs (yaw-dependent blocks) | exact cells with suffixes plus one builder handler: set yaw, place, verify `facing` (S2d's bed placement already verifies both halves and `facing` from the block states, `work/sleep.js`) |
+| Sleeping in beds already in the world, making a bed, fetching a bed left far away, restoring the respawn point (sleep design §12) | `Sleeper`'s spot choice (`work/sleep.js`): a world bed is one more candidate beside *my bed*; making one is an `obtain` of `*_bed`; the far bed is an `action:bed` with a longer walk |
 | Schematic import (`.schem`, `.litematic`, `.nbt`) | a front end emitting the template format (`by: import`); prismarine-schematic reads the files |
 | Image-to-design | a front end emitting the template format (`by: image`) |
 | Larger design caps | configuration (`work.build.max_cells`, `max_volume`) plus inventory logistics |
