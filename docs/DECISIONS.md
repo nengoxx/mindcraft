@@ -279,3 +279,6 @@ The owner gave her his own gear (copies: ours to use) and ruled, for the next sl
   one by the rules above and drops the rest (a spare sword, a worse pickaxe). The main seat's reading for the design:
   one per tool kind (pickaxe, axe, shovel, hoe), one best melee weapon (sword or axe; an axe counts for both), armour
   one per slot; to confirm in the design.
+- **The cap covers listed items too** (the owner, 2026-11-12 night: "Yes gunpowder is also capped, lets cap all items
+  for now"): for now every stackable item keeps at most one stack, an `"all"` item such as gunpowder included; a lower
+  count on the list still applies. Non-stackables stay outside the cap (gear has its own rule).
