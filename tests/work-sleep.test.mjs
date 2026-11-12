@@ -28,14 +28,16 @@ function ground() {
 
 // A server's bed, sleep and wake, simplified. A bed placed by clicking the
 // top of F's support goes foot at F, head one further the way she looks
-// (from her cell to F) unless `bot.hooks.bedFacing` says otherwise;
+// (from her cell to F) unless `bot.hooks.bedFacing` says otherwise; the
+// placement resolves on the foot, and the head arrives `headMs` later in its
+// own update (live 2026-11-12: 1 ms after the foot's);
 // `bot.hooks.placeBed` may throw (a refusal). bot.sleep lies her down (its
 // hook may throw first); with `skip`, the night skips `skipMs` later: the
 // time jumps to the next morning and the server wakes her. bot.wake gets her
 // up 5 ms later (`wakes: false`: never). Digging either half removes both
 // and drops one bed at the foot (`drops: false`: none); a walk ending within
 // 1.5 blocks of a dropped item takes it (contact pickup).
-function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, drops = true } = {}) {
+function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, drops = true, headMs = 5 } = {}) {
     bot.time = { ...time };
     bot.isSleeping = false;
     const place = bot.placeBlock;
@@ -50,7 +52,7 @@ function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, 
         const [x, z] = DIRS[facing];
         const old = bot.world.block(foot);
         bot.world.set(foot.x, foot.y, foot.z, name, { facing, part: 'foot', occupied: false });
-        bot.world.set(foot.x + x, foot.y, foot.z + z, name, { facing, part: 'head', occupied: false });
+        setTimeout(() => bot.world.set(foot.x + x, foot.y, foot.z + z, name, { facing, part: 'head', occupied: false }), headMs);
         bot.take(name, 1);
         if (!bot.count(name)) bot.heldItem = null;
         bot.calls.push(['place', name, foot.toString(), facing]);
@@ -378,6 +380,16 @@ test('idle at night: she places the bed from her cell (foot, then head the way s
     assert.equal(agent.chats.length, 0, 'nothing said');
     agent.work.ledger.flush();
     assert.equal(F.ledgerEntries(agent).some(e => e.block === 'black_bed'), false, 'gone from the file after the pickup');
+});
+
+test('the head half arriving after the placement resolves (its own update) is waited for: the first try sleeps', async () => {
+    const agent = setup({ server: { headMs: 40 } });
+    const { bot } = agent;
+    await F.until(() => night(agent).done && !agent.work.sleeper.running, { timeout: 4000 });
+    assert.equal(night(agent).why, 'slept');
+    assert.equal(night(agent).tries ?? 0, 0, 'no failed try');
+    assert.deepEqual(calls(bot, 'dig').map(c => c[2]), [at(0, 64, 1).toString()], 'dug once, after the sleep');
+    assert.equal(bot.count('black_bed'), 1);
 });
 
 test('the bed entry is own by mode:sleeping and is in the file before bot.sleep (the synchronous flush)', async () => {

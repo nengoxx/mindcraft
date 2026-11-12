@@ -33,7 +33,7 @@ export const SLEEP = {
     receiptMs: 300000,    // an item's life: a receipt older than this is a lost bed
     freeSlots: 2,         // Work.tick launches a pickup only with this many free slots (junk design §5)
     pickupSlots: 1,       // the pickup itself needs the bed's own slot (inside the routine too)
-    lateMs: 2000,         // after a timed-out placement, how long she watches the cell for her bed
+    lateMs: 2000,         // after a placement, how long she watches the cells for her bed (a late answer, the head's update)
     modeCuts: 6,          // work.sleep.max_mode_cuts when the profile's value is not a positive integer
 };
 
@@ -630,12 +630,18 @@ export class Sleeper {
             if (!this.entryAt(spot.F)) return { outcome: { failed: `the placement was refused (${err?.message ?? err})` } };
         }
         const entry = this.entryAt(spot.F);
-        const foot = bot.blockAt(spot.F);
-        const head = bot.blockAt(spot.H);
-        const fp = props(foot);
-        const whole = isBed(foot?.name) && fp.part === 'foot' && fp.facing === spot.facing
-            && head?.name === foot.name && props(head).part === 'head';
-        if (!whole) {
+        const whole = () => {
+            const foot = bot.blockAt(spot.F);
+            const head = bot.blockAt(spot.H);
+            const fp = props(foot);
+            return isBed(foot?.name) && fp.part === 'foot' && fp.facing === spot.facing
+                && head?.name === foot.name && props(head).part === 'head';
+        };
+        // The placement resolves on the foot's update; the head comes in its
+        // own update after it (live 2026-11-12: 1 ms later), so wait for it.
+        const until = Date.now() + SLEEP.lateMs;
+        while (!whole() && Date.now() < until) await wait(50);
+        if (!whole()) {
             if (entry) await this.pickup(entry);
             return { outcome: { failed: 'the bed was not placed whole where planned' } };
         }
