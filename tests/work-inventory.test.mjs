@@ -111,12 +111,44 @@ test('every default name is an item of the 26.1 registry (stack 64 for the "stac
     assert.equal(I.unknownItemName(F.makeBot(), policyOf()), null);
 });
 
+test('S2e-fu §4: the new defaults: the best bow and crossbow, one slot of ominous bottles and of each banner; arrows stay a stack', () => {
+    const items = C.WORK_DEFAULTS.inventory.items;
+    assert.deepEqual([items.bow, items.crossbow, items.ominous_bottle, items.arrow], [1, 1, 'slot', 'stack']);
+    const banners = Object.keys(items).filter(name => name.endsWith('_banner'));
+    assert.equal(banners.length, 16);
+    assert.ok(banners.every(name => items[name] === 'slot'));
+    assert.deepEqual(banners.filter(name => !F.registry.itemsByName[name]), []);
+    assert.equal(F.registry.itemsArray.filter(i => i.name.endsWith('_banner')).length, 16, 'every banner of the registry');
+    assert.equal(I.keepOf(F.makeBot(), policyOf(), 'white_banner'), 'slot');
+    assert.deepEqual(Object.entries(items).filter(([, keep]) => keep === 'slot').map(([name]) => name).sort(),
+        ['ominous_bottle', ...banners].sort(), 'only the bottles and the banners');
+    // The list accepts "slot" for any item (amendment C).
+    const p = policyOf({ inventory: { items: { arrow: 'slot' } } });
+    assert.deepEqual([p.error, p.items.arrow], [null, 'slot']);
+    assert.match(policyOf({ inventory: { items: { arrow: 'slots' } } }).error, /^arrow: "slots"$/);
+});
+
+test('S2e-fu amendment C: one slot of the best: of ominous bottles of amplifiers 0, 2 and 4 only the amplifier-4 slot stays; of two banner stacks the larger', () => {
+    const bottle = (slot, amp, count = 1) => [slot, 'ominous_bottle', count, amp == null ? {} :
+        { componentMap: new Map([['ominous_bottle_amplifier', { type: 'ominous_bottle_amplifier', data: amp }]]) }];
+    // As Mineflayer holds them (componentMap from the 26.1 component; a bottle without it is amplifier 0).
+    const bot = slotted([bottle(9, 4, 1), bottle(10, null, 5), bottle(11, 2, 3), [12, 'white_banner', 2], [13, 'white_banner', 7], [14, 'red_banner', 1]]);
+    const plan = I.planRemoval(bot, policyOf());
+    assert.deepEqual(ops(plan), [[10, 'ominous_bottle', 5], [11, 'ominous_bottle', 3], [12, 'white_banner', 2]], 'the amplifier beats the count; the larger banner stack stays');
+    assert.equal(plan.freed, 3);
+    // Ties: the existing order (the larger count, then the later slot stays).
+    const tie = slotted([[9, 'white_banner', 3], [10, 'white_banner', 3]]);
+    assert.deepEqual(ops(I.planRemoval(tie, policyOf())), [[9, 'white_banner', 3]]);
+    // A task's needed item is never removed.
+    assert.deepEqual(ops(I.planRemoval(bot, policyOf(), { needed: new Set(['ominous_bottle']) })), [[12, 'white_banner', 2]]);
+});
+
 // --- the planner (design §3) -------------------------------------------------------------------
 
-// Puts stacks into exact slots: [[slot, name, count], ...].
+// Puts stacks into exact slots: [[slot, name, count, extra item fields], ...].
 function slotted(stacks) {
     const bot = F.makeBot();
-    for (const [slot, name, count] of stacks) bot.inventory.slots[slot] = { name, count, type: F.registry.itemsByName[name].id, stackSize: F.registry.itemsByName[name].stackSize };
+    for (const [slot, name, count, extra] of stacks) bot.inventory.slots[slot] = { name, count, type: F.registry.itemsByName[name].id, stackSize: F.registry.itemsByName[name].stackSize, ...extra };
     return bot;
 }
 const ops = plan => plan.map(o => [o.slot, o.name, o.count]);
@@ -138,16 +170,14 @@ test('the planner: every tier-0 stack whole and first, then limited surplus as w
     assert.deepEqual(ops(I.planRemoval(dirt, policyOf())), [[12, 'dirt', 8], [9, 'dirt', 64], [10, 'dirt', 64]]);
 });
 
-test('the planner never takes the selected hotbar slot, a needed item, an unlisted or an "all" item', () => {
+test('the planner never takes a needed item, an unlisted or an "all" item; the selected hotbar slot is a source like any other (S2e-fu §1)', () => {
     const bot = slotted([[36, 'rotten_flesh', 10], [9, 'rotten_flesh', 5], [37, 'gravel', 3], [10, 'gunpowder', 64], [11, 'gunpowder', 64],
         [12, 'diamond', 64], [13, 'dirt', 64], [14, 'dirt', 64], [15, 'cobblestone', 64], [16, 'cobblestone', 20]]);
     const plan = I.planRemoval(bot, policyOf(), { needed: new Set(['cobblestone']) });
-    assert.deepEqual(ops(plan), [[9, 'rotten_flesh', 5], [37, 'gravel', 3], [13, 'dirt', 64]]);
-    // The held slot counts toward the keep: 40 dirt in hand, 64 + 30 more, keep 64.
+    assert.deepEqual(ops(plan), [[9, 'rotten_flesh', 5], [36, 'rotten_flesh', 10], [37, 'gravel', 3], [13, 'dirt', 64]]);
+    // The held slot is planned like the rest: 40 dirt in hand, 64 + 30 more, keep 64.
     const held = slotted([[36, 'dirt', 40], [9, 'dirt', 64], [10, 'dirt', 30]]);
-    assert.deepEqual(ops(I.planRemoval(held, policyOf())), [[10, 'dirt', 30], [9, 'dirt', 40]]);
-    held.quickBarSlot = 1;   // now slot 37 is held: slot 36 may go
-    assert.deepEqual(ops(I.planRemoval(held, policyOf())).map(o => o[0]), [10, 36]);
+    assert.deepEqual(ops(I.planRemoval(held, policyOf())), [[10, 'dirt', 30], [36, 'dirt', 40]]);
 });
 
 // --- the dropper (design §3) -------------------------------------------------------------------
@@ -180,8 +210,8 @@ test('the facing: a cardinal free at foot and eye level for 3 blocks, away from 
     world.set(0, 64, 1, 'leaf_litter', { facing: 'north', segment_amount: '1' });
     assert.deepEqual(I.chooseFacing(bot, away), { dx: 0, dz: 1 }, 'grass and leaf litter have no collision box');
     world.set(0, 64, 2, 'water', { level: '0' });
-    world.set(0, 64, -3, 'oak_planks');
-    world.set(-1, 64, 0, 'stone');
+    world.set(0, 65, -3, 'oak_planks');
+    world.set(-1, 65, 0, 'stone');
     assert.equal(I.chooseFacing(bot, away), null, 'water, a block 3 out and one at her side');
     const result = await I.dropItems(bot, [op(bot, 9)], { awayFrom: away });
     assert.equal(result.outcome, 'unavailable');
@@ -555,9 +585,9 @@ test('the pass cap: a 4th pass within 10 minutes holds the cleanup 10 minutes an
     await onePass(0);
     assert.equal(items.capUntil, 0, 'three passes older than the window do not count');
     assert.equal(items.passes.length, 1);
-    // Passes that removed nothing (no free direction) do not count.
+    // Passes that removed nothing (no free direction, no drop spot: the rim is 6 up) do not count.
     const second = setup({ drive: false });
-    second.bot.world.fill(-3, 64, -3, 3, 65, 3, 'stone');
+    second.bot.world.fill(-3, 64, -3, 3, 69, 3, 'stone');
     second.bot.world.set(0, 64, 0, 'air');
     second.bot.world.set(0, 65, 0, 'air');
     for (let i = 0; i < 4; i++) {
@@ -618,6 +648,7 @@ test('!itemList shows the list by tier with what she holds, her free slots, the 
     const items = agent.work.items;
     const before = await F.modules.commands.executeCommand(agent, '!itemList');
     assert.match(before, /^Item list \(anything not listed I keep\): Drop all: rotten_flesh 128, spider_eye, gravel 41, /);
+    assert.match(before, /Keep 1: bow, crossbow\. Keep 1 slot: ominous_bottle, white_banner, orange_banner, (\w+_banner, ){13}black_banner\. /);
     assert.match(before, /Keep 64: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal\. Keep all: gunpowder\./);
     assert.match(before, /2 free slots; I clean up below 4\. Idle cleanup: on\. No pass yet\.$/);
     items.launch(items.admit());
@@ -670,28 +701,26 @@ test('R1-2: an open container window: no transfer (it would click the container)
     assert.equal(bot.count('rotten_flesh'), 0);
 });
 
-test('R1-3: the live selected hotbar slot is never tossed, even when the selection changed after the plan', async () => {
-    const bot = slotted([[37, 'gravel', 10], [38, 'rotten_flesh', 5]]);
+test('R1-3: the live selected hotbar slot is never tossed: a slot the server selects between tosses is skipped', async () => {
+    const bot = slotted([[36, 'diamond', 1], [37, 'gravel', 10], [38, 'rotten_flesh', 5]]);
     const plan = I.planRemoval(bot, policyOf());
     assert.deepEqual(ops(plan), [[37, 'gravel', 10], [38, 'rotten_flesh', 5]]);
-    const wait = bot.waitForTicks;
-    bot.waitForTicks = async t => { await wait(t); bot.quickBarSlot = 1; };   // the server selects slot 37
+    bot.hooks.toss = () => { bot.quickBarSlot = 2; };   // the server selects slot 38 after the first toss
     const result = await I.dropItems(bot, plan);
-    assert.deepEqual(result.removed, { rotten_flesh: 5 });
-    assert.equal(bot.count('gravel'), 10);
+    assert.deepEqual(result.removed, { gravel: 10 });
+    assert.equal(bot.count('rotten_flesh'), 5);
+    assert.equal(bot.calls.some(c => c[0] === 'hotbar'), false, 'the held diamond was planned for nothing: no switch');
 });
 
-test('R1-4: the empty-plan memory includes the selected slot and expires after 5 minutes', async () => {
+test('R1-4: the empty-plan memory keys on the inventory and the task state and expires after 5 minutes', async () => {
     const agent = setup({ inventory: {}, free: 0, drive: false });
     const { bot } = agent;
     const items = agent.work.items;
     bot.take(FILLER, 64 * 2);
-    bot.inventory.slots[36] = { name: 'gravel', count: 10, type: F.registry.itemsByName.gravel.id, stackSize: 64 };   // held
-    assert.equal(items.admit(), null, 'only the held gravel is disposable');
-    bot.quickBarSlot = 1;   // a filler is held now: the gravel may go
-    assert.notEqual(items.admit(), null, 'the selection is part of the key');
-    bot.quickBarSlot = 0;
-    assert.equal(items.admit(), null);
+    assert.equal(items.admit(), null, 'a bag of kept planks');
+    assert.ok(items.emptyKey);
+    bot.quickBarSlot = 1;   // the selection is no part of the plan any more (S2e-fu §1)
+    assert.equal(items.admit(), null, 'remembered');
     agent.work.config.inventory.items[FILLER] = 0;   // a change the key does not see
     assert.equal(items.admit(), null);
     items.emptyKey.at -= INV.retryMs;
@@ -753,8 +782,9 @@ test('R1-7: a floor lower than a full block (path, farmland, soul sand, mud, a b
     grass.fill(-4, 63, -4, 4, 63, 4, 'grass_block', { snowy: 'false' });
     const bot = F.makeBot({ world: grass, position: [0.5, 64, 0.5] });
     assert.deepEqual(I.chooseFacing(bot), { dx: 0, dz: 1 });
-    grass.set(0, 64, 2, 'stone');
-    assert.deepEqual(I.chooseFacing(bot), { dx: -1, dz: 0 }, 'a block at her feet row blocks');
+    grass.set(0, 65, 2, 'stone');
+    assert.deepEqual(I.chooseFacing(bot), { dx: -1, dz: 0 }, 'a block in her eye row blocks');
+    grass.set(0, 65, 2, 'air');
     // Up to half a block above her feet does not block the throw (it leaves 1.32 up):
     // a path between grass, a slab ahead on a full floor.
     const path = new F.World();
@@ -765,21 +795,23 @@ test('R1-7: a floor lower than a full block (path, farmland, soul sand, mud, a b
     assert.deepEqual(I.chooseFacing(bot), { dx: 0, dz: 1 }, 'a bottom slab ahead');
 });
 
-// Walls her in except the cardinals listed ([dx, dz]).
+// Walls her in, from her feet to her eyes, except the cardinals listed ([dx, dz]).
 function wallIn(bot, open) {
     const p = bot.entity.position.floored();
     for (const [dx, dz] of [[0, 1], [-1, 0], [0, -1], [1, 0]]) {
         if (open.some(([x, z]) => x === dx && z === dz)) continue;
         bot.world.set(p.x + dx, p.y, p.z + dz, 'stone');
+        bot.world.set(p.x + dx, p.y + 1, p.z + dz, 'stone');
     }
 }
 
 test('R1-8: with no free direction the cleanup does not launch, and never cuts a follow', async () => {
     const agent = setup({ drive: false });
-    wallIn(agent.bot, []);
+    pit(agent.bot.world, 6);
     assert.equal(agent.work.items.admit(), null, 'idle');
-    // Walled in, it holds like a pass that removed nothing: no re-plan every second (S2e r2 adversary N1).
-    assert.equal(agent.work.items.held(), 'waiting: nothing to drop from here');
+    // In a shaft (no drop spot within reach), it holds like a pass that removed nothing:
+    // no re-plan every second (S2e r2 adversary N1), and says why (S2e-fu F5).
+    assert.equal(agent.work.items.held(), 'waiting: no free direction nearby');
     const follow = setup({ drive: false });
     const { bot, actions } = follow;
     wallIn(bot, []);
@@ -800,6 +832,7 @@ test('R1-9: in a follow she never drops toward the target; with only that direct
     wallIn(bot, [[1, 0], [0, 1]]);              // east (toward) and south (across) free
     assert.deepEqual(I.chooseFacing(bot, target, { never: target }), { dx: 0, dz: 1 }, 'across, not toward');
     bot.world.set(0, 64, 1, 'stone');
+    bot.world.set(0, 65, 1, 'stone');
     assert.equal(I.chooseFacing(bot, target, { never: target }), null);
     assert.deepEqual(I.chooseFacing(bot, target), { dx: 1, dz: 0 }, 'without the rule east would be taken');
     // A target within half a block (standing on her): no direction is away from him, so no pass (Sol r2 N1).
@@ -879,4 +912,303 @@ test('R1-11: a task that starts, or a question that opens, between tosses ends t
     await quiet(agent);
     assert.equal(tosses(agent.bot).length, 0);
     assert.equal(agent.work.items.idleHold, null, 'interrupted before removing anything: not held');
+});
+
+// --- S2e-fu (design s2efu/design.md §1–§5; DECISIONS 2026-11-12) ---------------------------------
+
+// A pit `depth` deep at her cell (0, 64, 0): stone from y 63 to 63 + depth within `size`, her column open.
+function pit(world, depth, size = 6) {
+    world.fill(-size, 63, -size, size, 63 + depth, size, 'stone');
+    for (let y = 64; y <= 63 + depth; y++) world.set(0, y, 0, 'air');
+}
+const goals = bot => bot.calls.filter(c => c[0] === 'goto');
+
+test('S2e-fu §1: junk in her hand: after the look and the wait she selects the first empty hotbar slot, else the first holding no planned operation, then drops it', async () => {
+    const bot = slotted([[36, 'wheat_seeds', 1], [37, 'diamond', 1], [9, 'dirt', 64], [10, 'dirt', 3]]);
+    const plan = I.planRemoval(bot, policyOf());
+    assert.deepEqual(ops(plan), [[36, 'wheat_seeds', 1], [10, 'dirt', 3]]);
+    const result = await I.dropItems(bot, plan);
+    assert.deepEqual(bot.calls.map(c => c[0]), ['lookAt', 'waitForTicks', 'hotbar', 'toss', 'toss']);
+    assert.deepEqual(bot.calls[2], ['hotbar', 2], 'slot 38, the first empty one (not the diamond at 37)');
+    assert.deepEqual(result.removed, { wheat_seeds: 1, dirt: 3 });
+    // No empty hotbar slot: the first one holding no planned operation.
+    const full = slotted([[36, 'wheat_seeds', 1], [37, 'gravel', 4], [38, 'diamond', 1], ...[39, 40, 41, 42, 43, 44].map(s => [s, FILLER, 64])]);
+    const second = await I.dropItems(full, I.planRemoval(full, policyOf()));
+    assert.deepEqual(full.calls.find(c => c[0] === 'hotbar'), ['hotbar', 2]);
+    assert.deepEqual(second.removed, { wheat_seeds: 1, gravel: 4 });
+    // Every hotbar slot planned: no switch, the held one is skipped, the rest go.
+    const junk = slotted([...Array(9).keys()].map(i => [36 + i, 'rotten_flesh', 1]));
+    const third = await I.dropItems(junk, I.planRemoval(junk, policyOf()));
+    assert.equal(junk.calls.some(c => c[0] === 'hotbar'), false);
+    assert.deepEqual(third.removed, { rotten_flesh: 8 });
+    assert.deepEqual(junk.inventory.slots[36], { name: 'rotten_flesh', count: 1, type: F.registry.itemsByName.rotten_flesh.id, stackSize: 64 });
+});
+
+test('S2e-fu §2: over a one-block lip: walls in her feet row only are a lip she throws over; a fence or a wall (1.5 up) blocks; a pit two deep has no direction', () => {
+    const world = new F.World();
+    pit(world, 1);
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+    assert.deepEqual(I.chooseFacing(bot), { dx: 0, dz: 1 }, 'one deep: over the lip');
+    world.set(0, 64, 3, 'oak_fence');
+    assert.deepEqual(I.chooseFacing(bot), { dx: -1, dz: 0 }, 'a fence 3 out blocks');
+    world.set(-1, 64, 0, 'cobblestone_wall');
+    assert.deepEqual(I.chooseFacing(bot), { dx: 0, dz: -1 }, 'a wall at her side blocks');
+    const deep = new F.World();
+    pit(deep, 2);
+    assert.equal(I.chooseFacing(F.makeBot({ world: deep, position: [0.5, 64, 0.5] })), null, 'two deep: her eye row is walled');
+    // S2e-fu r1 (adversary D2): a lip only where it starts at distance 1 (what P16 probed); a face
+    // 2 or 3 out behind an open cell can bounce the toss back into reach.
+    const step = new F.World();
+    step.fill(-4, 63, -4, 4, 63, 4, 'stone');
+    const flat = F.makeBot({ world: step, position: [0.5, 64, 0.5] });
+    step.set(0, 64, 2, 'stone');
+    assert.deepEqual(I.chooseFacing(flat), { dx: -1, dz: 0 }, 'a step 2 out blocks');
+    step.set(-1, 64, 0, 'stone');
+    step.set(-2, 64, 0, 'stone');
+    step.set(-3, 64, 0, 'stone');
+    assert.deepEqual(I.chooseFacing(flat), { dx: -1, dz: 0 }, 'a lip from distance 1 may go on at 2 and 3 (her own ground)');
+    step.set(-2, 64, 0, 'air');
+    step.set(-1, 64, 0, 'air');
+    assert.deepEqual(I.chooseFacing(flat), { dx: 0, dz: -1 }, 'a step 3 out blocks');
+    // Only her feet row may hold a lip: standing on a slab, a full block ahead in that row is
+    // one, but a slab above it (a full block above her feet, in the next row) still blocks.
+    const slabs = new F.World();
+    slabs.fill(-4, 64, -4, 4, 64, 4, 'oak_slab', { type: 'bottom', waterlogged: 'false' });
+    const onSlab = F.makeBot({ world: slabs, position: [0.5, 64.5, 0.5] });
+    slabs.set(0, 64, 1, 'stone');
+    assert.deepEqual(I.chooseFacing(onSlab), { dx: 0, dz: 1 }, 'a lip half a block up');
+    slabs.set(0, 65, 1, 'oak_slab', { type: 'bottom', waterlogged: 'false' });
+    assert.deepEqual(I.chooseFacing(onSlab), { dx: -1, dz: 0 }, 'the row above keeps the half-block rule');
+});
+
+test('S2e-fu §2: findDropSpot: the nearest standable spot with a free direction, horizontally, then vertically, then by the cardinal order; never toward a follow target; none within the radius', () => {
+    const world = new F.World();
+    pit(world, 2);
+    for (let z = 2; z <= 5; z++) { world.set(0, 64, z, 'air'); world.set(0, 65, z, 'air'); }   // a corridor 2 out on her level
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+    assert.equal(I.chooseFacing(bot), null);
+    assert.deepEqual(I.findDropSpot(bot).toArray(), [0, 66, 1], 'the rim 1 out, 2 up, south first; before the corridor 2 out');
+    const never = { x: 0.5, y: 64, z: 10.5 };   // a follow target to her south
+    assert.deepEqual(I.findDropSpot(bot, { never }).toArray(), [-1, 66, 0], 'not toward the target: the rim to her west');
+    world.set(0, 66, 1, 'water', { level: '0' });   // the south rim's feet cell
+    assert.deepEqual(I.findDropSpot(bot).toArray(), [-1, 66, 0], 'not in water');
+    world.set(0, 66, 1, 'air');
+    world.set(0, 67, 1, 'stone');   // the south rim's head cell
+    assert.deepEqual(I.findDropSpot(bot).toArray(), [-1, 66, 0], 'her head must fit');
+    world.set(0, 67, 1, 'air');
+    world.set(-1, 65, 0, 'air');    // a step 1 up to her west
+    assert.deepEqual(I.findDropSpot(bot).toArray(), [-1, 65, 0], 'vertically nearer than the south rim 2 up');
+    // Up to 3 above her feet: the rim of a pit 3 deep, not of one 4 deep.
+    for (const [depth, spot] of [[3, [0, 67, 1]], [4, null]]) {
+        const w = new F.World();
+        pit(w, depth);
+        assert.deepEqual(I.findDropSpot(F.makeBot({ world: w, position: [0.5, 64, 0.5] }))?.toArray() ?? null, spot, `${depth} deep`);
+    }
+    // A shaft whose rim is 7 up: a tunnel 6 out is beyond the radius.
+    const shaft = new F.World();
+    pit(shaft, 6, 8);
+    for (let x = 6; x <= 8; x++) { shaft.set(x, 64, 0, 'air'); shaft.set(x, 65, 0, 'air'); }
+    const down = F.makeBot({ world: shaft, position: [0.5, 64, 0.5] });
+    assert.equal(I.findDropSpot(down), null);
+    INV.walkRadius = 6;
+    assert.deepEqual(I.findDropSpot(down).toArray(), [6, 64, 0]);
+    assert.equal(I.findDropSpot(F.makeBot({ position: [0.5, 64, 0.5] })), null, 'no floor anywhere');
+});
+
+test('S2e-fu §2: with `walk` and no free direction she walks to the drop spot (never digging; towers and scaffold in a task, none idle), then faces again from there; without it, unavailable', async () => {
+    const world = new F.World();
+    pit(world, 2);
+    const walker = () => {
+        const bot = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+        bot.seen = [];
+        bot.hooks.goto = goal => {
+            const m = bot.pathfinder.movements;
+            bot.seen.push({ goal: [goal.x, goal.y, goal.z], canDig: m.canDig, towers: m.allow1by1towers, scaffold: m.scafoldingBlocks.length > 0, doors: m.canOpenDoors });
+        };
+        return bot;
+    };
+    const bot = walker();
+    const result = await I.dropItems(bot, I.planRemoval(bot, policyOf()), { walk: 'task' });
+    assert.equal(result.outcome, 'done');
+    assert.deepEqual(bot.seen, [{ goal: [0, 66, 1], canDig: false, towers: true, scaffold: true, doors: false }], 'a task walk may tower and scaffold, never open a door');
+    // The idle walk places nothing (DECISIONS 2026-11-11: no pathfinder blocks left behind).
+    const idle = walker();
+    assert.equal((await I.dropItems(idle, I.planRemoval(idle, policyOf()), { walk: 'idle' })).outcome, 'done');
+    assert.deepEqual(idle.seen, [{ goal: [0, 66, 1], canDig: false, towers: false, scaffold: false, doors: false }]);
+    // S2e-fu r1 (adversary D3): a walk that ends off the spot drops nothing where she stopped.
+    const off = walker();
+    off.hooks.goto = () => { off.entity.position = new F.Vec3(0.5, 66, 2.5); return 'moved'; };   // on the rim, one cell past the spot
+    const o = await I.dropItems(off, I.planRemoval(off, policyOf()), { walk: 'task' });
+    assert.deepEqual([o.outcome, o.reason, tosses(off).length], ['unavailable', 'no free direction nearby', 0]);
+    assert.ok(I.chooseFacing(off), 'though a direction is free where she stopped');
+    const [, look] = bot.calls.find(c => c[0] === 'lookAt');
+    assert.deepEqual([look.x, look.y, look.z], [0.5, 66 + 1.62, 4.5], 'from the rim, south');
+    assert.deepEqual(bot.junk_guard.drops[0].pos, { x: 0.5, y: 66, z: 4.5 });
+    const still = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    const stay = await I.dropItems(still, I.planRemoval(still, policyOf()));
+    assert.deepEqual([stay.outcome, stay.reason], ['unavailable', 'no free direction nearby']);
+    assert.equal(goals(still).length, 0);
+    // A walk that fails (no path) is no error: still no direction, unavailable.
+    const lost = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    lost.hooks.goto = () => { throw new Error('No path to the goal!'); };
+    const r = await I.dropItems(lost, I.planRemoval(lost, policyOf()), { walk: 'task' });
+    assert.deepEqual([r.outcome, r.reason, tosses(lost).length], ['unavailable', 'no free direction nearby', 0]);
+    // The currency is checked after the walk.
+    let ok = true;
+    const cut = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    cut.hooks.goto = () => { ok = false; };
+    const c = await I.dropItems(cut, I.planRemoval(cut, policyOf()), { walk: 'task', current: () => ok });
+    assert.equal(c.outcome, 'interrupted');
+    assert.equal(cut.calls.some(x => x[0] === 'lookAt'), false);
+    // No spot within reach: no walk.
+    const shaft = new F.World();
+    pit(shaft, 6);
+    const none = F.makeBot({ world: shaft, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    const n = await I.dropItems(none, I.planRemoval(none, policyOf()), { walk: 'task' });
+    assert.deepEqual([n.outcome, n.reason, goals(none).length], ['unavailable', 'no free direction nearby', 0]);
+});
+
+test('S2e-fu §2: the walk is bounded: at INVENTORY.walkMs the pathfinder is stopped and she faces again from where she stands', async () => {
+    INV.walkMs = 150;
+    const world = new F.World();
+    pit(world, 2);
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    let ended = null;
+    bot.hooks.goto = async goal => {
+        bot.pathfinder.goal = goal;
+        const t = Date.now();
+        await F.until(() => bot.pathfinder.goal === null, { timeout: 3000 });
+        ended = Date.now() - t;
+        return 'moved';   // stopped where she stands
+    };
+    const result = await I.dropItems(bot, I.planRemoval(bot, policyOf()), { walk: 'idle' });
+    assert.deepEqual([result.outcome, result.reason], ['unavailable', 'no free direction nearby']);
+    assert.ok(ended >= 130 && ended < 600, `the walk ended after ${ended} ms`);
+    assert.equal(tosses(bot).length, 0);
+});
+
+test('S2e-fu r1 (Sol 2): a walk that rejects while its route goes on leaves no goal behind', async () => {
+    const world = new F.World();
+    pit(world, 2);
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    let walked = null;
+    // The installed A* can reject goto with noPath while a partial route keeps the goal set.
+    bot.hooks.goto = goal => { walked = goal; bot.pathfinder.goal = goal; throw new Error('No path to the goal!'); };
+    const result = await I.dropItems(bot, I.planRemoval(bot, policyOf()), { walk: 'task' });
+    assert.equal(result.outcome, 'unavailable');
+    assert.ok(walked);
+    assert.equal(bot.pathfinder.goal, null, 'the walk\'s goal is cleared');
+    // Another goal set meanwhile (not the walk's) is left alone.
+    const other = F.makeBot({ world, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    const theirs = { x: 9, y: 64, z: 9 };
+    other.hooks.goto = () => { other.pathfinder.goal = theirs; throw new Error('No path to the goal!'); };
+    await I.dropItems(other, I.planRemoval(other, policyOf()), { walk: 'task' });
+    assert.equal(other.pathfinder.goal, theirs);
+});
+
+test('S2e-fu r1 (Sol 1): after a walk the dropper re-plans from the live bag: scaffold taken from a kept stack is not tossed again', async () => {
+    const world = new F.World();
+    pit(world, 2);
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+    bot.inventory.slots[9] = { name: 'dirt', count: 64, type: F.registry.itemsByName.dirt.id, stackSize: 64 };
+    bot.inventory.slots[10] = { name: 'dirt', count: 20, type: F.registry.itemsByName.dirt.id, stackSize: 64 };
+    const plan = I.planRemoval(bot, policyOf());
+    assert.deepEqual(ops(plan), [[10, 'dirt', 20]]);
+    bot.hooks.goto = () => { bot.inventory.slots[9].count -= 2; };   // the pathfinder scaffolds from the first stack
+    const result = await I.dropItems(bot, plan, { walk: 'task', replan: () => I.planRemoval(bot, policyOf()) });
+    assert.deepEqual(result.removed, { dirt: 18 });
+    assert.equal(bot.count('dirt'), 64, 'she keeps her stack');
+});
+
+test('S2e-fu §2: the idle admission with no free direction: a drop spot admits and the pass walks there; none holds, saying why; following never walks', async () => {
+    const agent = setup({ drive: false, ownerAt: [10.5, 64, 0.5] });
+    const { bot } = agent;
+    const items = agent.work.items;
+    bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(bot.world, 2);
+    const seen = [];
+    bot.hooks.goto = () => { const m = bot.pathfinder.movements; seen.push([m.canDig, m.allow1by1towers, m.scafoldingBlocks.length]); };
+    const admitted = items.admit();
+    assert.equal(admitted?.follow, false);
+    items.launch(admitted);
+    await quiet(agent);
+    assert.equal(goals(bot).length, 1, 'she walked');
+    assert.deepEqual(seen, [[false, false, 0]], 'the idle walk: no digging, no towers, no scaffold');
+    assert.equal(bot.count('rotten_flesh'), 0);
+    assert.equal(bot.entity.position.y, 66);
+    // An idle walk that cannot reach the spot (it may not tower out of the pit): held, saying why.
+    const stuck = setup({ drive: false, ownerAt: [10.5, 64, 0.5] });
+    stuck.bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(stuck.bot.world, 2);
+    stuck.bot.hooks.goto = () => { throw new Error('No path to the goal!'); };
+    stuck.work.items.launch(stuck.work.items.admit());
+    await quiet(stuck);
+    assert.equal(goals(stuck.bot).length, 1);
+    assert.equal(tosses(stuck.bot).length, 0);
+    assert.equal(stuck.work.items.held(), 'waiting: no free direction nearby');
+    // No spot: held, and !itemList says why (F5).
+    const deep = setup({ drive: false });
+    deep.bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(deep.bot.world, 6);
+    assert.equal(deep.work.items.admit(), null);
+    assert.equal(deep.work.items.held(), 'waiting: no free direction nearby');
+    assert.match(deep.work.items.render(), /Idle cleanup: waiting: no free direction nearby\./);
+    // Following in the two-deep pit: no cut (no walk while following), held.
+    const follow = setup({ drive: false, ownerAt: [10.5, 64, 0.5] });
+    const fb = follow.bot;
+    fb.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(fb.world, 2);
+    void follow.actions.runAction('action:followPlayer', async () => {
+        fb.pathfinder.setGoal(new F.modules.pf.goals.GoalFollow(fb.players[F.OWNER].entity, 3), true);
+        while (!fb.interrupt_code) await F.sleep(10);
+    }, { resume: true, timeout: -1 });
+    await F.until(() => fb.pathfinder.goal?.entity);
+    assert.equal(follow.work.items.admit(), null, 'no cut');
+    assert.equal(follow.work.items.held(), 'waiting: no free direction nearby');
+    follow.actions.cancelResume();
+    fb.interrupt_code = true;
+    await F.until(() => !follow.actions.executing);
+    // A follow pass itself never walks.
+    const cut = setup({ drive: false, ownerAt: [10.5, 64, 0.5] });
+    cut.bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(cut.bot.world, 2);
+    cut.work.items.launch({ follow: true, awayFrom: cut.bot.players[F.OWNER].entity.position, turns: new Set() });
+    await quiet(cut);
+    assert.equal(goals(cut.bot).length, 0);
+    assert.equal(tosses(cut.bot).length, 0);
+    assert.equal(cut.work.items.held(), 'waiting: no free direction nearby');
+});
+
+test('S2e-fu r1 (Sol 1): the idle pass re-plans after its walk too', async () => {
+    const agent = setup({ drive: false, inventory: { dirt: 84 }, ownerAt: [10.5, 64, 0.5] });
+    const { bot } = agent;
+    bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(bot.world, 2);
+    assert.deepEqual([bot.inventory.slots[9].count, bot.inventory.slots[10].count], [64, 20]);
+    bot.hooks.goto = () => { bot.inventory.slots[9].count -= 2; };   // the wiring only: an idle walk places nothing
+    agent.work.items.launch(agent.work.items.admit());
+    await quiet(agent);
+    assert.equal(goals(bot).length, 1);
+    assert.equal(bot.count('dirt'), 64);
+});
+
+test('S2e-fu §3: largestItems: the five largest items, totalled by name (the kept note and the blocked report)', () => {
+    const bot = slotted([[9, 'dirt', 64], [10, 'dirt', 64], [11, 'arrow', 32], [12, 'bone', 28], [13, 'gunpowder', 26], [14, 'coal', 25], [15, 'flint', 3], [16, 'dirt', 2]]);
+    assert.equal(I.largestItems(bot), 'dirt 130, arrow 32, bone 28, gunpowder 26, coal 25');
+});
+
+test('S2e-fu §4: the best one stays: of five bows the least worn, of four crossbows too; an enchanted worn bow over a fresh plain one', () => {
+    const tool = (slot, name, used, enchants = []) => [slot, name, 1, { maxDurability: F.registry.itemsByName[name].maxDurability, durabilityUsed: used, enchants }];
+    // The P16 bag: bows 164..379 of 384 used, crossbows 330..461 of 465.
+    const bot = slotted([tool(9, 'bow', 300), tool(10, 'bow', 164), tool(11, 'bow', 379), tool(12, 'bow', 200), tool(13, 'bow', 250),
+        tool(14, 'crossbow', 461), tool(15, 'crossbow', 330), tool(16, 'crossbow', 400), tool(17, 'crossbow', 350)]);
+    const plan = I.planRemoval(bot, policyOf());
+    assert.deepEqual(plan.map(o => o.slot), [11, 9, 13, 12, 14, 16, 17], 'the most worn first; bow 10 and crossbow 15 stay');
+    assert.equal(plan.freed, 7);
+    const enchanted = slotted([tool(9, 'bow', 379, [{ name: 'power', lvl: 1 }]), tool(10, 'bow', 0), tool(11, 'bow', 0, [{ name: 'unbreaking', lvl: 1 }, { name: 'flame', lvl: 1 }])]);
+    assert.deepEqual(I.planRemoval(enchanted, policyOf()).map(o => o.slot), [10, 9], 'two levels beat one, one beats none, whatever the wear');
+    // An unreadable enchantment list (unprobed on this version) counts as none; the plan never throws.
+    const odd = slotted([tool(9, 'bow', 10), tool(10, 'bow', 300)]);
+    Object.defineProperty(odd.inventory.slots[9], 'enchants', { get() { throw new Error('bad component'); } });
+    assert.deepEqual(I.planRemoval(odd, policyOf()).map(o => o.slot), [10]);
 });

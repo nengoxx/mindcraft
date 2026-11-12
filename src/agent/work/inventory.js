@@ -1,7 +1,11 @@
+import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
+import * as skills from '../library/skills.js';
 import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { itemLine } from './report.js';
+import { NO_DIG } from './sleep.js';
+import { fullCube } from './tidy.js';
 
 // Inventory upkeep (SPEC §9.4, REQ-OBT-11; design junk-council/recommended-
 // design.md r7 §2–§6, part A). One item policy (work.inventory, merged in
@@ -9,16 +13,22 @@ import { itemLine } from './report.js';
 // later chest destination needs no rewrite), one dropper (`dropItems`) shared
 // by the task runner's free-slot check and the idle cleanup (`Upkeep`, the
 // quiet action `action:items` from Work.tick), and the re-pickup guard the
-// pickupNearbyItems carry reads (`isGuardedJunk`).
+// pickupNearbyItems carry reads (`isGuardedJunk`). S2e-fu (design
+// s2efu/design.md §1–§5, DECISIONS 2026-11-12): junk in her hand, the throw
+// over a one-block lip, the walk to a drop spot, the kept report, the best kept.
 
 // Constants, not keys (SPEC §14). The look, the 2-tick wait, the ~3-block
 // landing and standing still afterwards were measured live by probe P15
-// (runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md); the guard
+// (runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md), the throw
+// over a one-block lip by P16 (s2efu/p16-live-20261112.md); the guard
 // against pickupNearbyItems and an obstacle within 3 blocks were not probed.
 export const INVENTORY = {
     throwBlocks: 3,       // the facing is free this far, the look point and the drop point are this far out
     lookTicks: 2,         // after the look, before the first toss: the look packet goes out first (G1)
     stepClear: 0.5,       // a block at most this far above her feet does not block the throw (it leaves 1.32 up; P15)
+    lipHeight: 1,         // in her feet row a block up to this far above her feet is a lip she throws over (P16)
+    walkRadius: 5,        // with no free direction she walks to a drop spot this far away (horizontally) ...
+    walkMs: 15000,        // ... within this long (the pathfinder is stopped then)
     guardRadius: 3,       // pickupNearbyItems skips the dropped names this close to a drop point
     guardMs: 300000,      // for this long (an item's life)
     guardMax: 32,         // drop points kept (oldest dropped): an approximate guard
@@ -42,6 +52,8 @@ const FOLLOW_LABEL = 'action:followPlayer';
 const LIQUIDS = ['water', 'lava', 'bubble_column'];
 // The four cardinals, in the order used when nothing is preferred.
 const CARDINALS = Object.freeze([[0, 1], [-1, 0], [0, -1], [1, 0]]);
+// The dropper's reason, and the idle hold's, when no direction is free (F5).
+const NO_DIRECTION = 'no free direction nearby';
 
 const dimOf = bot => bot.game?.dimension ?? 'overworld';
 const range = bot => ({ start: bot.inventory.inventoryStart ?? 9, end: bot.inventory.inventoryEnd ?? 45 });
@@ -53,10 +65,12 @@ const total = removed => Object.values(removed).reduce((n, c) => n + c, 0);
 // --- the policy (REQ-OBT-11, design §2) -----------------------------------------
 
 // How many of `name` she keeps: undefined (not listed: all of it), Infinity
-// ("all") or a count ("stack": the item's registry stack size).
+// ("all"), 'slot' (one slot, the best stack) or a count ("stack": the item's
+// registry stack size).
 export function keepOf(bot, policy, name) {
     const keep = policy?.items?.[name];
     if (keep === undefined || keep === 'all') return keep === 'all' ? Infinity : undefined;
+    if (keep === 'slot') return keep;
     if (keep === 'stack') return bot.registry?.itemsByName?.[name]?.stackSize ?? 64;
     return keep;
 }
@@ -75,42 +89,70 @@ export function unknownItemName(bot, policy) {
 
 // --- the planner (design §3) ---------------------------------------------------------
 
+// An item's worth, for keeping the best of a limited item: the sum of its
+// enchantment levels and an ominous bottle's amplifier (the 26.1
+// `ominous_bottle_amplifier` component, a varint; checked offline through the
+// protocol codec, live unprobed), then the durability left; [0, 0] for items
+// with none of them. Enchantments on this version are unprobed live (P16: none
+// was available), so an unreadable list counts as none rather than failing the plan.
+function worth(item) {
+    let levels = Number(item.componentMap?.get?.('ominous_bottle_amplifier')?.data) || 0;
+    try {
+        levels += (item.enchants ?? []).reduce((n, e) => n + (Number(e?.lvl) || 0), 0);
+    } catch {
+        // as none
+    }
+    return [levels, item.maxDurability ? item.maxDurability - (item.durabilityUsed ?? 0) : 0];
+}
+const byWorth = (a, b) => a.worth[0] - b.worth[0] || a.worth[1] - b.worth[1];
+
 // Slot operations [{slot, name, count, have, whole}]: what to remove, never
-// where. Sources are the 36 main slots except the selected hotbar slot (armour
-// and offhand are outside them). Never an unlisted, "all", needed or held
-// item. Order: every tier-0 stack whole; then each limited item's surplus as
-// whole stacks smallest first within its budget, and a remainder below a
-// whole stack from the smallest stack left (it may free no slot, so it never
-// counts toward minFree). `freed` and `reaches` are the simulation; the
-// caller re-reads the real free slots afterwards.
+// where. Sources are the 36 main slots, the selected hotbar slot included
+// (DECISIONS 2026-11-12: junk in her hand is junk; the dropper switches her
+// hand off it); armour and offhand are outside them. Never an unlisted, "all"
+// or needed item. Order: every tier-0 stack whole; then per limited item, for a
+// "slot" item every slot but its best (highest worth, then the larger count),
+// for a counted one its surplus as whole stacks smallest first, then lowest worth, then slot, within
+// its budget (DECISIONS 2026-11-12 "best one, period": the best stays), and a
+// remainder below a whole stack from the first stack left in that order (it may
+// free no slot, so it never counts toward minFree). `freed` and `reaches` are
+// the simulation; the caller re-reads the real free slots afterwards.
 export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {}) {
     const ops = [];
     ops.freed = 0;
     ops.reaches = bot.inventory.emptySlotCount() >= minFree;
     if (!removalEnabled(policy)) return ops;
     const { start, end } = range(bot);
-    const held = heldSlot(bot);
     const totals = new Map();
     const stacks = new Map();
     for (let slot = start; slot < end; slot++) {
         const item = bot.inventory.slots[slot];
         if (!item) continue;
         totals.set(item.name, (totals.get(item.name) ?? 0) + item.count);
-        if (slot === held) continue;
         if (!stacks.has(item.name)) stacks.set(item.name, []);
-        stacks.get(item.name).push({ slot, count: item.count });
+        stacks.get(item.name).push({ slot, count: item.count, item });
     }
     const limited = [];
     for (const [name, list] of stacks) {
         const keep = keepOf(bot, policy, name);
         if (keep === undefined || keep === Infinity || needed.has(name)) continue;
         if (keep === 0) for (const s of list) ops.push({ slot: s.slot, name, count: s.count, have: s.count, whole: true });
-        else limited.push({ name, list, surplus: totals.get(name) - keep });
+        else limited.push({ name, list, keep });
     }
     ops.freed = ops.length;
-    for (const { name, list, surplus } of limited) {
-        let left = surplus;
-        const sorted = [...list].sort((a, b) => a.count - b.count || a.slot - b.slot);
+    for (const { name, list, keep } of limited) {
+        for (const s of list) s.worth = worth(s.item);
+        if (keep === 'slot') {
+            // One slot of the best (DECISIONS 2026-11-12: bottles of different
+            // strengths do not stack together): every other slot goes whole,
+            // lowest worth first, then the smaller count, then by slot.
+            const sorted = [...list].sort((a, b) => byWorth(a, b) || a.count - b.count || a.slot - b.slot);
+            for (const s of sorted.slice(0, -1)) ops.push({ slot: s.slot, name, count: s.count, have: s.count, whole: false });
+            ops.freed += sorted.length - 1;
+            continue;
+        }
+        let left = totals.get(name) - keep;
+        const sorted = [...list].sort((a, b) => a.count - b.count || byWorth(a, b) || a.slot - b.slot);
         const taken = new Set();
         for (const s of sorted) {
             if (s.count > left) break;
@@ -155,23 +197,31 @@ export function isGuardedJunk(bot, entity, now = Date.now()) {
 
 // --- the dropper (design §3) ---------------------------------------------------------
 
-// Free: not a liquid, and no collision box more than INVENTORY.stepClear above
-// her feet (short grass, leaf litter and cave air are free; so is a floor lower
-// than a full block, a path, farmland, soul sand, mud, a bottom slab or a
-// carpet, and the grass edge beside a path: R1-7); an unloaded cell is not.
-const free = (block, feetY) => Boolean(block) && !LIQUIDS.includes(block.name) && (block.boundingBox === 'empty'
-    || (block.shapes?.length > 0 && block.shapes.every(s => block.position.y + s[4] <= feetY + INVENTORY.stepClear + 1e-6)));
+// Free: not a liquid, and no collision box more than `clear` above her feet
+// (by default INVENTORY.stepClear: short grass, leaf litter and cave air are
+// free; so is a floor lower than a full block, a path, farmland, soul sand,
+// mud, a bottom slab or a carpet, and the grass edge beside a path: R1-7); an
+// unloaded cell is not.
+const free = (block, feetY, clear = INVENTORY.stepClear) => Boolean(block) && !LIQUIDS.includes(block.name) && (block.boundingBox === 'empty'
+    || (block.shapes?.length > 0 && block.shapes.every(s => block.position.y + s[4] <= feetY + clear + 1e-6)));
+
+// `pos` lies ahead of `here` along [dx, dz] (and more than half a block away).
+const toward = ([dx, dz], pos, here) => Boolean(pos) && Math.hypot(pos.x - here.x, pos.z - here.z) > 0.5
+    && dx * (pos.x - here.x) + dz * (pos.z - here.z) > 0;
 
 // A cardinal free from her feet to her eyes for INVENTORY.throwBlocks blocks,
-// or null. Never one toward `never` (a follow's target: R1-9); among the rest
-// the first, most opposite `awayFrom`, that is toward neither `awayFrom` nor
-// `avoid` (a task's owner within 16: R1-10), else the most opposite.
-export function chooseFacing(bot, awayFrom = null, { avoid = null, never = null } = {}) {
-    const here = bot.entity.position;
+// from where she stands or from `from`, or null. Her feet row may hold a lip up
+// to INVENTORY.lipHeight above her feet, from distance 1 on (DECISIONS 2026-11-12: she throws over
+// a one-block lip, as a player can; P16: the toss leaves 1.32 up and cleared
+// one at distance 1 on all four sides); a fence or wall (1.5) still blocks,
+// and so does a wall in any row above. Never one toward `never` (a follow's
+// target: R1-9); among the rest the first, most opposite `awayFrom`, that is
+// toward neither `awayFrom` nor `avoid` (a task's owner within 16: R1-10),
+// else the most opposite.
+export function chooseFacing(bot, awayFrom = null, { avoid = null, never = null, from = null } = {}) {
+    const here = from ?? bot.entity.position;
     const x0 = Math.floor(here.x), z0 = Math.floor(here.z);
     const y0 = Math.floor(here.y), y1 = Math.floor(here.y + (bot.entity.eyeHeight ?? 1.62));
-    const toward = ([dx, dz], pos) => Boolean(pos) && Math.hypot(pos.x - here.x, pos.z - here.z) > 0.5
-        && dx * (pos.x - here.x) + dz * (pos.z - here.z) > 0;
     // A follow's target within half a block is on top of her: no direction is away from him.
     if (never && Math.hypot(never.x - here.x, never.z - here.z) <= 0.5) return null;
     let order = CARDINALS;
@@ -179,14 +229,89 @@ export function chooseFacing(bot, awayFrom = null, { avoid = null, never = null 
         const ax = here.x - awayFrom.x, az = here.z - awayFrom.z;
         if (Math.hypot(ax, az) > 0.5) order = [...CARDINALS].sort((a, b) => (b[0] * ax + b[1] * az) - (a[0] * ax + a[1] * az));
     }
+    // The lip in her feet row must start at distance 1 (her own pit's edge, what P16
+    // probed); a face 2 or 3 out behind an open cell can bounce the toss back into
+    // reach (review r1, adversary D2), so there only the half-block rule applies.
     const clear = ([dx, dz]) => {
+        let lip = true;
         for (let i = 1; i <= INVENTORY.throwBlocks; i++)
-            for (let y = y0; y <= y1; y++) if (!free(bot.blockAt(new Vec3(x0 + dx * i, y, z0 + dz * i)), here.y)) return false;
+            for (let y = y0; y <= y1; y++) {
+                const block = bot.blockAt(new Vec3(x0 + dx * i, y, z0 + dz * i));
+                if (free(block, here.y)) {
+                    if (y === y0) lip = false;
+                } else if (y !== y0 || !lip || !free(block, here.y, INVENTORY.lipHeight)) return false;
+            }
         return true;
     };
-    const open = order.filter(d => !toward(d, never) && clear(d));
-    const pick = open.find(d => !toward(d, awayFrom) && !toward(d, avoid)) ?? open[0];
+    const open = order.filter(d => !toward(d, never, here) && clear(d));
+    const pick = open.find(d => !toward(d, awayFrom, here) && !toward(d, avoid, here)) ?? open[0];
     return pick ? { dx: pick[0], dz: pick[1] } : null;
+}
+
+// Where she can stand: a full cube below, the feet and head cells passable
+// and not a liquid.
+const passable = block => Boolean(block) && block.boundingBox === 'empty' && !LIQUIDS.includes(block.name);
+const standable = (bot, pos) => fullCube(bot.blockAt(pos.offset(0, -1, 0))) && passable(bot.blockAt(pos)) && passable(bot.blockAt(pos.offset(0, 1, 0)));
+// The cardinal an offset is closest to, as its index in CARDINALS (the first on a tie).
+const cardinalOf = (dx, dz) => CARDINALS.reduce((best, [cx, cz], i) => (cx * dx + cz * dz > CARDINALS[best][0] * dx + CARDINALS[best][1] * dz ? i : best), 0);
+
+// When no direction is free where she stands (DECISIONS 2026-11-12: a pit
+// deeper than one block, or a lip she cannot throw over: she walks to the
+// nearest open spot within a few blocks): the cell of a standable spot within
+// INVENTORY.walkRadius horizontally and from 1 below to 3 above her feet,
+// never toward `never` (a follow's target), where chooseFacing finds a
+// direction; nearest first (horizontally, then vertically, then the cardinal
+// order). A Vec3, or null.
+export function findDropSpot(bot, { awayFrom = null, avoid = null, never = null } = {}) {
+    const here = bot.entity.position;
+    const x0 = Math.floor(here.x), y0 = Math.floor(here.y), z0 = Math.floor(here.z);
+    const r = INVENTORY.walkRadius;
+    const cells = [];
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        const h = Math.hypot(dx, dz);
+        // Not her own column (no direction there: why she looks), nor toward a follow's target.
+        if (h === 0 || h > r || toward([dx, dz], never, here)) continue;
+        for (let dy = -1; dy <= 3; dy++) cells.push({ dx, dy, dz, h, order: cardinalOf(dx, dz) });
+    }
+    cells.sort((a, b) => a.h - b.h || Math.abs(a.dy) - Math.abs(b.dy) || a.order - b.order);
+    for (const { dx, dy, dz } of cells) {
+        const pos = new Vec3(x0 + dx, y0 + dy, z0 + dz);
+        if (standable(bot, pos) && chooseFacing(bot, awayFrom, { avoid, never, from: pos.offset(0.5, 0, 0.5) })) return pos;
+    }
+    return null;
+}
+
+// The walk's movements, by caller. Neither digs (no terrain or build damage).
+// In a task she may tower and scaffold: the ledger records those placements
+// and the task-end tidy takes them back, as on any task path (S2c). An idle
+// pass has no tidy trigger and the owner ruled she leaves no pathfinder blocks
+// behind (DECISIONS 2026-11-11, clearing), so the idle walk places nothing
+// (the sleep routine's NO_DIG). Neither opens a door or gate: nothing would
+// close it behind her (review r1, adversary D4).
+const NO_DOORS = m => { m.canOpenDoors = false; };
+const WALKS = Object.freeze({
+    task: m => { m.canDig = false; NO_DOORS(m); },
+    idle: m => { NO_DIG(m); NO_DOORS(m); },
+});
+
+// The walk to a drop spot, with the caller's movements (WALKS), bounded by
+// INVENTORY.walkMs, when the pathfinder is stopped (as Sleeper.walk). A walk
+// that fails or runs out is no error: the caller checks where she stands. Its
+// goal is cleared at the end while still active (a rejected goto can leave a
+// partial route running: review r1, Sol 2).
+async function walkTo(bot, spot, walk) {
+    let bounded = false;
+    const goal = new pf.goals.GoalBlock(spot.x, spot.y, spot.z);
+    const timer = setTimeout(() => { bounded = true; bot.pathfinder?.setGoal?.(null); }, INVENTORY.walkMs);
+    try {
+        await skills.goToGoal(bot, goal, WALKS[walk]);
+    } catch {
+        // where she ended is checked by the caller
+    } finally {
+        clearTimeout(timer);
+        if (bot.pathfinder?.goal === goal) bot.pathfinder.setGoal(null);
+        if (bounded) console.log(`[items] the walk to a drop spot ran out of its ${INVENTORY.walkMs} ms`);
+    }
 }
 
 // The owner's position when he is within INVENTORY.ownerRadius, else null.
@@ -198,10 +323,27 @@ export function ownerNear(bot, owner) {
 // The slot still holds what the operation planned (design §3, F-N8): a tier-0
 // stack the same item with at least the planned count (a contact pickup may
 // have merged into it), any other the same item with the planned count; and
-// it is not the live selected hotbar slot (R1-3: the server may select it).
+// it is not the live selected hotbar slot (the hand-off found no other slot,
+// or the server selected it since: R1-3).
 function stillThere(bot, op, item) {
     if (!item || item.name !== op.name || op.slot === heldSlot(bot)) return false;
     return op.whole ? item.count >= op.count : item.count === op.have;
+}
+
+// Junk in her hand (DECISIONS 2026-11-12): when a planned slot is the live
+// selected one, she selects the first empty hotbar slot, else the first that
+// holds no planned operation, else none (stillThere then skips that one
+// operation). Every operation is a toss of exactly its slot, so the stack she
+// then holds is never tossed by name (the old R1-1/R1-3 concern); the held-item
+// packet goes out before the window clicks, on the same connection.
+function handOff(bot, plan) {
+    const held = heldSlot(bot);
+    if (held === null || !plan.some(op => op.slot === held)) return;
+    const first = range(bot).end - 9;
+    const planned = new Set(plan.map(op => op.slot));
+    const hotbar = [...Array(9).keys()];
+    const to = hotbar.find(i => !bot.inventory.slots[first + i]) ?? hotbar.find(i => !planned.has(first + i));
+    if (to !== undefined) bot.setQuickBarSlot(to);
 }
 
 // Why no slot may be clicked now, or null: an item on the cursor (a one-slot
@@ -214,13 +356,16 @@ function busy(bot) {
 }
 
 // Removes the plan's slot operations where she stands: faces a free cardinal
-// (away from `awayFrom`), looks level at a point 3 blocks out at eye height,
-// waits 2 ticks (a forced look sends no packet of its own, so a toss could
-// otherwise fly the way she was looking: G1), records the drop point, then
-// one slot operation per toss, re-checked before each one. `current` is the
-// caller's currency, checked after the wait and between tosses. Non-throwing:
+// (away from `awayFrom`); with none and `walk` ('task' or 'idle': WALKS), walks
+// to the nearest drop spot first (findDropSpot), and only once she stands on
+// it plans again (`replan`, the caller's planner) and faces again; looks level at a point 3
+// blocks out at eye height, waits 2 ticks (a forced look sends no packet of
+// its own, so a toss could otherwise fly the way she was looking: G1), switches
+// her hand off a planned slot, records the drop point, then one slot operation
+// per toss, re-checked before each one. `current` is the caller's currency,
+// checked after the walk, after the wait and between tosses. Non-throwing:
 // {outcome: done | interrupted | unavailable | failed, removed: {name: count}, reason}.
-export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, current = () => true, now = Date.now } = {}) {
+export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, walk = false, replan = null, current = () => true, now = Date.now } = {}) {
     const removed = {};
     const halted = () => Boolean(bot.interrupt_code) || !current();
     const end = (outcome, reason = null) => {
@@ -229,13 +374,28 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
     };
     if (!plan.length) return end('done');
     try {
-        const facing = chooseFacing(bot, awayFrom, { avoid, never });
-        if (!facing) return end('unavailable', 'no free direction to drop into');
+        let facing = chooseFacing(bot, awayFrom, { avoid, never });
+        if (!facing && walk) {
+            const spot = findDropSpot(bot, { awayFrom, avoid, never });
+            if (!spot) return end('unavailable', NO_DIRECTION);
+            await walkTo(bot, spot, walk);
+            if (halted()) return end('interrupted');
+            // Only from the spot itself: a bounded or partial walk may have
+            // stopped anywhere (review r1, adversary D3).
+            if (!bot.entity.position.floored().equals(spot)) return end('unavailable', NO_DIRECTION);
+            // The walk may have used her blocks (scaffold), so the plan is made
+            // again from the live bag (review r1, Sol 1).
+            if (replan) plan = replan();
+            if (!plan.length) return end('done');
+            facing = chooseFacing(bot, awayFrom, { avoid, never });
+        }
+        if (!facing) return end('unavailable', NO_DIRECTION);
         const here = bot.entity.position.clone();
         const out = INVENTORY.throwBlocks;
         await bot.lookAt(here.offset(facing.dx * out, bot.entity.eyeHeight ?? 1.62, facing.dz * out), true);
         await bot.waitForTicks(INVENTORY.lookTicks);
         if (halted()) return end('interrupted');
+        handOff(bot, plan);
         const point = recordDropPoint(bot, here.offset(facing.dx * out, 0, facing.dz * out), now());
         for (const op of plan) {
             if (halted()) return end('interrupted');
@@ -256,12 +416,11 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
     }
 }
 
-// The largest stacks, for a blocked step's report.
-export function largestStacks(bot, k = 5) {
-    return bot.inventory.items()
-        .map(item => ({ name: item.name, count: item.count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, k);
+// The INVENTORY.keptShown largest items, totalled by name ("dirt 128, arrow
+// 32"): the kept-items note and a blocked step's inventory-full report.
+export function largestItems(bot) {
+    return Object.entries(world.getInventoryCounts(bot)).sort((a, b) => b[1] - a[1])
+        .slice(0, INVENTORY.keptShown).map(([name, n]) => `${name} ${n}`).join(', ');
 }
 
 // --- the idle cleanup (design §4, §6) ------------------------------------------------
@@ -280,7 +439,7 @@ export class Upkeep {
         this.passes = [];            // end times of passes that removed something
         this.capUntil = 0;           // the pass-cap hold
         this.stopUntil = 0;          // the owner-!stop hold
-        this.idleHold = null;        // {inv, pos, dim, at}: after a pass that removed nothing
+        this.idleHold = null;        // {inv, pos, dim, at, why}: after a pass that removed nothing, or no direction
         this.lastHostileAt = -Infinity;
         this.lastIdleAt = -Infinity; // the last normal action end (the resume gap)
         this.follow = null;          // {fn, name}: the pending follow's target, seen while it ran
@@ -351,7 +510,7 @@ export class Upkeep {
         if (this.policy.idle !== true) return 'off (work.inventory.idle)';
         if (now < this.stopUntil) return `held ${Math.ceil((this.stopUntil - now) / 60000)} min after a !stop`;
         if (now < this.capUntil) return `held ${Math.ceil((this.capUntil - now) / 60000)} min after ${INVENTORY.capPasses} passes in ${INVENTORY.capWindowMs / 60000} min`;
-        if (this.idleHold && !this.released(now)) return 'waiting: nothing to drop from here';
+        if (this.idleHold && !this.released(now)) return `waiting: ${this.idleHold.why}`;
         if (now - this.lastPassAt < INVENTORY.cooldownMs) return 'cooling down';
         return null;
     }
@@ -370,6 +529,13 @@ export class Upkeep {
 
     signature() {
         return JSON.stringify(world.getInventoryCounts(this.bot));
+    }
+
+    // The hold of a pass that removed nothing or found no direction, with why
+    // (F5: `!itemList` names the cause).
+    hold(now, why) {
+        const p = this.bot.entity.position;
+        this.idleHold = { inv: this.signature(), pos: { x: p.x, y: p.y, z: p.z }, dim: dimOf(this.bot), at: now, why };
     }
 
     // The admission (design §4): {follow, awayFrom} or null. Two admissions:
@@ -397,11 +563,11 @@ export class Upkeep {
             // A pending resume is due within the resume gap; a follow whose target is not visible re-runs every second (F-N2).
             if (actions.resume_func && now - this.lastIdleAt < INVENTORY.resumeGapMs && !(actions.resume_name === FOLLOW_LABEL && !target)) return null;
         }
-        // A bag of kept items is planned once per inventory, selected slot and
-        // task state, not every second (the needed items of a paused task cost
-        // world lookups); at most for the 5-minute retry (R1-4).
+        // A bag of kept items is planned once per inventory and task state,
+        // not every second (the needed items of a paused task cost world
+        // lookups); at most for the 5-minute retry (R1-4).
         const record = this.work.record;
-        const key = `${this.signature()}|${bot.quickBarSlot}|${record?.id}:${record?.status}:${record?.cursor}`;
+        const key = `${this.signature()}|${record?.id}:${record?.status}:${record?.cursor}`;
         if (this.emptyKey?.key === key && now - this.emptyKey.at < INVENTORY.retryMs) return null;
         const plan = this.plan();
         if (!plan.length) {
@@ -411,11 +577,13 @@ export class Upkeep {
         }
         this.emptyKey = null;
         const awayFrom = follow ? target.position : ownerNear(bot, this.work.owner());
-        // No free direction (never toward a follow's target): no launch, no cut (R1-8, R1-9),
-        // and the same hold as a pass that removed nothing, so it is not re-planned every second.
-        if (!chooseFacing(bot, awayFrom, { never: follow ? target.position : null })) {
-            const p = bot.entity.position;
-            this.idleHold = { inv: this.signature(), pos: { x: p.x, y: p.y, z: p.z }, dim: dimOf(bot), at: now };
+        // No free direction (never toward a follow's target): idle, a drop spot
+        // to walk to admits (the pass walks: DECISIONS 2026-11-12); following,
+        // no walk and no cut (R1-8, R1-9: the follow moves her anyway). Else the
+        // same hold as a pass that removed nothing, so it is not re-planned
+        // every second.
+        if (!chooseFacing(bot, awayFrom, { never: follow ? target.position : null }) && (follow || !findDropSpot(bot, { awayFrom }))) {
+            this.hold(now, NO_DIRECTION);
             return null;
         }
         // The turns a pass may run beside: only the one parked on the cut follow (R1-5).
@@ -429,9 +597,7 @@ export class Upkeep {
     // The bag is low on slots and nothing in it may go: the five largest kept
     // items, totalled by name, once per session.
     noteKept() {
-        const totals = world.getInventoryCounts(this.bot);
-        const kept = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, INVENTORY.keptShown);
-        this.tellOnce('kept', kept.map(([name, n]) => `${name} ${n}`).join(', '));
+        this.tellOnce('kept', largestItems(this.bot));
     }
 
     // Work.tick: samples the hostiles, then launches a pass when admitted.
@@ -500,7 +666,8 @@ export class Upkeep {
         if (!plan.length) return;
         let awayFrom = admitted.awayFrom;
         if (admitted.follow) awayFrom = this.followTarget()?.position ?? awayFrom;   // always away from the follow target (C-F3)
-        const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, current });
+        // While following no walk (the follow moves her anyway); idle she may walk to a drop spot, placing nothing.
+        const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, walk: admitted.follow ? false : 'idle', replan: () => this.plan(), current });
         const now = Date.now();
         const n = total(result.removed);
         this.log(`pass ${result.outcome}${result.reason ? ` (${result.reason})` : ''}: ${n ? `dropped ${summary(result.removed)}` : 'nothing dropped'}`);
@@ -515,8 +682,7 @@ export class Upkeep {
                 this.tellOnce('cap', { passes: INVENTORY.capPasses, window: INVENTORY.capWindowMs / 60000, hold: INVENTORY.capHoldMs / 60000 });
             }
         } else if (result.outcome !== 'interrupted') {
-            const p = bot.entity.position;
-            this.idleHold = { inv: this.signature(), pos: { x: p.x, y: p.y, z: p.z }, dim: dimOf(bot), at: now };
+            this.hold(now, result.reason === NO_DIRECTION ? NO_DIRECTION : 'nothing to drop from here');
         }
     }
 
@@ -530,7 +696,7 @@ export class Upkeep {
         const tiers = new Map();
         for (const name of Object.keys(policy.items)) {
             const keep = keepOf(bot, policy, name);
-            const tier = keep === Infinity ? 'Keep all' : keep === 0 ? 'Drop all' : `Keep ${keep}`;
+            const tier = keep === Infinity ? 'Keep all' : keep === 0 ? 'Drop all' : keep === 'slot' ? 'Keep 1 slot' : `Keep ${keep}`;
             if (!tiers.has(tier)) tiers.set(tier, []);
             tiers.get(tier).push(counts[name] ? `${name} ${counts[name]}` : name);
         }

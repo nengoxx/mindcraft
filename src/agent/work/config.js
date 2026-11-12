@@ -3,6 +3,9 @@
 // built code reads live here; a deferred mechanism's keys arrive with it (the
 // shelter, fit and build keys arrive with S3; the model keys are read by the
 // prompter and the outage module, outside src/agent/work/).
+const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan',
+    'purple', 'blue', 'brown', 'green', 'red', 'black'];
+
 export const WORK_DEFAULTS = Object.freeze({
     return_radius: 6,       // blocks from work_pos before the runner goes back
     stall_s: 15,            // idle seconds before the self-heal timer resumes (REQ-RES-10)
@@ -13,16 +16,24 @@ export const WORK_DEFAULTS = Object.freeze({
     max_obtain_count: 256,
     min_free_slots: 4,      // below this many free slots she drops surplus, in a task and when idle (REQ-OBT-11)
     // The item list (REQ-OBT-11): per item how many she keeps, 0 (junk: all
-    // dropped), a count, "stack" (its stack size) or "all" (never removed);
-    // anything not listed is kept. Merged by item name (mergeInventory). A new
-    // default needs the owner's approval: it makes a kept item disposable.
+    // dropped), a count, "stack" (its stack size), "slot" (one slot: the best
+    // stack, every other slot dropped) or "all" (never removed); anything not
+    // listed is kept. Merged by item name (mergeInventory). A new default needs
+    // the owner's approval: it makes a kept item disposable.
+    // The bow, crossbow, arrows, banners and ominous bottles are kept for the
+    // owner (she fights with melee): of a bow and of a crossbow only the best
+    // one stays (DECISIONS 2026-11-12, "best one, period"), of the banners and
+    // the ominous bottles the best slot (DECISIONS 2026-11-12 "One slot of the
+    // best": bottles of different strengths do not stack together).
     // `idle`: the idle cleanup on or off.
     inventory: Object.freeze({
         items: Object.freeze({
             rotten_flesh: 0, spider_eye: 0, gravel: 0, leaf_litter: 0, cobbled_deepslate: 0, andesite: 0,
             diorite: 0, granite: 0, tuff: 0, netherrack: 0, wheat_seeds: 0,
+            bow: 1, crossbow: 1,
             dirt: 'stack', cobblestone: 'stack', bone: 'stack', string: 'stack', phantom_membrane: 'stack',
-            arrow: 'stack', flint: 'stack', coal: 'stack',
+            arrow: 'stack', flint: 'stack', coal: 'stack', ominous_bottle: 'slot',
+            ...Object.fromEntries(COLORS.map(color => [`${color}_banner`, 'slot'])),
             gunpowder: 'all',
         }),
         idle: true,
@@ -44,8 +55,7 @@ export const WORK_DEFAULTS = Object.freeze({
         containers: Object.freeze(['chest', 'trapped_chest',
             ...['', 'exposed_', 'weathered_', 'oxidized_'].flatMap(age => [`${age}copper_chest`, `waxed_${age}copper_chest`]),
             'barrel', 'shulker_box',
-            ...['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan',
-                'purple', 'blue', 'brown', 'green', 'red', 'black'].map(color => `${color}_shulker_box`),
+            ...COLORS.map(color => `${color}_shulker_box`),
             'hopper', 'dispenser', 'dropper', 'furnace', 'blast_furnace', 'smoker', 'brewing_stand', 'crafter',
             'lectern', 'chiseled_bookshelf',
             ...['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo',
@@ -78,8 +88,8 @@ export const WORK_DEFAULTS = Object.freeze({
 // sub-key keeps the other defaults.
 const MERGED = new Set(['clear', 'tidy', 'sleep']);
 
-// An item's keep value: 0 or another non-negative safe integer, "stack" or "all".
-export const validKeep = value => value === 'stack' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
+// An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
+export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
 
 // REQ-OBT-11 (design r7 §2): work.inventory merged by item name over the
 // defaults, into fresh maps (the defaults are never mutated). The supplied

@@ -80,6 +80,22 @@ test('!blockPositions says when part of the range is not loaded, with or without
     assert.equal(blockPositions(bot, 'diamond_block', 5), 'No diamond_block within 5.'); // only loaded cells within 5
 });
 
+test('S2e-fu r2 (D4): goToGoal\'s stuck-door helper opens no door while the movements forbid doors', async () => {
+    const stuck = async configure => {
+        const world = new F.World();
+        world.fill(-3, 63, -3, 3, 63, 3, 'stone');
+        world.set(0, 64, 1, 'oak_door');
+        const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+        const opened = [];
+        bot.activateBlock = block => { opened.push(block.name); };
+        bot.hooks.goto = () => new Promise(resolve => setTimeout(() => resolve('moved'), 1800));   // stuck beside the door
+        await skills.goToGoal(bot, new pf.goals.GoalBlock(0, 64, 3), configure);
+        return opened;
+    };
+    assert.ok((await stuck()).includes('oak_door'), 'upstream: a stuck walk opens the door');
+    assert.deepEqual(await stuck(m => { m.canOpenDoors = false; }), []);
+});
+
 test('goToGoal applies configure to both of its Movements instances, after its own defaults', async () => {
     const bot = F.makeBot();
     bot.hooks.noPath = true; // both path searches run

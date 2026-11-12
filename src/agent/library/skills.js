@@ -1204,7 +1204,8 @@ function startDoorInterval(bot) {
             stuck_time += now - prev_check;
         }
         
-        if (stuck_time > 1200) {
+        // Fork carry (S2e-fu r2, D4): movements that forbid doors open none here either.
+        if (stuck_time > 1200 && bot.pathfinder?.movements?.canOpenDoors !== false) {
             // shuffle positions so we're not always opening the same door
             const positions = [
                 bot.entity.position.clone(),

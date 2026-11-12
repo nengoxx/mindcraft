@@ -303,7 +303,7 @@ Why (details in RESEARCH.md):
 | `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep, the bed pickup (S2d, `ownBed`) and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
 | `agent/work/tidy.js` | The tidy sweep `tidyNear` and its triggers' launch checks (REQ-OWN-7 … 9). | I1 (S2c) |
 | `agent/work/sleep.js` | Sleeping through the night (§7.9): `Sleeper` with `next()` (when she sleeps, what sleep may cut), the `mode:sleeping` routine (spot, placement, sleep, the guarded wake), the bed pickup in the routine and as `action:bed` from `Work.tick`, the in-memory night record and collection receipt, the owner lines. | I1 (S2d) |
-| `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where), the dropper `dropItems` (facing, the look fix, per-slot tosses) and its re-pickup guard `isGuardedJunk`, and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. | I1 (S2e) |
+| `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where; the best of a limited item stays), the dropper `dropItems` (facing over a one-block lip, the walk to a drop spot `findDropSpot`, the look fix, the hand off a held slot, per-slot tosses) and its re-pickup guard `isGuardedJunk`, `largestItems` (the kept note and the blocked report), and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. | I1 (S2e) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -342,7 +342,7 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
 | `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). | fork carry | I1 |
-| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -1245,19 +1245,29 @@ owner lines are `alert`s).
   items.** [I1] (S2e, part A.) Owner ruling: DECISIONS 2026-11-11 "Inventory
   upkeep (slice S2e, after S2d)". Design:
   `runtime/diagnostics/i1-build/junk-council/recommended-design.md` r7 §2–§6,
-  §8–§10, with the owner's answers in §11. Code removes only what the item list
+  §8–§10, with the owner's answers in §11. Follow-up S2e-fu (DECISIONS
+  2026-11-12 "After the S2e live trials"; design
+  `runtime/diagnostics/i1-build/s2efu/design.md` §1–§5, probe P16): junk in
+  her hand, the throw over a one-block lip, the walk to a drop spot, the kept
+  report, the new defaults and the best one kept. Code removes only what the item list
   makes disposable. (The owner approved using the bot as a disposable trash can
-  for common junk, W3b, and the list on 2026-11-11.)
+  for common junk, W3b, and the list on 2026-11-11 and 2026-11-12.)
   - **The item list.** `work.inventory.items` (§14) gives per item name how many
     she keeps: `0` (junk: all of it goes), a non-negative integer (that many
-    stay), `"stack"` (the item's registry stack size) or `"all"` (never removed;
+    stay), `"stack"` (the item's registry stack size), `"slot"` (one slot: the
+    best stack stays, every other slot of the item goes) or `"all"` (never removed;
     it also overrides a default). Anything not listed is kept. A profile writes
     only the items it changes: the list merges by item name over the defaults
     (`work/config.js` `mergeInventory`, into fresh maps; the defaults are never
     mutated). Defaults: `0` for rotten_flesh, spider_eye, gravel, leaf_litter,
     cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds;
-    `"stack"` for dirt, cobblestone, bone, string, phantom_membrane, arrow,
-    flint, coal; `"all"` for gunpowder. Any new default needs the owner's
+    `1` for bow and crossbow; `"stack"` for dirt, cobblestone, bone, string,
+    phantom_membrane, arrow, flint, coal; `"slot"` for ominous_bottle and the
+    16 `<color>_banner`s (only these: bottles of different strengths, and a
+    patterned banner beside a plain one, do not stack together; owner ruling
+    2026-11-12 "One slot of the best"); `"all"` for gunpowder. The bow,
+    crossbow, arrows, banners and ominous bottles are kept for the owner (she
+    fights with melee; owner rulings 2026-11-12). Any new default needs the owner's
     approval (it makes a kept item disposable).
   - **Fail safe.** `loadWorkConfig` checks the supplied structure (`inventory`
     and `items` objects, not null or arrays; `idle` a boolean) and every entry
@@ -1269,33 +1279,87 @@ owner lines are `alert`s).
   - **What may go.** Never an unlisted or `"all"` item, never one needed by
     any live, paused or blocked task (`work.neededItems()`, which has no status
     check, so a cancelled or failed task's remaining items stay protected until
-    the next task: the safe direction), never equipped: armour and the offhand
-    are outside the 36 slots used, and the selected hotbar slot is never a
-    source (its count still counts toward the keep).
+    the next task: the safe direction), never armour or the offhand (outside
+    the 36 slots used). The selected hotbar slot is a source like any other:
+    junk in her hand is junk, and she switches her hand off it before dropping
+    it (owner ruling 2026-11-12, S2e trials F4).
   - **One planner, one dropper** (`work/inventory.js`). `planRemoval(bot,
     policy, { needed, minFree })` returns slot operations `[{ slot, name,
     count }]`, what to remove and never where (the seam a chest destination,
-    part B, adds to). Order: every tier-0 stack, whole; then each limited
-    item's surplus as whole stacks smallest first within its budget; a
-    remainder below a whole stack comes from the smallest stack left and may
-    free no slot, so it never counts toward `minFree` (phantom membrane 64 +
-    55, keep 64 → the 55 stack; keep 100 → 19 from the 55). The planner
-    simulates the freed slots; the caller re-reads the real free slots.
-    `dropItems(bot, plan, { awayFrom, avoid, never, current })` removes them
+    part B, adds to). Order: every tier-0 stack, whole; then per limited
+    item, for a `"slot"` item every slot but its best (highest worth, then the
+    larger count, then the later slot), each whole; for a counted item its
+    surplus as whole stacks smallest first, then lowest worth, then by
+    slot, within its budget; a remainder below a whole stack comes from the
+    first stack left in that order and may free no slot, so it never counts
+    toward `minFree` (phantom membrane 64 + 55, keep 64 → the 55 stack; keep
+    100 → 19 from the 55). Worth is the sum of the enchantment levels
+    (`item.enchants`) and an ominous bottle's amplifier (the 26.1
+    `ominous_bottle_amplifier` component, a varint, read as
+    `componentMap.get(…).data`; absent = 0; checked offline through the
+    protocol's slot codec), then the durability left (`maxDurability -
+    durabilityUsed`), 0 for items with none of them; an unreadable enchantment list
+    counts as none. So of the bows and of the crossbows exactly the best one
+    stays, enchanted or not ("the best one, period", owner ruling 2026-11-12;
+    P16 read the durability live, enchantments on this version are unprobed),
+    and of the ominous bottles the slot of the highest amplifier, of a banner
+    the largest stack.
+    The planner simulates the freed slots; the caller re-reads the real free slots.
+    `dropItems(bot, plan, { awayFrom, avoid, never, walk, current })` removes them
     where she stands: a cardinal free from her feet to her eyes for 3 blocks
     (free = not a liquid and no collision box more than half a block above her
     feet, so short grass, leaf litter and cave air are free, and so are a floor
     lower than a full block, a path, farmland, soul sand, mud, a bottom slab or
     a carpet, the grass edge beside a path and a slab ahead: S2e review R1-7;
-    the toss leaves 1.32 up, P15). Never a direction toward
+    the toss leaves 1.32 up, P15). In her feet row a block whose collision top
+    is at most one block (`INVENTORY.lipHeight`) above her feet is a lip she
+    throws over, as a player can (owner ruling 2026-11-12, S2e trials F2;
+    P16: from a pit one deep the toss cleared the lip at distance 1 on all four
+    sides and landed 1.8–3.2 blocks out on the surface). The lip must start at
+    distance 1 (her pit's edge, and the ground beyond it at 2 and 3): a face 2
+    or 3 out behind an open cell keeps the half-block rule, because a low toss
+    can hit it and fall back into contact reach (S2e-fu review r1, adversary
+    D2, a vanilla toss simulation). A fence or wall (1.5
+    up) still blocks, and so does any block in the rows above that is more than
+    half a block above her feet, so a pit two deep finds no direction. Never a direction toward
     `never` (a follow's target); among the rest the first, most opposite
     `awayFrom`, that is toward neither `awayFrom` nor `avoid` (in a task the
-    owner within 16), else the most opposite; none: no drop (`unavailable`).
+    owner within 16), else the most opposite. With none and `walk` set, she
+    walks to a drop spot first (`findDropSpot`: the nearest cell within 5
+    blocks horizontally, `INVENTORY.walkRadius`, and from 1 below to 3 above
+    her feet that is standable, a full cube below and the feet and head cells
+    passable and not a liquid, and from which a direction is free; nearest
+    horizontally, then vertically, then by the cardinal order; never toward
+    `never`), with `goToGoal(GoalBlock)` under movements that never dig (no
+    terrain or build damage), chosen by the caller: in a task (`walk:
+    'task'`) she may tower and scaffold (the ledger records those placements
+    as S2c's scaffold and the task-end tidy takes them back, as on any task
+    path); idle (`walk: 'idle'`) she places nothing either (the sleep
+    routine's `NO_DIG`), because an idle pass has no tidy trigger and she
+    leaves no pathfinder blocks behind (owner ruling 2026-11-11, clearing), so
+    an idle walk that needs a tower fails and the pass holds. Neither walk
+    opens a door or gate (`canOpenDoors` false: nothing would close it behind
+    her; review r1, D4; `goToGoal`'s stuck-door helper honours it, the
+    skills.js carry, review r2). The walk is bounded by 15 s (`INVENTORY.walkMs`,
+    when the pathfinder is stopped, as the sleep routine's walks), and its goal
+    is cleared at the end while still active (a rejected `goto` can leave a
+    partial route running; review r1, Sol 2). Then the currency is checked;
+    she drops only when she stands in the spot's cell (a bounded or partial
+    walk may stop anywhere; D3); the plan is made again from the live bag
+    (`replan`, the caller's planner: the walk may have used her blocks as
+    scaffold; Sol 1); and the facing is chosen again. No direction (with no
+    spot, off the spot after the walk, or without `walk`): no drop
+    (`unavailable`, "no free direction nearby").
     She looks level (pitch 0) at a point 3 blocks out at her
     eye height, waits 2 ticks and re-checks before the first toss (the look
     fix: a forced `bot.lookAt` sends no packet of its own, so a toss could fly
-    the way she was already looking, G1). Each slot operation is one toss of
-    exactly that slot (`bot.transfer` from that slot to −999), re-checked
+    the way she was already looking, G1). Then, when a planned slot is the
+    live selected hotbar slot, she selects (`bot.setQuickBarSlot`) the first
+    empty hotbar slot, else the first holding no planned operation, else none
+    (the held operation is then skipped); the held-item packet goes out before
+    the window clicks on the same connection. Each slot operation is one toss of
+    exactly that slot (`bot.transfer` from that slot to −999), so a toss can
+    never take the stack she then holds by name; each is re-checked
     right before it: a tier-0 stack needs the same item with at least the
     planned count (a contact pickup may have merged into it) and goes whole,
     any other the same item with the planned count, and neither the live
@@ -1303,8 +1367,8 @@ owner lines are `alert`s).
     anything else is skipped for the next pass. Nothing is clicked with an
     item on the cursor (a one-slot transfer would swap it in and toss it as a
     leftover) or a container window open (the click would act on it): the
-    pass ends `unavailable`. Interrupt and currency checks run after the wait
-    and between tosses. She stands still afterwards (no walk). Outcomes carry the
+    pass ends `unavailable`. Interrupt and currency checks run after the walk,
+    after the wait and between tosses. She stands still afterwards. Outcomes carry the
     counts removed per name: `done`, `interrupted`, `unavailable`, `failed`;
     every expected failure is a returned outcome, never a throw. Console
     `[items]` lines; `behavior_log` "Dropped junk.".
@@ -1334,11 +1398,31 @@ owner lines are `alert`s).
     runner's `ensureFreeSlots` plans with the task's needed items and drops,
     with no model call, where she stands before she moves to the work, facing
     away from the work position and, among those directions, not toward the
-    owner within 16 blocks (design r7 §3). If the slots refill during the same step, the
+    owner within 16 blocks (design r7 §3); with no free direction there she
+    walks to the nearest drop spot first (`walk`). If the slots refill during the same step, the
     drop runs again, at most twice (`progress.junk_drops`). If it cannot reach
-    the minimum (also with no free facing, or a bad item list), the step
-    blocks with a fact report naming the five largest stacks; the clear step
-    digs on. Never a chest walk in a task.
+    the minimum (also with no free direction nearby, or a bad item list), the
+    step blocks with a fact report: with a bad item list (removal off)
+    "inventory full: 3 free slots, 4 needed; my item list has an error
+    (rotten_flesh: "none"); largest: …"; else when the re-planned removal is
+    empty (nothing on the list may go), "inventory full of things I keep: 3
+    free slots, 4 needed; kept or needed by this task: dirt 64, arrow 32, …"
+    (the task's needed items are not removed either; review r1, Sol 3, D10);
+    else "inventory full: 3 free slots, 4 needed (no free direction nearby);
+    largest: dirt 128, …" (the drop's reason in brackets when it did not
+    finish). Each names the five largest items, totalled by name
+    (`largestItems`, shared with the kept note). The reason carries only
+    these facts (the step result, the task view and the owner's blocked-again
+    line show it); the blocked report to the model adds, for the kept
+    variant, "Tell the owner your bag is full of things you keep or need for
+    this task; do not discard kept items unless he names them.", and for the other
+    inventory-full variants "Do not discard kept items unless the owner names
+    them." (`report.js` `INVENTORY_KEPT`, `isInventoryFull`, on the heads the
+    runner builds the reasons with; owner ruling 2026-11-12, S2e trials F3:
+    the list decides, never the model, and she tells the owner; review r1, D1).
+    `!discard` is not refused: the owner's own
+    command keeps working, and his "throw this too" stays a one-off `!discard`.
+    The clear step digs on. Never a chest walk in a task.
   - **Idle cleanup** (`action:items`, `work.inventory.idle`, default true).
     `Work.tick` checks it after the bed reconcile and before its active-task
     guard; a pass runs as a quiet, non-resumable action with no model call
@@ -1357,22 +1441,26 @@ owner lines are `alert`s).
       follow resumes by the existing idle resume (about 1 s later, keeping "no
       timeout", §4.2). She always faces away from the follow target, never
       toward it (re-read at the pass's entry); with no such direction free
-      the follow is not cut. Only this label is cut; any other running action blocks. The turn that started the
+      the follow is not cut, and a pass while following never walks (the
+      follow moves her anyway). Only this label is cut; any other running action blocks. The turn that started the
       follow stays open while it runs, so the turn count ignores the one turn
       whose recorded action is the running follow.
     Both need: removal enabled and free slots below `work.min_free_slots`, a
-    non-empty plan (an empty one is remembered per inventory, selected slot
-    and task state for at most 5 minutes, so a bag of kept items is not
-    re-planned every second) and a free direction to drop into (no launch
-    without one); no task running (`status === 'active'`) and no open
+    non-empty plan (an empty one is remembered per inventory and task state
+    for at most 5 minutes, so a bag of kept items is not re-planned every
+    second) and a free direction to drop into or, idle, a drop spot to walk
+    to (the pass walks there; no launch without either, and the hold below
+    says "no free direction nearby"); no task running (`status === 'active'`) and no open
     owner question (a paused or blocked task does not exclude it; its needed
     items stay protected); the goal stopped (`isStopped()`: neither active nor
     paused); no message turn in flight (every `agent.handleMessage` call,
     counted synchronously on entry in the S2c turn wrapper); no stop in
     progress, no mode running and no hostile within 16 blocks for 5 s; not
-    held: 30 s since the last pass; a pass that removed nothing is not retried
-    until the inventory or her position (> 8 blocks) changes, or 5 minutes
-    pass (the config changes only with a restart); an owner `!stop` during a
+    held: 30 s since the last pass; a pass that removed nothing, or an
+    admission with no direction, is not retried until the inventory or her
+    position (> 8 blocks) changes, or 5 minutes pass (the config changes only
+    with a restart), and the hold records why: "nothing to drop from here" or
+    "no free direction nearby" (S2e trials F5); an owner `!stop` during a
     pass holds the cleanup 10 minutes; a 4th pass that removed something
     within 10 minutes holds it 10 minutes and tells the owner once: "I've
     cleaned my bag 4 times in 10 minutes, so I'm pausing that for 10
@@ -1380,7 +1468,7 @@ owner lines are `alert`s).
     generation at admission and re-checks them, with the task, question and
     goal conditions, the hostile check (16 blocks, 5 s) and the message-turn
     count (only the turn parked on a cut follow may stay open), at entry,
-    after the tick wait and between tosses, so a stop, an owner message, a
+    after a walk, after the tick wait and between tosses, so a stop, an owner message, a
     hostile or a new turn ends a pending or running pass. Anything cuts a
     pass (modes, commands, `!stop`, owner messages, sleep: REQ-SLP-2); a mode
     that cuts it prompts no model call. A pass cut before it removed anything
@@ -2644,8 +2732,9 @@ About 13 tools in all.
   probed only when enabled.
 - **REQ-SAFE-7 No automatic discarding** [I1] of anything the item list does
   not make disposable: never an unlisted or `"all"` item, one a live, paused
-  or blocked task needs, or an equipped one (the selected hotbar slot, armour,
-  the offhand); a bad item list turns automatic removal off (REQ-OBT-11).
+  or blocked task needs, or worn armour or the offhand; she switches her hand
+  off junk before dropping it (S2e-fu, owner ruling 2026-11-12); a bad item
+  list turns automatic removal off (REQ-OBT-11).
 - **REQ-SAFE-8** [I4] Discovery never loots, breaks supports or enters traps; finding
   creatures never harms them (REQ-FIND-14, REQ-FIND-19).
 - **REQ-SAFE-9** [I1] Danger: the resume check, the modes and the death rule (§7).
@@ -2695,7 +2784,7 @@ About 13 tools in all.
 | `work.build.max_foundation` | 3 | Foundation depth. | E1 |
 | `work.build.material_margin` | — | Extra material in the bill. | open (OQ-7) |
 | `work.min_free_slots` | 4 | Below this many free inventory slots she drops the item list's surplus: before a step that needs free slots, and when idle or following (REQ-OBT-11). | W3b (owner); S2e (owner, 2026-11-11) |
-| `work.inventory.items` | `0`: rotten_flesh, spider_eye, gravel, leaf_litter, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds; `"stack"`: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal; `"all"`: gunpowder | Per item name how many she keeps (`0`, a count, `"stack"` or `"all"`); unlisted items are kept. Merged by item name over the defaults; a bad structure, value or name turns automatic removal off, told once (REQ-OBT-11). A new default needs the owner's approval. S2e. | W3b (owner); owner (2026-11-11); junk council r7 |
+| `work.inventory.items` | `0`: rotten_flesh, spider_eye, gravel, leaf_litter, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds; `1`: bow, crossbow; `"stack"`: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal; `"slot"`: ominous_bottle, the 16 `<color>_banner`s; `"all"`: gunpowder | Per item name how many she keeps (`0`, a count, `"stack"`, `"slot"` (the best stack's slot) or `"all"`); unlisted items are kept; of a limited item the best stays (REQ-OBT-11). Merged by item name over the defaults; a bad structure, value or name turns automatic removal off, told once (REQ-OBT-11). A new default needs the owner's approval. S2e; bow, crossbow, ominous_bottle and the banners S2e-fu. | W3b (owner); owner (2026-11-11, 2026-11-12); junk council r7 |
 | `work.inventory.idle` | true | The idle cleanup (`action:items`) on or off; tasks use the list either way (REQ-OBT-11). S2e. | owner (2026-11-11); junk council r7 |
 | `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
 | `work.model_timeout_s` | 600 | OpenAI client timeout (REQ-RES-17). S2b. | clear council; main-seat ruling R7 (2026-11-11) |
@@ -2734,7 +2823,9 @@ look point and drop point, the 2-tick wait after the look, the guard's
 the two re-runs per step, the idle cleanup's 16-block hostile radius and 5 s
 quiet, 30 s between passes, 3 s resume gap, 5-minute and 8-block retry of a
 pass that removed nothing, 10-minute `!stop` hold, the cap of 4 passes in 10
-minutes and its 10-minute hold, and the five kept items named; the resume check's hostile radius 8 (the same as
+minutes and its 10-minute hold, and the five kept items named; from S2e-fu
+the one-block lip (`lipHeight`, P16), the 5-block walk radius (`walkRadius`;
+1 below to 3 above her feet) and the 15 s walk bound (`walkMs`); the resume check's hostile radius 8 (the same as
 `self_defense`); the task view cap of 700 characters; the step result cap of 160
 characters; the DSL cap of 1,000 characters; the scaffold block (dirt) and the
 scaffold reserve (4 per 5-level lift above the first). From S2b: the outage
@@ -3175,24 +3266,57 @@ Recorded, not built:
     cleanup (only the owner's raw `!stop` holds it, 10 minutes); the hold
     arms only while a pass runs (well under a second), so it is nearly
     unreachable (S2e review ruling 3, as contracted);
-  - in a 1×1 pit or a stair tunnel no direction is free, so the in-task drop
-    fails and the step blocks "inventory full" (design r7 §3; MED by
-    consequence). The old drop tossed anyway, but there the items fell at her
-    feet and contact pickup took them back, so it failed in practice too
-    (S2e review A4);
+  - in a 1×1 pit she throws over a one-block lip, and deeper or in a stair
+    tunnel she walks to the nearest drop spot (S2e-fu); with no spot within 5
+    blocks and 1 down to 3 up (a deep shaft, a long tunnel) the in-task drop
+    still fails and the step blocks "inventory full (no free direction
+    nearby)" (design r7 §3, S2e-fu §2);
+  - the lip is allowed only where it starts at distance 1; live, only a lip at
+    distance 1 was probed (P16). In the review r2 toss simulation every
+    allowed feet-row shape landed 1.57 blocks out or more (lip/lip/lip
+    1.57–3.34, lip/lip/open and lip/open/open 1.57–4.02); the blocked
+    open-then-lip case landed 1.17–1.37 out, inside reach, and lip/open/lip
+    is blocked though it would have been safe (1.57–3.34);
+  - indoors, with no direction free, she may walk a block or two inside a
+    small room and throw across its floor (S2e already throws onto any free
+    floor in front of her; review r1, D4);
+  - `never` in `findDropSpot` is unreached in production (a follow does not
+    walk); kept, harmless (review r1, D5);
+  - curse enchantments count toward worth like any other level, so a cursed
+    bow can outrank a fresh plain one (review r1, D9);
+  - test holes, not built (review r1, D6): the walk timer's `clearTimeout`,
+    the empty-plan key, the radius shape (Euclidean), `never` in the spot's
+    facing, and the vertical lower bound (−1) are not pinned by a mutant-killing
+    test;
+  - the fixture's collect leaves her inside a log column, so one existing
+    test now walks onto a canopy; whether collectBlock does that live is for
+    the live trials (review r1, C26);
+  - a drop spot is chosen by the cells only, not by a path: a task walk may
+    tower or scaffold up to 3 blocks (tidied at task end); an idle walk places
+    nothing, so from a pit two deep or more it cannot reach the rim, fails and
+    holds ("no free direction nearby") until she moves, the bag changes or 5
+    minutes pass, and the retry fails the same way; a walk that ends off the
+    spot drops nothing and leaves her where she stopped; an owner message during
+    the walk (up to 15 s) is seen only after it; a `!stop` interrupts it;
+  - enchantments on this version are unprobed live (P16 had no enchanted
+    item): the best-kept order reads prismarine-item's `enchants`, and an
+    unreadable list counts as none (durability then decides);
+  - the ominous bottle's amplifier was read offline through the 26.1 codec,
+    not live through ViaProxy;
+  - a banner's "best" is its largest stack: patterns are not ranked, so a
+    single patterned banner beside a larger plain stack goes (the owner was
+    told; left as is, his call);
   - a server pickup refilling the one source slot during a partial transfer
     can swap with a foreign item and toss it (needs a pickup in the same
     tick); the cursor is checked before each transfer, not inside
     Mineflayer's (S2e review, adversary gap 4; LOW);
   - an exception from the needed items inside the admission is logged every
     second (S2e review, adversary gap 5; LOW);
-  - the "full of things I keep" note counts every slot, armour included;
+  - the "full of things I keep" note and the inventory-full report count
+    every slot `getInventoryCounts` counts, armour included;
   - an open container or a stuck cursor is found only inside the pass: it ends
     `unavailable` and holds, `!itemList` then says "nothing to drop from here",
     and a task step blocks "inventory full" (S2e review r2, adversary N2; LOW);
-  - the empty-plan cache keys on counts and the selected slot, not the slot
-    layout: an equip that swaps junk out of the held slot waits up to the
-    5-minute expiry (adversary N3; LOW);
   - the no-progress hold (also set when no direction is free, or a follow's
     target stands on her) lifts on an inventory change, her own move > 8
     blocks or 5 minutes, not on a world change (a door opened): a free
@@ -3368,7 +3492,7 @@ How every kind of interaction is handled. "—" means not applicable.
 | Beds | owner's `!goToBed` text command only; in designs replaced by full blocks | — | yaw-dependent blocks |
 | Crafting table, furnace | resolver places and picks up its own; carried forward as `station` entries whenever a new task replaces the record (REQ-BLD-22); from S2c kept as `station` entries in the placements ledger (REQ-OWN-1) | I1, I5 | — |
 | Chests | `!putInChest`/`!takeFromChest` (text in I1, tools from I2) | I1 | authorised deposit chest (Surv) |
-| Full inventory | the item list's surplus dropped with no model call, in a task and when idle or following (S2e); else a task blocks with the five largest stacks | I1 | chest destination (S2e part B) |
+| Full inventory | the item list's surplus dropped with no model call, in a task and when idle or following (S2e), over a one-block lip or after a short walk out of a pit (S2e-fu); else a task blocks naming the five largest items (or "full of things I keep") and asks the owner | I1 | chest destination (S2e part B) |
 | Owner's builds and containers | protected; may serve as a `solid` cell | I1 | — |
 | Villages and other structures | found, recognised, protected; never looted | I4 | — |
 | Hostile mobs | modes defend/flee; resume check | I1 | health gate, night shelter (Surv); combat steps out of scope |

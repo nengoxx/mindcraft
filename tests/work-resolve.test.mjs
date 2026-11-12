@@ -198,7 +198,13 @@ test('the item_collecting mode, which calls pickupNearbyItems, skips the junk to
     assert.ok(bot.entities[junk.id]);
 });
 
-test('a refill re-runs the drop at most twice; then the step blocks with the five largest stacks', async () => {
+// S2e-fu §3 (DECISIONS 2026-11-12, trials F3; S2e-fu r1, adversary D1): the
+// blocked report tells the model this; the reason itself does not.
+const KEPT_ASK = 'Tell the owner your bag is full of things you keep or need for this task; do not discard kept items unless he names them.';
+const NO_DISCARD = 'Do not discard kept items unless the owner names them.';
+const blockedTurn = agent => agent.turns.find(t => /is blocked/.test(t.content))?.content ?? '';
+
+test('a refill re-runs the drop at most twice; then the step blocks with the five largest items', async () => {
     const bot = fullBot();
     for (let i = 0; i < 7; i++) F.tree(bot.world, 10 + i * 3, 64, 5, 5);
     F.player(bot);
@@ -212,10 +218,10 @@ test('a refill re-runs the drop at most twice; then the step blocks with the fiv
     await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
     assert.equal(agent.work.record.status, 'blocked');
     assert.equal(agent.work.record.plan[0].progress.junk_drops, 3); // the first drop and two re-runs
-    assert.match(agent.work.record.reason, /^inventory full: \d free slots, 4 needed; largest stacks: (\w+ \d+, ){4}\w+ \d+$/);
+    assert.match(agent.work.record.reason, /^inventory full: \d free slots, 4 needed; largest: (\w+ \d+, ){4}\w+ \d+$/);
 });
 
-test('when the minimum cannot be reached the step blocks; nothing off the list is discarded', async () => {
+test('when nothing on the list may go the step blocks naming what she keeps, and the report asks for the owner; nothing off the list is discarded (S2e-fu §3)', async () => {
     const inventory = {};
     const names = ['diamond', 'iron_ingot', 'oak_sapling', 'bread', 'apple', 'torch', 'bone', 'string', 'feather', 'flint', 'leather', 'paper', 'book', 'arrow', 'stick', 'oak_planks', 'birch_planks', 'spruce_planks', 'coal', 'charcoal', 'egg', 'wheat', 'sugar', 'gold_ingot', 'copper_ingot', 'emerald', 'lapis_lazuli', 'redstone', 'glass', 'sand', 'clay_ball', 'brick', 'bowl'];
     for (const name of names) inventory[name] = name === 'diamond' ? 64 : 3;
@@ -229,9 +235,105 @@ test('when the minimum cannot be reached the step blocks; nothing off the list i
     agent.work.startTask('logs', 'obtain item=oak_log count=2');
     await F.until(() => agent.work.record.status !== 'active');
     assert.equal(agent.work.record.status, 'blocked');
-    assert.match(agent.work.record.reason, /largest stacks: diamond 64, /);
+    // S2e-fu r1 (adversary D10): the totals may hold the task's needed items too.
+    const reason = 'inventory full of things I keep: 3 free slots, 4 needed; kept or needed by this task: diamond 64, iron_ingot 3, oak_sapling 3, bread 3, apple 3';
+    assert.equal(agent.work.record.reason, reason, 'the reason carries only the facts');
+    assert.equal(agent.work.record.plan[0].result, reason.slice(0, 160));
+    await F.until(() => blockedTurn(agent));
+    assert.ok(blockedTurn(agent).includes(`${reason}. ${KEPT_ASK} `), 'the blocked report, for the model, says to tell the owner');
+    // The owner's line for a step blocked again keeps the facts only.
+    assert.equal(F.modules.report.blockedAgainLine(1, reason), `Step 1 blocked again: ${reason}.`);
+    // Any other block's report does not ask.
+    const other = { objective: 'logs', plan: agent.work.record.plan, reason: 'no oak_log within 64 blocks', goal: null };
+    assert.equal(F.modules.report.blockedReport(other, null, bot).includes('Ask the owner'), false);
     assert.equal(bot.calls.some(c => c[0] === 'toss'), false);
     assert.equal(W.TASK_ACTIVE.length > 0, true);
+});
+
+// A pit `depth` deep at her cell (0, 64, 0), stone from y 63 to 63 + depth within 3; two trees further out.
+function pitWorld(depth) {
+    const world = new F.World();
+    world.fill(-3, 63, -3, 3, 63 + depth, 3, 'stone');
+    for (let y = 64; y <= 63 + depth; y++) world.set(0, y, 0, 'air');
+    F.tree(world, 10, 64, 0, 5);
+    F.tree(world, 13, 64, 2, 5);
+    return world;
+}
+
+test('S2e-fu §2: in a task in a pit two deep she walks to the nearest drop spot (never digging), drops there, and the step goes on', async () => {
+    const bot = F.makeBot({ world: pitWorld(2), position: [0.5, 64, 0.5] });
+    bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'pitwalk', work: { stall_s: 0.05 } });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    stops.push(F.drive(agent));
+    const walks = [];
+    bot.hooks.goto = goal => {
+        const m = bot.pathfinder.movements;
+        walks.push({ at: bot.calls.length, goal: [goal.x, goal.y, goal.z], canDig: m.canDig, towers: m.allow1by1towers, scaffold: m.scafoldingBlocks.length > 0 });
+    };
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    const firstToss = bot.calls.findIndex(c => c[0] === 'toss');
+    assert.ok(firstToss >= 0);
+    assert.deepEqual(walks[0], { at: walks[0].at, goal: [0, 66, 1], canDig: false, towers: true, scaffold: true }, 'a task walk: no digging, towers and scaffold (task-end tidy)');
+    assert.ok(walks[0].at < firstToss, 'the walk before the drop');
+    assert.equal(bot.count('gravel'), 0);
+});
+
+test('S2e-fu §2, §3: in a task with no drop spot within reach the step blocks with the drop\'s reason', async () => {
+    const bot = F.makeBot({ world: pitWorld(6), position: [0.5, 64, 0.5] });
+    bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'pitstuck', replies: [''] });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'blocked');
+    const reason = 'inventory full: 3 free slots, 4 needed (no free direction nearby); largest: dirt 640, cobblestone 512, gravel 192, andesite 128, oak_sapling 16';
+    assert.equal(agent.work.record.reason, reason);
+    await F.until(() => blockedTurn(agent));
+    assert.ok(blockedTurn(agent).includes(`${reason}. ${NO_DISCARD} `), 'junk left, only the place failed: no "tell the owner"');
+    assert.equal(bot.calls.some(c => c[0] === 'toss' || c[0] === 'goto'), false);
+});
+
+test('S2e-fu r1 (Sol 3): a bad item list blocks with the list error under the ordinary prefix, never as "things I keep"', async () => {
+    const bot = fullBot();
+    F.player(bot);
+    const agent = F.makeAgent({ bot, name: 'badlist', replies: [''], work: { inventory: { items: { rotten_flesh: 'none' } } } });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    agent.work.startTask('logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active');
+    const reason = 'inventory full: 3 free slots, 4 needed; my item list has an error (rotten_flesh: "none"); largest: dirt 640, cobblestone 512, gravel 192, andesite 128, oak_sapling 16';
+    assert.equal(agent.work.record.reason, reason);
+    await F.until(() => blockedTurn(agent));
+    assert.ok(blockedTurn(agent).includes(`${reason}. ${NO_DISCARD} `));
+    assert.equal(bot.calls.some(c => c[0] === 'toss'), false);
+});
+
+test('S2e-fu r1 (Sol 1): in a task the drop re-plans after its walk: scaffold taken from the kept stack is not tossed again', async () => {
+    const bot = F.makeBot({ world: pitWorld(2), position: [0.5, 64, 0.5] });
+    const dirt = F.registry.itemsByName.dirt;
+    bot.inventory.slots[9] = { name: 'dirt', count: 64, type: dirt.id, stackSize: 64 };
+    bot.inventory.slots[10] = { name: 'dirt', count: 20, type: dirt.id, stackSize: 64 };
+    while (bot.inventory.emptySlotCount() > 3) bot.give('oak_planks', 64);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'pitreplan', replies: [''] });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    bot.hooks.goto = () => { bot.inventory.slots[9].count -= 2; };   // the pathfinder towers with the first dirt stack
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => bot.calls.some(c => c[0] === 'toss') && agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.deepEqual(bot.calls.filter(c => c[0] === 'toss').map(c => [c[1], c[2]]), [['dirt', 18]]);
+    assert.equal(bot.count('dirt'), 64);
 });
 
 test('a step whose target is already met finishes on a nearly full bag; it does not block on slots (S2e trials F1)', async () => {

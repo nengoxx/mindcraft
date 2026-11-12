@@ -50,8 +50,9 @@ const LIQUIDS = ['water', 'lava', 'bubble_column'];
 const falls = name => ['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'].includes(name) || Boolean(name?.endsWith('_concrete_powder'));
 const BESIDE = [[0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]];
 const UP = new Vec3(0, 1, 0);
-// Every walk: no digging, no towers, no scaffold (S8).
-const NO_DIG = m => {
+// Every walk: no digging, no towers, no scaffold (S8). Also the idle item
+// cleanup's walk (inventory.js).
+export const NO_DIG = m => {
     m.canDig = false;
     m.allow1by1towers = false;
     m.scafoldingBlocks = [];

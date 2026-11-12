@@ -146,6 +146,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.interrupt_code = false;
     bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, eyeHeight: 1.62, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
     bot.quickBarSlot = 0;   // the selected hotbar slot: inventory slot 36
+    bot.setQuickBarSlot = i => { bot.calls.push(['hotbar', i]); bot.quickBarSlot = i; };   // mineflayer inventory.js: the held_item_slot packet
     bot.players = {};
     bot.entities = {};
     bot.heldItem = null;

@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -41,6 +41,11 @@ then S2e (inventory upkeep, DECISIONS 2026-11-11), then S3.
 the shared planner and dropper, the idle cleanup) is built offline; probe P15
 ran live the same day and kept the design's values (§4). Part B (the chest)
 is parked until his word after S2e's trials.
+
+**Status (2026-11-12, evening):** S2e was deployed and trialled (ISSUES "S2e
+live trials"); the owner ruled on its findings (DECISIONS 2026-11-12 "After
+the S2e live trials"). The follow-up slice S2e-fu (junk in her hand, the pit,
+the kept report, the list) is built offline; its live trials come next.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -81,6 +86,12 @@ nothing the owner can see is retired.
     all), the shared drop for tasks, and dropping the surplus by herself when
     idle or following (DECISIONS 2026-11-11 "Inventory upkeep (slice S2e,
     after S2d)"); part B, a chest instead of dropping, waits for the owner.
+  - S2e-fu: after the S2e trials, junk in her hand is dropped, she throws
+    over a one-block lip or walks out of a deeper pit to drop, a bag full of
+    kept items is reported as such for the owner, and the list keeps the best
+    bow and crossbow, and one slot (the best) of banners and of ominous
+    bottles (DECISIONS 2026-11-12 "After the S2e live trials", "One slot of
+    the best").
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -830,6 +841,70 @@ add the protected-block diff. Interventions: target 0.
 - **Not in S2e.** The chest (part B, design §7); a manual `!cleanItems`;
   walking to a pile; any change to the clear step beyond the shared dropper.
 
+#### S2e-fu — Inventory upkeep follow-up
+
+- **Goal.** The S2e trials' findings F2–F5 fixed as the owner ruled: junk in
+  her hand is junk (she switches her hand off it); from a pit one deep she
+  throws over the lip, from a deeper one she walks to the nearest open spot
+  within a few blocks; a bag full of kept items is reported as such and the
+  model tells the owner instead of picking kept items to discard; the list
+  keeps the best bow and crossbow (every other one goes) and one slot of the
+  best of banners and of ominous bottles (a new list value, `"slot"`). (Owner rulings: DECISIONS 2026-11-12 "After the S2e
+  live trials (follow-up slice S2e-fu)", "One slot of the best". Design:
+  `runtime/diagnostics/i1-build/s2efu/design.md` §1–§5; probe P16,
+  `runtime/diagnostics/i1-build/s2efu/p16-live-20261112.md`: the throw over a
+  one-block lip and her weapons' item data.)
+- **SPEC.** §9.4 REQ-OBT-11 (the held slot, the lip, the walk, the kept
+  report, the best-kept order, the new defaults, the hold's reason);
+  REQ-SAFE-7; §5.2 (`work/inventory.js`); §14 (`work.inventory.items`, the new
+  `INVENTORY` constants); §16.
+- **Files.** `src/agent/work/inventory.js` (`planRemoval` takes the held slot
+  and orders by worth; `chooseFacing` with the lip and a `from` position;
+  `findDropSpot`; `dropItems`' `walk` and hand-off; `largestItems` replaces
+  `largestStacks`; `Upkeep`'s admission, hold reason and walk flag);
+  `runner.js` (`ensureFreeSlots`: `walk: 'task'`, the kept report);
+  `report.js` (`INVENTORY_FULL`, `isInventoryFull`: the blocked report's ask);
+  `sleep.js` (`NO_DIG` exported for the idle walk); `config.js` (the new
+  defaults).
+- **Offline tests.** `tests/work-inventory.test.mjs`: the held slot as a
+  source and the hand-off (empty slot first, then an unplanned one, the skip
+  case); the lip (one deep open, a fence and a wall blocked, two deep
+  blocked, the rows above unchanged); `findDropSpot` (nearest first, never
+  toward a follow target, standability, the vertical range and the radius);
+  the walk's movements per caller (a task may tower and scaffold, idle places
+  nothing), bound, failure and currency; the idle admission with no
+  direction (a spot admits and the pass walks, a walk that fails or no spot
+  holds with its reason, never while following); `largestItems`; the best-kept order (worn
+  against fresh, enchanted against plain, an unreadable list); the new
+  defaults. `tests/work-resolve.test.mjs`: the kept and inventory-full
+  reasons (facts only), the bad-list reason, and the blocked report's line
+  for the model, the walk out of a two-deep pit in a task, and the
+  block with the drop's reason when there is no spot. Review round 1 (the
+  `S2e-fu r1` tests): the re-plan after a walk (in the dropper, the idle
+  pass and a task), the walk's goal cleared after a rejected `goto`, no drop
+  off the spot, a lip only from distance 1, no door opened by either walk.
+- **Live acceptance** (design §6; bot invincible, uncoached):
+  1. Junk in hand: with a junk item selected and the bag below 4 free slots,
+     the pass drops it (she switches hand).
+  2. A one-deep pit: `!collectBlocks dirt` until she stands in a pit with
+     surplus; the drop goes over the lip.
+  3. A two-deep pit, in a task: she walks (towering if needed) to the nearest
+     open spot and drops there. Idle in a two-deep pit she places no blocks,
+     so she holds with "no free direction nearby" (DECISIONS 2026-11-12 "Idle
+     in a deeper pit").
+  4. A task with a bag full of kept items: the blocked report names them as
+     kept, the model tells the owner the bag is full of things she keeps or
+     needs for the task and does not discard.
+  5. The list: of her 5 bows and 4 crossbows she keeps the least-worn bow
+     (164/384 used) and crossbow (330/465), when a pass runs.
+  6. One slot of the best: ominous bottles of different strengths in three
+     slots keep only the strongest slot; two stacks of one banner colour keep
+     the larger.
+  - Pass: 0 model calls for the cleanup, nothing off the list dropped.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in S2e-fu.** The chest (part B, parked); adding items to the list
+  from chat; any refusal of `!discard`.
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
@@ -1177,6 +1252,7 @@ The bot's inventory is stale, so ask the owner for each kit before its slice:
 | P13 | Pathfinder placement tell | S2c (first; done 2026-11-10) | A temporary listener logged `blockPlaced`, the planned `toPlace` cells, nearby `blockUpdate`s and `blockAt` after each placement while the bot pillared up twice through `!goToCoordinates`. Results in the private diagnostics folder (`clear-council/clutter/live-probe/`): tell A held on 24 of 24 placements; `newBlock` was air on 23 of 24; about 3 events per cell; false positives not exercised. | REQ-OWN-3 |
 | P14 | Sleep through ViaProxy | S2d (first; done 2026-11-11) | With a bed the owner gave and a spot he agreed to, at night: place the bed from a stand cell (halves, facing against yaw), `bot.sleep`, the `sleep`/`wake` events, when the night skips with one sleeper, the server's sleep text, breaking the foot (drop, pickup). Results in the private diagnostics folder (`sleep-council/p14-live-20261111.md`): `bot.sleep` works through ViaProxy and the night skipped about 3 s after she lay down (she was the only player online; one sleeper skipping with others awake is the owner's statement). `bot.wake()` timing not measured yet (SPEC §16). | REQ-SLP-3, 4 |
 | P15 | Item toss through ViaProxy | S2e (before its deploy; done 2026-11-12: `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) | The toss direction with and without the 2-tick wait: G1 confirmed (without it the toss flies the way she looked before); with it a level toss 3 blocks out at eye height lands 3.1–3.2 blocks ahead on flat ground (2.38 onto a one-block step, a direction the facing rule excludes); standing still she picked nothing up in 6 s; an operator Stop/Start rereads the profile (`main.js:76-78`). The design's values hold. Not probed (the S2e trials cover them): an obstacle within 3 blocks (excluded by the facing rule), the guard against `pickupNearbyItems` (offline tests), and the one-slot `bot.transfer` path with whole-stack tosses through ViaProxy (P15 tossed with `bot.toss`). | REQ-OBT-11 |
+| P16 | A throw out of a one-deep pit; her weapons' item data | S2e-fu (before its build; done 2026-11-12: `runtime/diagnostics/i1-build/s2efu/p16-live-20261112.md`) | From a pit one deep (walls at foot height on all four sides, eye cells open) the level toss 3 out at eye height, after the 2-tick wait, cleared the lip at distance 1 in all four directions and landed 1.84–3.15 blocks out on the surface; nothing picked up in 7 s. Her 5 bows and 4 crossbows read `durabilityUsed`/`maxDurability` correctly, all with `enchants=[]`; no enchanted item was available, so `enchants` on an enchanted item of this version is unprobed. | REQ-OBT-11 |
 
 ## 5. Design experiment protocol (DX)
 
