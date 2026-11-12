@@ -34,10 +34,16 @@ function ground() {
 // `bot.hooks.placeBed` may throw (a refusal). bot.sleep lies her down (its
 // hook may throw first); with `skip`, the night skips `skipMs` later: the
 // time jumps to the next morning and the server wakes her. bot.wake gets her
-// up 5 ms later (`wakes: false`: never). Digging either half removes both
-// and drops one bed at the foot (`drops: false`: none); a walk ending within
-// 1.5 blocks of a dropped item takes it (contact pickup).
-function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, drops = true, headMs = 5 } = {}) {
+// up 5 ms later (`wakes: false`: never); the server stands her up at
+// `bot.hooks.wakeAt` if set (live: beside the bed). Digging either half
+// removes both and drops one bed at the head, as the server does (`drops:
+// false`: none); `bot.hooks.dropRest` may move it `restMs` later (live: it
+// slides up to ~1.5 blocks); it cannot be picked up before it rests (the
+// server's pickup delay). Contact pickup takes an item touching her box
+// grown by 1 block sideways (|dx|, |dz| <= 1.425) after a walk or when it
+// comes to rest. A walk does not move when her cell already meets the goal
+// (the pathfinder's start check).
+function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, drops = true, headMs = 5, restMs = 20 } = {}) {
     bot.time = { ...time };
     bot.isSleeping = false;
     const place = bot.placeBlock;
@@ -67,6 +73,7 @@ function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, 
             if (!bot.isSleeping) return;
             bot.time = { timeOfDay: 23, day: bot.time.day + 1 };
             bot.isSleeping = false;
+            if (bot.hooks.wakeAt) bot.entity.position = bot.hooks.wakeAt.clone();
             bot.emit('wake');
         }, skipMs);
     };
@@ -83,20 +90,30 @@ function bedServer(bot, { time = NIGHT, skip = true, skipMs = 30, wakes = true, 
         const other = block.position.offset(x * s, 0, z * s);
         if (bot.world.block(other).name === block.name) bot.setBlock(other.x, other.y, other.z, 'air');
         if (drops) {
-            const foot = p.part === 'foot' ? block.position : other;
+            const head = p.part === 'head' ? block.position : other;
             const id = 9000 + bot.calls.length;
-            bot.entities[id] = { id, name: 'item', type: 'object', position: foot.offset(0.5, 0.2, 0.5), getDroppedItem: () => ({ name: block.name, count: 1 }) };
+            const item = { id, name: 'item', type: 'object', position: head.offset(0.5, 0.2, 0.5), pickableAt: Infinity, getDroppedItem: () => ({ name: block.name, count: 1 }) };
+            bot.entities[id] = item;
+            setTimeout(() => {
+                if (bot.hooks.dropRest && bot.entities[id]) item.position = bot.hooks.dropRest(item.position);
+                item.pickableAt = 0;
+                touch();
+            }, restMs);
         }
     };
-    bot.hooks.goto = async goal => {
-        if (goal.x === undefined) return null;
-        bot.entity.position = new F.Vec3(goal.x + 0.5, goal.y, goal.z + 0.5);
+    const touch = () => {
+        const me = bot.entity.position;
         for (const e of Object.values(bot.entities)) {
-            if (e.name !== 'item' || e.position.distanceTo(bot.entity.position) > 1.5) continue;
+            if (e.name !== 'item' || e.pickableAt || Math.abs(e.position.x - me.x) > 1.425 || Math.abs(e.position.z - me.z) > 1.425 || Math.abs(e.position.y - me.y) > 1) continue;
             const { name, count } = e.getDroppedItem();
             bot.give(name, count);
             delete bot.entities[e.id];
         }
+    };
+    bot.hooks.goto = async goal => {
+        if (goal.x === undefined) return null;
+        if (!goal.isEnd?.(bot.entity.position.floored())) bot.entity.position = new F.Vec3(goal.x + 0.5, goal.y, goal.z + 0.5);
+        touch();
         return 'moved';
     };
 }
@@ -390,6 +407,43 @@ test('the head half arriving after the placement resolves (its own update) is wa
     assert.equal(night(agent).tries ?? 0, 0, 'no failed try');
     assert.deepEqual(calls(bot, 'dig').map(c => c[2]), [at(0, 64, 1).toString()], 'dug once, after the sleep');
     assert.equal(bot.count('black_bed'), 1);
+});
+
+test('the drop out of reach where she wakes is walked to and taken (live night 474: up beside the head, the bed slid off)', async () => {
+    const agent = setup({ server: { restMs: 60 } });
+    const { bot } = agent;
+    // Bed foot (0,64,1), head (0,64,2) facing south; she stands up west of the head,
+    // and the item, first seen in the head cell, comes to rest 1.7 blocks east of her.
+    bot.hooks.wakeAt = new F.Vec3(-0.5, 64, 2.5);
+    bot.hooks.dropRest = () => new F.Vec3(1.22, 64, 1.53);
+    await F.until(() => night(agent).done && !agent.work.sleeper.running, { timeout: 4000 });
+    assert.equal(night(agent).why, 'slept');
+    assert.equal(bot.count('black_bed'), 1, 'taken back, not lost');
+    assert.equal(agent.work.sleeper.receipt, null);
+    assert.equal(agent.chats.some(c => /lost my bed/.test(c)), false);
+});
+
+test('a drop that slides on past reach of its first cell is followed by a second walk; a cell she cannot reach is walked to once, then the bed is lost', async () => {
+    const agent = setup({ server: { restMs: 60 } });
+    const { bot } = agent;
+    bot.hooks.wakeAt = new F.Vec3(-0.5, 64, 2.5);
+    bot.hooks.dropRest = () => new F.Vec3(2.6, 64, 0.4);   // 2.1 blocks past the head cell's centre
+    const walks = [];
+    const goto = bot.hooks.goto;
+    bot.hooks.goto = async goal => { if (goal.constructor.name === 'GoalBlock') walks.push(`${goal.x},${goal.y},${goal.z}`); return goto(goal); };
+    await F.until(() => night(agent).done && !agent.work.sleeper.running, { timeout: 4000 });
+    assert.equal(bot.count('black_bed'), 1, 'taken back');
+    assert.deepEqual(walks.slice(-2), ['0,64,2', '2,64,0'], 'into the head cell, then after the drop');
+    // A drop she cannot reach: one walk into its cell, no repeat, then lost.
+    SLEEP.cooldownMs = 5000;
+    const second = setup({ name: 'sleep-unreachable', server: { restMs: 60 } });
+    second.bot.hooks.wakeAt = new F.Vec3(-0.5, 64, 2.5);
+    second.bot.hooks.dropRest = () => new F.Vec3(3.5, 64, 4.5);   // inside dropRadius
+    const tried = [];
+    second.bot.hooks.goto = async goal => { if (goal.constructor.name === 'GoalBlock') tried.push(`${goal.x},${goal.y},${goal.z}`); return 'moved'; };
+    await F.until(() => night(second).done && !second.work.sleeper.running, { timeout: 4000 });
+    assert.equal(second.bot.count('black_bed'), 0);
+    assert.deepEqual(tried.slice(-2), ['0,64,2', '3,64,4'], 'each cell once');
 });
 
 test('the bed entry is own by mode:sleeping and is in the file before bot.sleep (the synchronous flush)', async () => {
@@ -890,6 +944,7 @@ test('a soft refusal (someone on the bed) retries later; a receipt is closed whe
     for (const id of Object.keys(bot.entities)) if (bot.entities[id].username === 'alex') delete bot.entities[id];
     delete bot.players.alex;
     await F.until(() => bot.count('black_bed') === 1, { timeout: 4000 });
+    await idle(agent);
     // Receipts, directly.
     const sleeper = agent.work.sleeper;
     sleeper.receipt = { pos: { x: 9, y: 64, z: 9 }, dim: 'overworld', item: 'black_bed', at: Date.now(), count: 0 };

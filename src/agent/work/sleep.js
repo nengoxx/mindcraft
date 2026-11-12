@@ -29,7 +29,8 @@ export const SLEEP = {
     walkMs: 10000,        // every walk of the routines is bounded by this
     pollMs: 500,          // in bed
     dropRadius: 5,        // the dropped bed is looked for this close to the bed
-    dropWaitMs: 1000,     // for the drop to appear, and for the pickup after the walk
+    dropWaitMs: 1000,     // for the drop to appear, and for the pickup after each walk
+    collectWalks: 3,      // walks into the drop's cell, following it if it slides
     receiptMs: 300000,    // an item's life: a receipt older than this is a lost bed
     freeSlots: 2,         // Work.tick launches a pickup only with this many free slots (junk design §5)
     pickupSlots: 1,       // the pickup itself needs the bed's own slot (inside the routine too)
@@ -758,13 +759,19 @@ export class Sleeper {
         };
         const until = Date.now() + SLEEP.dropWaitMs;
         while (!back() && !this.halted() && !this.drop(r) && Date.now() < until) await wait(50);
-        if (!back() && !this.halted()) {
+        // Into the drop's own cell: contact pickup reaches about a block past
+        // her body, and a goal within 1 block is often met where she wakes, so
+        // she never moved and the bed slid out of reach (live 2026-11-12). Again
+        // while it lies in another cell: it slides after it lands.
+        let last = null;
+        for (let i = 0; i < SLEEP.collectWalks && !back() && !this.halted(); i++) {
             const item = this.drop(r);
-            if (item) {
-                const p = item.position.floored();
-                await this.walk(new pf.goals.GoalNear(p.x, p.y, p.z, 1));
-                await settle();
-            }
+            if (!item) break;
+            const p = item.position.floored();
+            if (last?.equals(p)) break;   // it has not moved since the last walk
+            last = p;
+            await this.walk(new pf.goals.GoalBlock(p.x, p.y, p.z));
+            await settle();
         }
         if (back()) {
             this.receipt = null;
