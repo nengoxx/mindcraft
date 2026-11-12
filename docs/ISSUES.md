@@ -117,6 +117,12 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Operator: the proxy after a server restart, 2026-11-12
+
+| Finding | Effect | Idea |
+|---|---|---|
+| The server shut down while she was connected (`multiplayer.disconnect.server_shutdown`, 11:01 local, after 45 min online) and came back on its own. The agent had given up ("exited too quickly"); `restart-agent` does nothing then (it goes to the dead agent's socket), but `start-agent` does. Her login then failed every time in the still-running ViaProxy (`ERROR IN Protocol26_2To26_1 IN REMAP OF LOGIN 0x02`, `readerIndex(24) + length(8) exceeds writerIndex(24)`; the bot says "[LoginGuard] Version Mismatch") although the server still reported 26.3 (protocol 777). A full operator Stop/Start (a fresh proxy) logged her in at once. | She stays offline after a server restart until someone restarts the operator. | Cause in the proxy unknown (state kept across the server's restart). Recovery: full Stop/Start. Whether the operator should retry by itself is the owner's call. |
+
 ### S2d fix slice, 2026-11-12 (probes and F1 fix)
 
 Two live probes with temporary logging in Mineflayer's placement plugin (untracked
