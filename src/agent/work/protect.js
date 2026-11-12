@@ -10,6 +10,12 @@ const NATURAL_NAMES = new Set(natural.names);
 const NATURAL_SUFFIXES = natural.suffixes;
 const TREE_MAX_LOGS = 40;        // REQ-SAFE-4: the upward search bound
 const TREE_COMPONENT_MAX = 64;   // REQ-SAFE-4: the component cap (dark oaks reach about 50)
+// REQ-OWN-4, the component guard: a component of old scaffold larger than this
+// is lapsed (measured: an uncached 40-block component added 18 ms per A*
+// search, 160 blocks 110 ms). A constant, not a key.
+const SCAFFOLD_COMPONENT_MAX = 64;
+const GUARD_MEMO_MS = 50;        // a guard verdict holds until a block or entry change, or one game tick
+const EMPTY_OR_LIQUID = ['air', 'cave_air', 'void_air', 'water', 'lava', 'bubble_column'];
 
 export function isLogName(name) {
     return name.endsWith('_log') && !name.startsWith('stripped_');
@@ -55,6 +61,7 @@ export class Protector {
         this.treeMemo = null;
         this.componentMemo = null;
         this.running = false;
+        this.guardMemo = null;   // {generation, at, verdicts}: the component guard's verdicts (REQ-OWN-4)
     }
 
     // The tree test is memoized per position inside a run only (REQ-SAFE-3),
@@ -95,7 +102,9 @@ export class Protector {
             if (scope.granted(block.position, name)) return false;
             if (scope.containers.has(name)) return true;
         }
-        if (recorded) return !this.exempt(recorded, inBox);
+        // REQ-OWN-4: a lapsed old scaffold entry falls through to the default
+        // predicate, as an unrecorded block (its record is kept).
+        if (recorded && !this.lapsed(recorded, inBox)) return !this.exempt(recorded, inBox);
         if (isLeavesName(name)) return !naturalLeaves(block);
         if (isLogName(name)) return !this.isNaturalTree(block);
         // A task-layer harvesting policy, not owner property: inside a task run
@@ -104,6 +113,88 @@ export class Protector {
         // clear step digs buried ores inside its box (REQ-SAFE-1, REQ-CLR-5).
         if (name.endsWith('_ore')) return this.running && !inBox ? !this.isExposed(block) : false;
         return !isNaturalBlockName(name);
+    }
+
+    // --- the component guard (REQ-OWN-4) ---------------------------------------
+
+    // A scaffold entry that lived through a gap (`gap_at`: a restart, an
+    // unload) is the bot's inside an active clear box, and outside one only
+    // while its component stands free; otherwise it is lapsed.
+    lapsed(entry, inBox) {
+        return entry.kind === 'scaffold' && entry.gap_at != null && !inBox && !this.standsFree(entry);
+    }
+
+    // The same verdict for the tidy helpers (ledger.scaffoldEligible's `gap`).
+    gapHers(entry) {
+        return Boolean(this.scope()?.inBox(entry.pos)) || this.standsFree(entry);
+    }
+
+    // A component of old scaffold (face-connected live `scaffold` entries with
+    // `gap_at`, block still matching) stands free when every face neighbour of
+    // every member is loaded and is empty or liquid, a member, her live
+    // matching same-session scaffold (no `gap_at`), or natural by the default
+    // predicate's own tests (logs and leaves only through the tree and canopy
+    // tests, never by name: a log build around her pillar lapses it). An
+    // `own`, `building` or `station` neighbour lapses it, whatever its
+    // material (kept dirt is not terrain, S4): `own` holds owner-kept
+    // scaffold (fix wave 1, D3: the safe
+    // direction against design §8b's "any non-scaffold entry"). More than
+    // SCAFFOLD_COMPONENT_MAX members: lapsed. The verdict, and the tree and
+    // canopy answers behind it (never the run's memos, S1), are memoized per
+    // component until the ledger's next block or entry change, or one game tick.
+    standsFree(entry) {
+        const ledger = this.ledger;
+        const now = Date.now();
+        if (!this.guardMemo || this.guardMemo.generation !== ledger.generation || now - this.guardMemo.at >= GUARD_MEMO_MS)
+            this.guardMemo = { generation: ledger.generation, at: now, verdicts: new Map(), tree: new Map(), component: new Map() };
+        const memo = this.guardMemo.verdicts;
+        const start = new Vec3(entry.pos.x, entry.pos.y, entry.pos.z);
+        const startKey = posKey(start);
+        if (memo.has(startKey)) return memo.get(startKey);
+        const recordedAt = (pos, block) => {
+            const e = ledger.get(pos);
+            return e && e.block === block.name ? e : null;
+        };
+        const members = new Map([[startKey, start]]);
+        let free = true;
+        for (let i = 0, queue = [start]; i < queue.length && free; i++) {
+            for (const [dx, dy, dz] of FACES) {
+                const next = queue[i].offset(dx, dy, dz);
+                const key = posKey(next);
+                if (members.has(key)) continue;
+                const block = this.bot.blockAt(next);
+                if (!block) { free = false; break; }   // not loaded: unknown
+                const other = recordedAt(next, block);
+                if (other?.kind === 'scaffold' && other.gap_at != null) {
+                    if (members.size >= SCAFFOLD_COMPONENT_MAX) { free = false; break; }
+                    members.set(key, next);
+                    queue.push(next);
+                    continue;
+                }
+                // A matching own, building or station entry lapses it whatever
+                // its material: kept dirt or stone is not terrain (S4).
+                if (other) {
+                    if (other.kind === 'scaffold') continue;
+                    free = false;
+                    break;
+                }
+                if (EMPTY_OR_LIQUID.includes(block.name) || this.isNatural(block, this.guardMemo)) continue;
+                free = false;
+                break;
+            }
+        }
+        // Every member found belongs to the one component, so the verdict is theirs.
+        for (const key of members.keys()) memo.set(key, free);
+        return free;
+    }
+
+    // Natural by the default predicate's own tests (an ore by its name), with
+    // the guard's own tree memos.
+    isNatural(block, memos) {
+        const name = block.name;
+        if (isLeavesName(name)) return naturalLeaves(block);
+        if (isLogName(name)) return this.isNaturalTree(block, memos);
+        return isNaturalBlockName(name);
     }
 
     // REQ-OWN-2, the kinds stated once: `station` and live `scaffold` are exempt
@@ -135,15 +226,16 @@ export class Protector {
     // leaves touch its side; a log build under a canopy touches its planks,
     // door, glass or torches. There is no ground condition: a felled trunk
     // stays a tree.
-    isNaturalTree(block) {
-        const memo = this.treeMemo ?? new Map();
+    // `memos` ({tree, component}): the caller's memos instead of the run's
+    // (the component guard keeps its own, invalidated with its verdicts).
+    isNaturalTree(block, { tree = this.treeMemo, component = this.componentMemo } = {}) {
+        const memo = tree ?? new Map();
         const budget = { left: TREE_MAX_LOGS, exhausted: false };
         const start = block.position.floored ? block.position.floored() : new Vec3(block.position.x, block.position.y, block.position.z);
-        return this.reachesCanopy(start, block.name, memo, budget) && this.isBareTree(start, block.name);
+        return this.reachesCanopy(start, block.name, memo, budget) && this.isBareTree(start, block.name, component);
     }
 
-    isBareTree(start, name) {
-        const memo = this.componentMemo;
+    isBareTree(start, name, memo = this.componentMemo) {
         const startKey = posKey(start);
         if (memo?.has(startKey)) return memo.get(startKey);
         const logs = new Map([[startKey, start]]);
@@ -198,6 +290,11 @@ function* around(pos) {
 export function isProtectedForBot(bot, block) {
     const guard = guards.get(bot);
     return Boolean(guard && block && guard.protector.isProtected(block));
+}
+
+// The bot's Protector, or null when no work layer runs (the tidy sweep's guard).
+export function protectorFor(bot) {
+    return guards.get(bot)?.protector ?? null;
 }
 
 // --- the Movements.prototype.safeToBreak patch ---------------------------------

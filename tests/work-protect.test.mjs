@@ -268,7 +268,7 @@ test("the bot's own crafting table, in the persisted ledger, is collectable afte
     agent.work.startTask('walk', 'go_to target=40,64,0');
     assert.equal(await skills.placeBlock(agent.bot, 'crafting_table', 3, 64, 0), true);
     agent.work.ledger.flush();
-    const entry = F.readLedger(agent).entries[0];
+    const entry = F.ledgerEntries(agent)[0];
     assert.deepEqual({ ...entry, at: 0 }, { pos: { x: 3, y: 64, z: 0 }, block: 'crafting_table', kind: 'station', by: null, dim: 'overworld', at: 0 });
     agent.work.dispose();
     agent.bot.interrupt_code = true;

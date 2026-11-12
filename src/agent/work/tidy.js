@@ -3,8 +3,9 @@ import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { digCell, eyeDistance, REACH } from './dig.js';
 import { ledgerFor } from './ledger.js';
-import { isNaturalBlockName } from './protect.js';
+import { isNaturalBlockName, protectorFor } from './protect.js';
 import { tidyLine } from './report.js';
+import { chatShown } from './chat.js';
 
 // Tidying the bot's own scaffold (SPEC §11.10, REQ-OWN-7 … 10): the sweep
 // `tidyNear`, one function for every trigger, removes the live scaffold
@@ -42,6 +43,9 @@ const vec = p => new Vec3(p.x, p.y, p.z);
 const dimOf = bot => bot.game?.dimension ?? 'overworld';
 const grounded = bot => Boolean(bot.entity?.onGround);
 const hostileNear = bot => Boolean(world.getNearestEntityWhere(bot, e => mc.isHostile(e), TIDY_HOSTILE_RADIUS));
+// REQ-OWN-4: which old (gap) scaffold is still the bot's, for
+// ledger.scaffoldEligible: the Protector's component guard.
+const guardOf = bot => ({ gap: entry => Boolean(protectorFor(bot)?.gapHers(entry)) });
 
 // The cells under the bot's hitbox footprint (x ± 0.3, z ± 0.3 at its feet).
 function footprint(bot) {
@@ -93,7 +97,7 @@ function pillarTop(bot, ledger, under, want) {
     if (cells.some(c => c.x !== x || c.z !== z)) return null;
     for (const c of cells) {
         const entry = ledger.entryAt(c);
-        if (entry.kind !== 'scaffold' || entry.removing || entry.removed_at || !want(entry)) return null;
+        if (!ledger.scaffoldEligible(entry, guardOf(bot)) || !want(entry)) return null;
     }
     const ys = cells.map(c => c.y);
     const support = bot.blockAt(new Vec3(x, Math.min(...ys) - 1, z));
@@ -115,8 +119,9 @@ function freeAbove(bot, pos) {
 function candidates(bot, ledger, dim, want) {
     const found = [];
     for (const entry of ledger.list()) {
-        if (entry.kind !== 'scaffold' || entry.removing || entry.removed_at || entry.dim !== dim || !want(entry)) continue;
+        if (entry.kind !== 'scaffold' || entry.dim !== dim || !want(entry)) continue;
         if (eyeDistance(bot, entry.pos) > REACH || bot.blockAt(vec(entry.pos))?.name !== entry.block) continue;
+        if (!ledger.scaffoldEligible(entry, guardOf(bot))) continue;
         found.push(entry);
     }
     return found.sort((a, b) => b.pos.y - a.pos.y || eyeDistance(bot, a.pos) - eyeDistance(bot, b.pos));
@@ -174,7 +179,8 @@ export async function tidyNear(bot, { only_by = null, now = Date.now } = {}) {
     const veto = (entry, pillar) => {
         const why = stop();
         if (why) return why;
-        if (ledger.get(entry.pos) !== entry || entry.kind !== 'scaffold' || !want(entry) || bot.blockAt(vec(entry.pos))?.name !== entry.block) return 'changed';
+        if (ledger.get(entry.pos) !== entry || !want(entry) || bot.blockAt(vec(entry.pos))?.name !== entry.block) return 'changed';
+        if (!ledger.scaffoldEligible(entry, guardOf(bot))) return 'changed';   // kept by the owner, or no longer hers (REQ-OWN-4)
         if (pillar) {
             const top = pillarTop(bot, ledger, standingOn(bot, ledger), want);
             return top && key(top) === key(entry.pos) ? null : UNDER;
@@ -300,10 +306,11 @@ export class Tidy {
         }
     }
 
-    // One sweep, for every trigger: logged (REQ-OBS-4) and announced
-    // (REQ-OWN-10). The line reports only blocks left for a reason of their
-    // own; a sweep that removed nothing and left nothing for such a reason
-    // (ended by a hostile, a bound, the ground) says nothing.
+    // One sweep, for every trigger: logged (REQ-OBS-4) and its line posted
+    // (REQ-OWN-10): always into history, to chat as `detail` (REQ-CHAT-1). The
+    // line reports only blocks left for a reason of their own; a sweep that
+    // removed nothing and left nothing for such a reason (ended by a hostile,
+    // a bound, the ground) says nothing.
     async run(trigger, { only_by = null } = {}) {
         const result = await tidyNear(this.bot, { only_by, now: this.work.now });
         const removed = result.removed.map(key).join(' ');
@@ -312,9 +319,10 @@ export class Tidy {
             `left ${result.left.length}${left ? `: ${left}` : ''}${result.ended ? `; ended: ${result.ended}` : ''}`);
         const cells = result.left.filter(l => l.cell);
         result.line = result.removed.length || cells.length ? tidyLine({ removed: result.removed, left: cells }) : null;
-        if (result.line && this.config.announce && !result.interrupted) {
-            this.work.postReport(result.line);
-            result.announced = true;
+        if (result.line && !result.interrupted) {
+            result.posted = true;
+            result.said = chatShown(this.agent, 'detail');
+            this.work.postReport(result.line, { category: 'detail' });
         }
         return result;
     }
@@ -330,12 +338,14 @@ export class Tidy {
         }, { timeout: -1 }).catch(err => console.error('[work] could not start the tidy sweep:', err));
     }
 
-    // Live or pending scaffold within reach that passes `want`.
+    // Live or pending scaffold within reach that passes `want` (old scaffold
+    // only while the component guard says it is the bot's, REQ-OWN-4).
     within(want = () => true) {
         const bot = this.bot;
         const dim = dimOf(bot);
-        const live = this.ledger.list().filter(e => e.kind === 'scaffold' && !e.removing && !e.removed_at);
-        return [...live, ...this.ledger.attempts.values()].filter(e => e.dim === dim && want(e) && eyeDistance(bot, e.pos) <= REACH);
+        const near = e => e.dim === dim && want(e) && eyeDistance(bot, e.pos) <= REACH;
+        const live = this.ledger.list().filter(e => e.kind === 'scaffold' && near(e) && this.ledger.scaffoldEligible(e, guardOf(bot)));
+        return [...live, ...[...this.ledger.attempts.values()].filter(near)];
     }
 
     modeScaffold() {
@@ -430,14 +440,17 @@ export class Tidy {
     }
 
     // 3. !tidy: the same sweep as action:tidy; refused while a task is live.
-    // Returns the line when it was not announced (an empty sweep, announce off).
+    // REQ-OWN-10: a posted line is already in history, so a !tidy in her own
+    // turns returns nothing then; in the owner's turn, typed by him or issued
+    // by the model for his words (fix wave 1, G2), it returns the line
+    // whenever the chat line was not said. A sweep with no line answers as before.
     async command() {
         if (this.work.hasLiveTask()) return 'A task is running; I tidy when it ends.';
         let result = null;
         const code = await this.agent.actions.runAction('action:tidy', async () => { result = await this.run('!tidy'); }, { timeout: -1 });
         if (code.interrupted || result?.interrupted) return;
         if (!result) return code.message;
-        if (result.announced) return;
+        if (result.posted) return !result.said && this.work.turnVoice() === 'owner' ? result.line : undefined;
         return result.line ?? (result.ended ? `Nothing tidied (${result.ended}).` : 'No scaffold of mine within reach.');
     }
 

@@ -1,7 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { isDeepStrictEqual } from 'node:util';
 import { getCommand, containsCommand } from '../commands/index.js';
 import settings from '../settings.js';
+import convoManager from '../conversation.js';
 import { loadWorkConfig } from './config.js';
+import { chatMode, chatShown } from './chat.js';
 import { recordPath, loadRecord, saveRecord, newRecord, newStep, setStatus, isTerminal } from './record.js';
 import { planFromText, resolvePosition, STEPS } from './plan.js';
 import { Runner, MAX_STEP_ATTEMPTS, updateProgress } from './runner.js';
@@ -11,7 +14,7 @@ import { clearScope } from './steps/clear.js';
 import { Tidy } from './tidy.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
-import { stepResult, doneReport, blockedReport, failedReport, goalStopped, chatLines } from './report.js';
+import { stepResult, doneReport, doneLine, blockedReport, blockedAgainLine, deathLine, failedReport, goalStopped, chatLines } from './report.js';
 
 // The work module (SPEC §5): task record, runner, resume, protection and the
 // hooks into Mindcraft. One instance per agent process (agent.work).
@@ -29,6 +32,14 @@ const QUESTION = Symbol('question');     // the store while code posts the open 
 // commands (smelting, mob drops, crops, food).
 const NO_METHOD_HINT = '. For an item with no method here, use the existing commands instead (!collectBlocks, !craftRecipe, !smeltItem, or !goal for a longer job); ' +
     'crops and farmed plants (wheat, sugar cane, bamboo, cactus, berries, kelp) are protected as possible farms and cannot be collected';
+
+// REQ-CHAT-2: the same step args whatever their key order (the DSL keeps the
+// order typed) or their prototype (a loaded record holds plain objects).
+const plain = value => JSON.parse(JSON.stringify(value ?? null));
+const sameArgs = (a, b) => isDeepStrictEqual(plain(a), plain(b));
+// REQ-CHAT-1: whether the owner hears the task's done line; a record from
+// before `notify_done` is judged by who asked and whether a goal ran it.
+const ownerAsked = record => record.notify_done ?? Boolean(record.requested_by && !record.goal);
 
 function refusal(command, errors) {
     return `${command} refused: ${errors.join('; ')}${errors.some(e => /no method for/.test(e)) ? NO_METHOD_HINT : ''}`;
@@ -55,6 +66,8 @@ export class Work {
         this.lineGapMs = LINE_GAP_MS;
         this.outbox = Promise.resolve();   // the owner-output queue (deliver)
         this.nextSend = 0;
+        this.handoff = null;        // {message, ownerTask}: the blocked report being handed to the model (its turn's voice is `alert`)
+        this.answerPending = false; // the owner's last turn showed nothing (G1, guardTurns)
         this.disposers = [];
     }
 
@@ -96,11 +109,13 @@ export class Work {
         // REQ-OWN-1: the ledger is its own file; on its first load the stations
         // of the S2 record migrate once, and the record's placements key goes.
         this.ledger.load(record?.placements ? { placements: record.placements, structures: record.structures } : null);
-        // REQ-OWN-4: old scaffold is forgotten at process start (here, not at
-        // the runner's per-run reload).
-        this.ledger.forgetScaffold();
+        // REQ-OWN-4: scaffold records are kept; at process start (here, not at
+        // the runner's per-run reload) every one is marked as from before, and
+        // the cells already loaded are checked once (REQ-OWN-5 hygiene).
+        this.ledger.startGap();
         this.ledger.install();
         this.disposers.push(() => this.ledger.dispose());
+        this.ledger.hygiene(() => true, 'at start');
         this.tidy = new Tidy(this);
         this.disposers.push(() => this.tidy.dispose());
         this.adopt(record);
@@ -263,24 +278,54 @@ export class Work {
     // again, which arms it. Runtime wraps of this agent's handleMessage (each
     // call is a turn, carried through its awaits) and openChat; no upstream
     // change.
+    // The turn also carries its voice (REQ-CHAT-1): `owner` for the owner's
+    // message (agent.js's own test: not 'system', not the bot, not another
+    // bot), `alert` for the blocked report the work layer hands over (with
+    // whether that report's task was the owner's, G3), else `own`; and how
+    // many of its lines were shown. An owner turn cut to one response because
+    // a goal ran at its start (agent.js max_responses = 1) that ends with
+    // none shown (the response was a query) leaves `answerPending`: the next
+    // model response of any turn takes it (`takeAnswer`, shown or not; its
+    // text is a `reply`, work/chat.js replyCategory), and any shown `reply`
+    // clears it (fix wave 1, G1; wave 2, A1).
     guardTurns() {
         const agent = this.agent;
         const work = this;
         const handleMessage = agent.handleMessage;
         agent.handleMessage = function (...args) {
-            const turn = { done: false, chats: 0 };
+            const [source, message] = args;
+            const handoff = work.handoff;
+            work.handoff = null;   // consumed at entry, per handoff
+            const owner = source !== 'system' && source !== agent.name && !convoManager.isOtherAgent(source);
+            const alert = !owner && handoff != null && source === 'system' && message === handoff.message;
+            const voice = owner ? 'owner' : alert ? 'alert' : 'own';
+            // `model`: the owner's words go to the model (not a raw command,
+            // not an answer code consumes) while a goal runs; only such a turn
+            // can leave his answer pending.
+            const model = owner && !(typeof message === 'string' && containsCommand(message))
+                && Boolean(agent.self_prompter?.isActive());
+            const turn = { done: false, chats: 0, voice, ownerTask: alert && handoff.ownerTask, shown: 0, model };
             return turns.run(turn, async () => {
                 try {
                     return await handleMessage.apply(this, args);
                 } finally {
                     turn.done = true;
+                    if (voice === 'owner') work.answerPending = turn.model && turn.shown === 0;
                     work.settle(turn);
                 }
             });
         };
         const openChat = agent.openChat;
         agent.openChat = function (...args) {
-            const token = work.onChat();
+            // A line the chat gate drops is not said, so it does not disarm (REQ-CHAT-1).
+            const category = args[1] ?? 'detail';
+            const shown = chatShown(agent, category);
+            if (shown) {
+                const store = turns.getStore();
+                if (store && store !== QUESTION && !store.done) store.shown++;
+                if (category === 'reply') work.answerPending = false;
+            }
+            const token = shown ? work.onChat() : null;
             let sent;
             try {
                 sent = openChat.apply(this, args);
@@ -290,6 +335,29 @@ export class Work {
             return sent;
         };
         this.disposers.push(() => { agent.handleMessage = handleMessage; agent.openChat = openChat; });
+    }
+
+    // The voice of the turn code runs in, or null outside a live turn: a
+    // finished turn and the question's post (runner code started from a turn
+    // inherits its store) never read as the owner's.
+    turnVoice() {
+        const store = turns.getStore();
+        return store && store !== QUESTION && !store.done ? store.voice : null;
+    }
+
+    // A model response takes the owner's pending answer (G1, A1): true once,
+    // whether or not the response shows any text.
+    takeAnswer() {
+        const pending = this.answerPending;
+        this.answerPending = false;
+        return pending;
+    }
+
+    // A task started in this turn is the owner's (REQ-CHAT-1): his own turn,
+    // or the blocked-report turn about a task of his (G3).
+    ownerTurn() {
+        const voice = this.turnVoice();
+        return voice === 'owner' || (voice === 'alert' && Boolean(turns.getStore().ownerTask));
     }
 
     // Disarms the open question for the current turn (or, outside a live
@@ -333,7 +401,7 @@ export class Work {
         };
         let sent;
         try {
-            sent = await turns.run(QUESTION, () => this.deliver(question.text, current));
+            sent = await turns.run(QUESTION, () => this.deliver(question.text, { current, category: 'question' }));
         } catch (err) {
             console.error('[work] could not post the owner question:', err?.message ?? err);
             return;
@@ -498,8 +566,13 @@ export class Work {
         this.tidy?.onModeEnd(name, codeReturn);
     }
 
+    // REQ-CHAT-2: her death is one code `alert` line; the model's turn for it
+    // (agent.js messagestr) is her own, so quiet drops its text.
     onDeath() {
-        if (this.record?.status === 'active') this.pause('died');
+        const paused = this.record?.status === 'active';
+        if (paused) this.pause('died');
+        const pos = this.agent.bot.entity?.position;
+        if (pos) this.postReport(deathLine(pos, paused), { category: 'alert' });
     }
 
     // --- running --------------------------------------------------------------
@@ -624,8 +697,23 @@ export class Work {
         this.releaseResume();
         this.log(`blocked: ${cause}`);
         const report = blockedReport(record, step, this.agent.bot);
+        const ownerTask = ownerAsked(record);   // before the goal is cleared (G3)
         record.goal = null; // the report says the goal stays stopped: it does, also after a resume
+        // REQ-CHAT-2: blocks per step ordinal (owner questions are not blocks),
+        // kept through resume; the second one is said by code, once, whatever
+        // the model does with the report.
+        let again = null;
+        if (step) {
+            const n = record.cursor + 1;
+            const counts = record.blocks_by_step ??= {};
+            counts[n] = (counts[n] ?? 0) + 1;
+            if (counts[n] === 2) again = blockedAgainLine(n, cause);
+        }
         this.write();
+        if (again) {
+            this.log(`step ${record.cursor + 1} blocked a second time`);
+            this.postReport(again, { category: 'alert' });
+        }
         // One model call: the blocked report goes to the model after the run
         // has ended, never while it still executes (REQ-RES-12); a block from
         // the timer waits for the interrupted run to return, or at most
@@ -642,7 +730,14 @@ export class Work {
             clearTimeout(timer);
             if (this.disposed || this.record !== record || record.status !== 'blocked'
                 || this.planGeneration !== generation || this.agent.stop_epoch !== stopEpoch) return;
-            this.agent.handleMessage('system', report);
+            // REQ-CHAT-1: marked right before the call; guardTurns consumes it
+            // at the turn's entry, so that turn's voice is `alert`.
+            this.handoff = { message: report, ownerTask };
+            try {
+                this.agent.handleMessage('system', report);
+            } finally {
+                this.handoff = null;
+            }
         };
         if (this.runner.executing) {
             this.runner.afterRun = post;
@@ -687,6 +782,8 @@ export class Work {
         const step = record.plan[record.cursor];
         const outcome = STEPS[step.skill].answer?.(this.runner.ctx(), step, question, answer) ?? {};
         record.pending_question = null;
+        const store = turns.getStore();
+        if (store && store !== QUESTION) store.model = false;   // answered by code: nothing pending (G1)
         this.log(`the owner answered ${question.kind}: ${answer}`);
         const line = `Asked the owner: "${question.text}" The owner answered: ${answer}.`;
         this.agent.history.add('system', line).then(() => this.agent.history.save())
@@ -718,7 +815,14 @@ export class Work {
             const sp = this.agent.self_prompter;
             if (this.record === record && record.goal === goal && this.goalEpoch === epoch && sp.isStopped()) sp.start(goal);
         };
-        this.postReport(doneReport(record, this.agent.bot), goal ? handBack : null);
+        // REQ-CHAT-1: a task the owner asked for ends with one short line in
+        // quiet (a clear keeps its whole report: anything left must show); one
+        // she started herself says nothing. A record from before notify_done
+        // is judged here, with no write-back.
+        const report = doneReport(record, this.agent.bot);
+        const notify = ownerAsked(record);
+        const whole = chatMode(this.agent) === 'debug' || record.plan.some(s => s.skill === 'clear');
+        this.postReport(report, { then: goal ? handBack : null, category: notify ? 'done' : 'detail', chat: whole ? report : doneLine(record) });
     }
 
     fail(reason) {
@@ -729,15 +833,16 @@ export class Work {
         const report = failedReport(this.record, this.agent.bot);
         this.record.goal = null;
         this.write();
-        this.postReport(report);
+        this.postReport(report, { category: 'alert' });
     }
 
     // A fact report needs no model call: it goes into history and to the
     // owner, whole, as chat lines (report.js chatLines).
-    postReport(report, then = null) {
+    // `options` go to deliver; `then` runs once it is done.
+    postReport(report, { then = null, ...options } = {}) {
         setTimeout(async () => {
             try {
-                await this.deliver(report);
+                await this.deliver(report, options);
             } catch (err) {
                 console.error('[work] could not post a report:', err?.message ?? err);
             }
@@ -748,18 +853,25 @@ export class Work {
     // Lines of one report are paced, so a long one does not trip the
     // server's chat-spam kick (vanilla: +20 a message, -1 a tick, kick above 200).
     // All of it goes through one queue with one next-send time, so two
-    // deliveries never interleave or send faster than one line a gap. False
-    // when `current` stopped it.
-    async deliver(report, current = () => true) {
+    // deliveries never interleave or send faster than one line a gap.
+    // REQ-CHAT-1: the report always goes into history; its chat text (`chat`,
+    // by default the report) is queued only when its category is shown, with
+    // no pacing wait for a dropped one. False when it was dropped or `current`
+    // stopped it.
+    async deliver(report, { current = () => true, category = 'detail', chat = report } = {}) {
         await this.agent.history.add('system', report);
         await this.agent.history.save();
-        const lines = chatLines(report);
+        if (!chatShown(this.agent, category)) {
+            console.log(`[chat] quiet: dropped (${category}): ${chat}`);
+            return false;
+        }
+        const lines = chatLines(chat);
         const job = this.outbox.then(async () => {
             for (const line of lines) {
                 const wait = this.nextSend - Date.now();
                 if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
                 if (this.disposed || !current()) return false;
-                await this.agent.openChat(line);
+                await this.agent.openChat(line, category);
                 this.nextSend = Date.now() + this.lineGapMs;
             }
             return true;
@@ -776,8 +888,15 @@ export class Work {
     }
 
     // What the steps state about themselves in the confirmation (REQ-CLR-4).
+    // A markers= clear's statement is apart (`statement`, null when none): it
+    // is said as an `alert` line of its own whoever started the task, since
+    // that box is cleared at once (REQ-CHAT-1); a box= clear states its box in
+    // its question, so its statement stays in the line.
     statements(steps) {
-        return steps.map(s => STEPS[s.skill].describe?.(s.args)).filter(Boolean).map(text => ` ${text}`).join('');
+        const marked = s => s.skill === 'clear' && Boolean(s.args.markers);
+        const texts = list => list.map(s => STEPS[s.skill].describe?.(s.args)).filter(Boolean);
+        return { inline: texts(steps.filter(s => !marked(s))).map(text => ` ${text}`).join(''),
+            statement: texts(steps.filter(marked)).join(' ') || null };
     }
 
     activate() {
@@ -815,16 +934,19 @@ export class Work {
         this.endTidyFlag();
         const owner = ctx.owner;
         const request_text = this.lastOwnerMessage && this.lastOwnerMessage.username === owner ? this.lastOwnerMessage.message : null;
+        // REQ-CHAT-1: the owner hears the done line only for a task he asked
+        // for: started in his turn.
         const record = newRecord({
             objective: String(objective), request_text, requested_by: owner,
-            anchor: ctx.anchor, steps, now: this.now(),
+            anchor: ctx.anchor, steps, now: this.now(), notify_done: this.ownerTurn(),
         });
         this.adopt(record);
         this.activate();
         this.write();
         this.log(`started: "${record.objective}" with ${steps.length} step(s)`);
         this.scheduleRun();
-        return { ok: true, message: `Task started: "${record.objective}" (${steps.length} step${steps.length === 1 ? '' : 's'}).${this.statements(steps)}` };
+        const { inline, statement } = this.statements(steps);
+        return { ok: true, message: `Task started: "${record.objective}" (${steps.length} step${steps.length === 1 ? '' : 's'}).${inline}`, statement };
     }
 
     // !taskRevise (REQ-PLAN-6): replace the steps from from_step on; done steps
@@ -845,11 +967,22 @@ export class Work {
         // the question open and the task blocked(awaiting_owner); one that
         // replaces that step drops the question (a new clear step asks its own).
         const waiting = Boolean(record.pending_question) && fromStep - 1 > record.cursor;
+        // REQ-CHAT-2: a revised ordinal whose skill or args changed is not the
+        // same step; its block count starts again.
+        const old = record.plan;
+        for (const [i, s] of steps.entries()) {
+            const before = old[fromStep - 1 + i];
+            if (record.blocks_by_step && (!before || before.skill !== s.skill || !sameArgs(before.args, s.args)))
+                delete record.blocks_by_step[fromStep + i];
+        }
         record.plan = [...kept, ...steps.map((s, i) => newStep(fromStep + i, s.skill, s.args))];
+        // REQ-CHAT-1: an owner's revision makes it his task.
+        if (this.turnVoice() === 'owner') record.notify_done = true;
+        const { inline, statement } = this.statements(steps);
         if (waiting) {
             this.write();
             this.log(`revised from step ${fromStep}; still waiting for the owner's answer`);
-            return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} steps. Still waiting for the owner's yes or no.${this.statements(steps)}` };
+            return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} steps. Still waiting for the owner's yes or no.${inline}`, statement };
         }
         record.cursor = record.plan.findIndex(s => s.status !== 'done');
         if (record.cursor === -1) record.cursor = record.plan.length;
@@ -862,7 +995,7 @@ export class Work {
         // plan generation changed) and a run of the new plan starts.
         if (this.runner.executing && this.agent.actions.currentActionLabel === 'action:task') await this.agent.actions.stop();
         this.scheduleRun();
-        return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} step${record.plan.length === 1 ? '' : 's'}.${this.statements(steps)}` };
+        return { ok: true, message: `Task revised from step ${fromStep}: now ${record.plan.length} step${record.plan.length === 1 ? '' : 's'}.${inline}`, statement };
     }
 
     async pauseTask() {
@@ -889,6 +1022,7 @@ export class Work {
             if (step.skill === 'give' && step.progress) step.progress.inv_start = null;
         }
         setStatus(record, 'active');
+        if (this.turnVoice() === 'owner') record.notify_done = true;   // REQ-CHAT-1, as in reviseTask
         this.activate();
         this.write();
         this.log('resumed by command');

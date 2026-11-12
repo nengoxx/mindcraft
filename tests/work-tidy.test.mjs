@@ -91,12 +91,12 @@ const idle = agent => F.until(() => !agent.actions.executing, { timeout: 4000 })
 
 test('the tidy line is rendered from the sweep: removed, and what was left grouped by reason', () => {
     const pos = { x: 0, y: 0, z: 0 };
-    assert.equal(R.tidyLine({ removed: [pos, pos, pos, pos, pos], left: [] }), 'Removed 5 of my scaffold blocks here.');
-    assert.equal(R.tidyLine({ removed: [pos], left: [] }), 'Removed 1 of my scaffold block here.');
+    assert.equal(R.tidyLine({ removed: [pos, pos, pos, pos, pos], left: [] }), 'Removed 5 scaffold blocks of mine here.');
+    assert.equal(R.tidyLine({ removed: [pos], left: [] }), 'Removed 1 scaffold block of mine here.');
     assert.equal(R.tidyLine({ removed: [pos, pos, pos], left: [{ pos, reason: 'next to water' }, { pos, reason: 'next to water' }] }),
-        'Removed 3 of my scaffold blocks; left 2 (next to water).');
+        'Removed 3 scaffold blocks of mine; left 2 (next to water).');
     assert.equal(R.tidyLine({ removed: [], left: [{ pos, reason: 'next to water' }, { pos, reason: 'part of what I stand on' }, { pos, reason: 'next to water' }] }),
-        'Removed 0 of my scaffold blocks; left 3 (2 next to water, 1 part of what I stand on).');
+        'Removed 0 scaffold blocks of mine; left 3 (2 next to water, 1 part of what I stand on).');
 });
 
 // --- live acceptance items as fixtures (PLAN S2c item 4) ---------------------------
@@ -118,7 +118,7 @@ test('a fight pillar with no task is removed after the fight: the mode-end sweep
     assert.deepEqual(digs(bot), ['(0, 65, 0)', '(0, 64, 0)']);   // top first, standing on it
     assert.equal(bot.entity.position.y, 64);
     assert.ok(live(agent).every(e => e.kind !== 'scaffold'));
-    await said(agent, 'Removed 2 of my scaffold blocks here.');
+    await said(agent, 'Removed 2 scaffold blocks of mine here.');
     assert.equal(agent.modelCalls, 0);
     assert.ok(!agent.turns.some(t => /AUTO MESSAGE/.test(t.content)));
 });
@@ -160,7 +160,7 @@ test('a bridge over water is recorded; a scaffold block next to water is left an
     await tidyNow(agent);
     assert.deepEqual(digs(bot), ['(-2, 64, 0)']);
     assert.equal(kindAt(agent, 2, 63, 0), 'scaffold');                       // left, still live
-    await said(agent, 'Removed 1 of my scaffold block; left 1 (next to water).');
+    await said(agent, 'Removed 1 scaffold block of mine; left 1 (next to water).');
     assert.ok(agent.logs.some(l => /tidy .*removed 1: -2,64,0; left 1: 2,63,0 next to water/.test(l)), agent.logs.join('\n'));
 });
 
@@ -173,7 +173,7 @@ test('an owner !stop mid-sweep keeps the rest for good, at once from chat (befor
         if (seen) return;
         bot.emit('chat', F.OWNER, '!stop');                  // the observer runs synchronously here
         seen = [kindAt(agent, -2, 64, 0), kindAt(agent, 2, 64, 0), kindAt(agent, 3, 64, 0)];
-        seen.persisted = F.readLedger(agent).entries.filter(e => e.kind === 'own').length;   // written at once
+        seen.persisted = F.ledgerEntries(agent).filter(e => e.kind === 'own').length;   // written at once
         await F.sleep(30);                                   // the command comes later (translation)
     };
     await tidyNow(agent);
@@ -188,7 +188,7 @@ test('an owner !stop mid-sweep keeps the rest for good, at once from chat (befor
         assert.equal(kindAt(agent, x, 64, 0), 'own');
         assert.equal(agent.work.protector.isProtected(bot.blockAt(at(x, 64, 0))), true);
     }
-    assert.equal(F.readLedger(agent).entries.filter(e => e.kind === 'own').length, 3);   // persisted at once
+    assert.equal(F.ledgerEntries(agent).filter(e => e.kind === 'own').length, 3);   // persisted at once
     assert.ok(agent.logs.some(l => /kept scaffold cobblestone at 3,64,0 as own: owner !stop/.test(l)), agent.logs.join('\n'));
 });
 
@@ -296,21 +296,63 @@ test('a model !stop within 60 s of an owner message counts as the owner\'s; late
     assert.equal(kindAt(agent, 3, 64, 0), 'own');
 });
 
-test('after a restart, old scaffold is not tidied (forgotten at process start); owner-kept entries stay own', async () => {
+test('after a restart, old scaffold is kept and tidied while it stands free; a foreign block on its pillar keeps the whole pillar; an owner-kept (own) neighbour keeps it too; owner-kept entries stay own', async () => {
     const name = `tidy-restart${n++}`;
     let agent = setup({ name });
+    placed(agent, 2, 64, 2);
     placed(agent, 2, 64, 0);
-    placed(agent, 3, 64, 0, { kind: 'own' });
+    placed(agent, 3, 64, 0, { kind: 'own' });   // owner-kept: his, so (2,64,0) lapses (D3)
+    placed(agent, -2, 64, 0);
+    placed(agent, -2, 65, 0);
+    placed(agent, 1, 64, -2, { block: 'dirt' });
+    agent.work.ledger.flush();
+    agent.work.dispose();
+    const bot = agent.bot;
+    bot.world.set(-3, 65, 0, 'oak_planks');      // the owner built against the second pillar meanwhile
+    bot.world.set(1, 64, -3, 'oak_planks');      // and against her dirt block: lapsed dirt is natural, yet not hers to tidy
+    agent = F.makeAgent({ bot, name });
+    F.startWork(agent);
+    agents.push(agent);
+    assert.ok(agent.work.ledger.get(at(2, 64, 0)).gap_at != null);
+    await tidyNow(agent);
+    assert.deepEqual(digs(bot), ['(2, 64, 2)']);
+    assert.deepEqual([kindAt(agent, 3, 64, 0), kindAt(agent, 2, 64, 0)], ['own', 'scaffold']);
+    assert.deepEqual([kindAt(agent, -2, 64, 0), kindAt(agent, -2, 65, 0)], ['scaffold', 'scaffold']);   // lapsed: kept, not tidied
+    assert.equal(agent.work.protector.isProtected(bot.blockAt(at(-2, 64, 0))), true);                    // cobblestone, as an unrecorded block
+    assert.deepEqual([kindAt(agent, 1, 64, -2), agent.work.protector.isProtected(bot.blockAt(at(1, 64, -2)))], ['scaffold', false]);
+    await said(agent, 'Removed 1 scaffold block of mine here.');
+    // Only lapsed old scaffold near her: a mode's end starts no sweep (within()).
+    const logs = [];
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => { logs.push(message); log(message); };
+    agent.work.onModeEnd('self_defense', { interrupted: false });
+    await F.sleep(60);
+    assert.equal(logs.some(l => /starting action:tidy/.test(l)), false);
+});
+
+test('after a restart, old scaffold that loses its free standing during the sweep is not dug (the final pre-dig check)', async () => {
+    const name = `tidy-race${n++}`;
+    let agent = setup({ name });
+    // Dirt: a lapsed dirt block is natural, so the dig seam's protection check
+    // would not stop it; only the sweep's own eligibility check does.
+    placed(agent, 2, 64, 0, { block: 'dirt' });
+    placed(agent, -2, 64, 0, { block: 'dirt' });
     agent.work.ledger.flush();
     agent.work.dispose();
     const bot = agent.bot;
     agent = F.makeAgent({ bot, name });
     F.startWork(agent);
     agents.push(agent);
+    // The owner builds against the other block while the first is being dug.
+    let first = null;
+    bot.hooks.dig = async block => {
+        if (first) return;
+        first = block.position.x;
+        bot.setBlock(-first + Math.sign(-first), 64, 0, 'oak_planks');
+    };
     await tidyNow(agent);
-    assert.deepEqual(digs(bot), []);
-    assert.equal(kindAt(agent, 3, 64, 0), 'own');
-    assert.ok(agent.chats.includes('No scaffold of mine within reach.'), agent.chats.join('\n'));
+    assert.deepEqual(digs(bot), [`(${first}, 64, 0)`]);
+    assert.equal(kindAt(agent, -first, 64, 0), 'scaffold');
 });
 
 test('!tidy works with no task, also with the automatic triggers off, and is refused while a task is live', async () => {
@@ -318,7 +360,7 @@ test('!tidy works with no task, also with the automatic triggers off, and is ref
     placed(agent, 2, 64, 0);
     await tidyNow(agent);
     assert.deepEqual(digs(agent.bot), ['(2, 64, 0)']);
-    await said(agent, 'Removed 1 of my scaffold block here.');
+    await said(agent, 'Removed 1 scaffold block of mine here.');
     placed(agent, 3, 64, 0);
     agent.work.startTask('one dirt', 'obtain item=dirt count=1');
     agent.work.pause('command');
@@ -336,7 +378,7 @@ test('a bridge the bot stands on is left whole; the blocks under its hitbox coun
     for (const x of [-1, 0, 1, 2]) placed(agent, x, 64, 0);
     await tidyNow(agent);
     assert.deepEqual(digs(agent.bot), []);
-    await said(agent, 'Removed 0 of my scaffold blocks; left 4 (part of what I stand on).');
+    await said(agent, 'Removed 0 scaffold blocks of mine; left 4 (part of what I stand on).');
 
     // On natural stone at x 0, but the hitbox reaches over x 1: the scaffold
     // there, its neighbour and one joined to it through an own block stay.
@@ -449,7 +491,7 @@ test('top-down with no floating block: a column whose top is out of reach or fai
     agent.bot.world.set(0, 65, -3, 'sand');
     await tidyNow(agent);
     assert.deepEqual(digs(agent.bot), ['(0, 64, 3)']);
-    await said(agent, 'Removed 1 of my scaffold block; left 9 (8 under a block that stays, 1 next to water).');
+    await said(agent, 'Removed 1 scaffold block of mine; left 9 (8 under a block that stays, 1 next to water).');
 });
 
 test('before each dig: a changed block is not dug, a player on a cell keeps it, a hostile within 16 ends the sweep', async () => {
@@ -467,7 +509,7 @@ test('before each dig: a changed block is not dug, a player on a cell keeps it, 
     agent.bot.players[F.OWNER].entity.position = at(2.5, 65, 0.5);         // standing on it
     await tidyNow(agent);
     assert.deepEqual(digs(agent.bot), []);
-    await said(agent, 'Removed 0 of my scaffold blocks; left 1 (a player is on it).');
+    await said(agent, 'Removed 0 scaffold blocks of mine; left 1 (a player is on it).');
 
     // A hostile ends the sweep: no line, only the command's answer; the rest stays live.
     agent = setup();
@@ -528,7 +570,7 @@ test('a sweep digs at most 32 blocks and runs at most 60 s; what is left stays l
     assert.equal(digs(agent.bot).length, 32);
     assert.equal(live(agent).filter(e => e.kind === 'scaffold').length, 16);
     // Only cells left for a cell reason are reported; those the bound did not reach are not.
-    await said(agent, 'Removed 32 of my scaffold blocks here.');
+    await said(agent, 'Removed 32 scaffold blocks of mine here.');
 
     const clock = F.clock();
     agent = setup({ now: clock.now });
@@ -583,7 +625,7 @@ test('an interrupted sweep keeps its remainder until the next sweep supersedes i
     assert.equal([...agent.work.ledger.attempts.values()][0].keep, true);
     // The live block within reach is kept as well, and written at once (P1).
     assert.equal(kindAt(agent, 3, 64, 0), 'own');
-    assert.equal(F.readLedger(agent).entries.find(e => e.pos.x === 3).kind, 'own');
+    assert.equal(F.ledgerEntries(agent).find(e => e.pos.x === 3).kind, 'own');
     bot.interrupt_code = true;
     await sweep;
     await tidyNow(agent);
@@ -667,7 +709,7 @@ test('the task-end launch: only for done or failed, the same record, unchanged s
     Object.assign(TIDY, FAST);
 
     ({ agent, record } = make());
-    agent.work.config.tidy = { enabled: false, announce: true };
+    agent.work.config.tidy = { enabled: false };
     agent.work.tidy.scheduleTaskEnd(record);
     assert.equal(await ran(agent), false);
 });
@@ -690,7 +732,7 @@ test('the mode-end trigger: uninterrupted only, on the next tick, no stop in fli
     await check(agent => { agent.actions.stopPromise = Promise.resolve(); setTimeout(() => { agent.actions.stopPromise = null; }, 100); }, false);
     await check(agent => { agent.work.ledger.get({ x: 2, y: 64, z: 0 }).by = 'action:task'; }, false);
     await check(agent => { agent.actions.resume_func = async () => {}; agent.actions.resume_name = 'action:followPlayer'; }, false);
-    await check(agent => { agent.work.config.tidy = { enabled: false, announce: true }; }, false);
+    await check(agent => { agent.work.config.tidy = { enabled: false }; }, false);
 });
 
 test('after a mode, a hostile within 16 defers the sweep: re-checked until it is gone, cancelled by a stop, by activity or after the window', async () => {
@@ -827,7 +869,7 @@ test('the in-task sweep removes only mode-placed scaffold at the start of the ne
     assert.equal(agent.work.runner.tidyAfterMode, null);
     assert.equal(kindAt(agent, -2, 64, 0), 'scaffold');
     await F.sleep(30);
-    assert.deepEqual(agent.chats.filter(c => c.startsWith('Removed')), ['Removed 1 of my scaffold block here.']);
+    assert.deepEqual(agent.chats.filter(c => c.startsWith('Removed')), ['Removed 1 scaffold block of mine here.']);
 
     // A hostile that stays: no line in any unit, and the flag ends with the task.
     agent = setup({ inventory: { dirt: 1 }, work: { tidy: { enabled: false } } });
@@ -898,13 +940,45 @@ test('a fight during !followPlayer resumes following before any tidy', async () 
     bot.interrupt_code = true;
 });
 
-test('work.tidy.announce off: an automatic sweep says nothing; work.tidy merges one level deep', async () => {
-    const agent = setup({ work: { tidy: { announce: false } } });
-    assert.deepEqual(agent.work.config.tidy, { enabled: true, announce: false });
+test('quiet: an automatic sweep\'s line goes to history only; work.tidy.announce is retired (an unknown key); work.tidy merges one level deep', async () => {
+    const agent = setup({ work: { chat: 'quiet', tidy: { announce: false } } });
+    assert.deepEqual(agent.work.config.tidy, { enabled: true });
     placed(agent, 2, 64, 0);
     agent.work.onModeEnd('self_defense', { interrupted: false });
     await F.until(() => digs(agent.bot).length === 1);
     await idle(agent);
+    await F.until(() => agent.turns.some(t => t.content === 'Removed 1 scaffold block of mine here.'));
     await F.sleep(50);
     assert.ok(!agent.chats.some(c => c.startsWith('Removed')), agent.chats.join('\n'));
+});
+
+test('quiet: the owner\'s raw !tidy is answered with its line (one history entry); the model\'s !tidy returns nothing in her own turn, its line in the owner\'s (G2)', async () => {
+    const owner = setup({ work: { chat: 'quiet' } });
+    placed(owner, 2, 64, 0);
+    await tidyNow(owner);
+    await said(owner, 'Removed 1 scaffold block of mine here.');
+    await F.until(() => owner.turns.some(t => t.content === 'Removed 1 scaffold block of mine here.'));
+    await F.sleep(30);
+    assert.deepEqual(owner.chats.filter(c => c.startsWith('Removed')), ['Removed 1 scaffold block of mine here.']);   // said once, as the command's answer
+    assert.equal(owner.turns.filter(t => t.content === 'Removed 1 scaffold block of mine here.').length, 1);
+
+    const model = setup({ work: { chat: 'quiet' } });
+    placed(model, 2, 64, 0);
+    let result = 'unset';
+    const tidy = F.modules.commands.getCommand('!tidy');
+    result = await tidy.perform(model);                         // the model's command, in no owner turn
+    assert.equal(result, undefined);
+    await F.until(() => model.turns.some(t => t.content === 'Removed 1 scaffold block of mine here.'));
+    await F.sleep(30);
+    assert.deepEqual(model.chats, []);
+    assert.equal(model.turns.filter(t => t.content === 'Removed 1 scaffold block of mine here.').length, 1);
+
+    // G2: the owner asks in words, the model issues !tidy: its line comes back
+    // to the model, whose next response in his turn can say it.
+    const worded = setup({ work: { chat: 'quiet' } });
+    placed(worded, 2, 64, 0);
+    worded.prompter.promptConvo = async () => ++worded.modelCalls === 1 ? '!tidy' : 'Done: one block of mine removed.';
+    await F.ownerSays(worded, 'please tidy up your blocks');
+    assert.equal(worded.modelCalls, 2);
+    assert.ok(worded.chats.includes('Done: one block of mine removed.'), worded.chats.join('\n'));
 });

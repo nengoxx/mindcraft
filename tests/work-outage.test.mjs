@@ -102,6 +102,7 @@ function prompterFor(agent, model) {
         profile: { conversing: 'convo', coding: 'code', saving_memory: 'memory', bot_responder: 'responder' },
         cooldown: 0, last_prompt_time: 0, awaiting_coding: false,
         chat_model: model, code_model: model, convo_examples: null, coding_examples: null,
+        work_config: loadWorkConfig({ chat: 'debug' }),   // the fixture default (REQ-CHAT-1)
     });
     return prompter;
 }

@@ -8,7 +8,9 @@ import { botDataPath } from '../../utils/runtime_paths.js';
 // the placement attempt and the block from the cell (REQ-OWN-3): a runtime wrap
 // of bot.placeBlock and bot._placeBlockWithOptions, no upstream patch.
 
-export const LEDGER_VERSION = 1;
+// Version 2 keeps the entries per world (REQ-OWN-1); a version-1 file is
+// folded into the current world once at load.
+export const LEDGER_VERSION = 2;
 export const KINDS = Object.freeze(['station', 'scaffold', 'building', 'own']);
 export const STATION_BLOCKS = Object.freeze(['crafting_table', 'furnace']);
 // Constants, not keys (SPEC §14).
@@ -36,6 +38,16 @@ const inColumn = (pos, corner) => pos.x >= corner.x && pos.x < corner.x + 16 && 
 const validEntry = e => e && e.pos && Number.isFinite(e.pos.x) && Number.isFinite(e.pos.y) && Number.isFinite(e.pos.z)
     && typeof e.block === 'string' && KINDS.includes(e.kind) && typeof e.dim === 'string';
 
+// The world the bot is in (REQ-OWN-1): `seed:<16 hex digits>` from the login
+// packet's hashed seed (bot.game.hashedSeed, kept by the utils/mcdata.js
+// carry; protodef reads an i64 as a [high, low] array whose valueOf is a
+// BigInt), or null for an unknown world.
+export function worldId(bot) {
+    const value = bot?.game?.hashedSeed?.valueOf();
+    if (typeof value !== 'bigint') return null;
+    return `seed:${BigInt.asUintN(64, value).toString(16).padStart(16, '0')}`;
+}
+
 export class Ledger {
     constructor(bot, { file, max = 2000, now = Date.now, label = () => null, log = message => console.log(`[ledger] ${message}`),
         throttleMs = WRITE_THROTTLE_MS, settleMs = SETTLE_MS, revertMs = REVERT_MS } = {}) {
@@ -48,7 +60,10 @@ export class Ledger {
         this.throttleMs = throttleMs;
         this.settleMs = settleMs;
         this.revertMs = revertMs;
-        this.entries = new Map();   // dim|x,y,z -> entry
+        this.entries = new Map();   // dim|x,y,z -> entry, of the current world only
+        this.world = null;          // worldId at load; null: an unknown world, nothing is written
+        this.otherWorlds = {};      // the file's other worlds, written back untouched
+        this.generation = 0;        // bumped on every block or entry change (the component guard's memo)
         this.attempts = new Map();  // pending scaffold attempts, by cell
         this.placing = new Map();   // non-scaffold attempts in flight, by cell
         this.building = null;       // the build_id of the !buildStructure run in progress
@@ -66,21 +81,29 @@ export class Ledger {
 
     // --- the file ----------------------------------------------------------------
 
-    // Loads the file. When there is none (the first load), the station entries
-    // of the S2 task record migrate once (REQ-OWN-1); `legacy` is that record's
-    // {placements, structures}. An unreadable or unknown-version file is
-    // renamed aside (<file>.bad-<ms>), so the first write does not overwrite
-    // the own, building and station entries in it, and the ledger starts empty.
+    // Loads the current world's entries (REQ-OWN-1: the file keeps them per
+    // world; the other worlds are written back untouched). When there is no
+    // file (the first load), the station entries of the S2 task record migrate
+    // once; `legacy` is that record's {placements, structures}. An unreadable
+    // or unknown-version file is renamed aside (<file>.bad-<ms>), so the first
+    // write does not overwrite the own, building and station entries in it,
+    // and the ledger starts empty. In an unknown world nothing is loaded or
+    // written: what the bot places lives in memory for this session.
     load(legacy = null) {
+        this.world = worldId(this.bot);
+        if (this.world == null) this.log('unknown world (no hashed seed): placements are kept in memory only, nothing is loaded or written');
         let state = 'none';
         if (existsSync(this.file)) {
             try {
                 const data = JSON.parse(readFileSync(this.file, 'utf8'));
-                if (data?.version !== LEDGER_VERSION) state = 'unknown_version';
-                else {
+                if (data?.version === LEDGER_VERSION && data.worlds && typeof data.worlds === 'object') {
                     state = 'ok';
-                    for (const e of data.entries || []) if (validEntry(e)) this.entries.set(cellKey(e.dim, e.pos), e);
-                }
+                    const { [this.world]: mine, ...others } = data.worlds;
+                    this.otherWorlds = others;
+                    if (this.world != null) this.adoptEntries(mine?.entries);
+                } else if (data?.version === 1) {
+                    state = this.fold(data);
+                } else state = 'unknown_version';
             } catch {
                 state = 'unreadable';
             }
@@ -95,7 +118,29 @@ export class Ledger {
             }
         }
         if (state === 'none' && legacy?.placements?.length) this.migrate(legacy);
+        // REQ-OWN-5: the cap per world, once after load (a lowered cap applies).
+        if (this.evict()) this.dirty = true;
+        if (state === 'folded') this.flush();
         return state;
+    }
+
+    adoptEntries(entries) {
+        for (const e of entries || []) if (validEntry(e)) this.entries.set(cellKey(e.dim, e.pos), e);
+    }
+
+    // The one quarantined fold of a version-1 file (one list, no world): it
+    // was written on this server, so its entries become the current world's,
+    // and load writes the file back as version 2 (the v1 shape is gone). In
+    // an unknown world it is left as it is, for a start that knows its world.
+    fold(data) {
+        if (this.world == null) {
+            this.log(`${this.file}: version 1, not folded in an unknown world; left as it is`);
+            return 'v1_kept';
+        }
+        this.adoptEntries(data.entries);
+        this.dirty = true;
+        this.log(`${this.file}: version 1 folded into world ${this.world} (${this.entries.size} entries)`);
+        return 'folded';
     }
 
     // REQ-OWN-1: S2's stations (carried `station` entries, and crafting tables or
@@ -115,16 +160,18 @@ export class Ledger {
     }
 
     // Atomic: temp file plus rename. Synchronous, so the SIGINT handler can use it.
+    // Only the current world's slot changes; an unknown world writes nothing.
     flush() {
         clearTimeout(this.writeTimer);
         this.writeTimer = null;
-        if (!this.dirty || !this.file) return;
+        if (!this.dirty || !this.file || this.world == null) return;
         // A removed entry waiting out its revert window is not written: after a
         // restart its cell is air and the entry would only be retired.
         const entries = [...this.entries.values()].filter(e => !e.removed_at).map(({ removing, removed_at, ...e }) => e);
+        const worlds = { ...this.otherWorlds, [this.world]: { entries } };
         mkdirSync(path.dirname(this.file), { recursive: true });
         const tmp = `${this.file}.${process.pid}.tmp`;
-        writeFileSync(tmp, JSON.stringify({ version: LEDGER_VERSION, updated_at: this.now(), entries }, null, 2));
+        writeFileSync(tmp, JSON.stringify({ version: LEDGER_VERSION, updated_at: this.now(), worlds }, null, 2));
         try {
             renameSync(tmp, this.file);
         } catch (err) {
@@ -138,6 +185,7 @@ export class Ledger {
     // At most one write per WRITE_THROTTLE_MS; task changes and SIGINT flush.
     changed() {
         this.dirty = true;
+        this.generation++;
         if (this.writeTimer || this.disposed) return;
         const wait = Math.max(0, this.lastWrite + this.throttleMs - Date.now());
         this.writeTimer = setTimeout(() => {
@@ -200,6 +248,7 @@ export class Ledger {
         }
         if (!changed) return;
         this.dirty = true;
+        this.generation++;
         this.flush();
     }
 
@@ -216,16 +265,19 @@ export class Ledger {
         this.changed();
     }
 
-    // REQ-OWN-5: work.ledger_max caps live scaffold entries only; the oldest go.
-    // An evicted pillar is then treated like old scaffold (REQ-OWN-4).
+    // REQ-OWN-5: work.ledger_max caps live scaffold entries (of this world,
+    // gap entries included); the oldest go, and the cell falls back to the
+    // default predicate. Returns how many went.
     evict() {
         const live = this.list().filter(e => e.kind === 'scaffold' && !e.removing && !e.removed_at);
-        if (live.length <= this.max) return;
+        if (live.length <= this.max) return 0;
         live.sort((a, b) => a.at - b.at);
-        for (const e of live.slice(0, live.length - this.max)) {
+        const evicted = live.slice(0, live.length - this.max);
+        for (const e of evicted) {
             this.entries.delete(cellKey(e.dim, e.pos));
             this.log(`evicted scaffold ${e.block} at ${fmt(e.pos)}: over work.ledger_max ${this.max}`);
         }
+        return evicted.length;
     }
 
     // REQ-SAFE-2, REQ-OWN-5: an entry whose block changed is retired, only for a
@@ -239,16 +291,47 @@ export class Ledger {
         this.changed();
     }
 
-    // REQ-OWN-4: at process start every live scaffold entry is forgotten; the
-    // cell falls back to the default predicate. Owner-kept entries are `own`.
-    forgetScaffold() {
-        for (const [key, e] of this.entries) {
-            if (e.kind !== 'scaffold') continue;
-            this.entries.delete(key);
-            this.log(`forgot scaffold ${e.block} at ${fmt(e.pos)}: process start`);
-            this.dirty = true;
+    // REQ-OWN-4: scaffold records are kept through a stop, a crash and an
+    // unload. One that lived through such a gap gets `gap_at` (the first gap;
+    // never cleared), and is the bot's only while the component guard says so
+    // (Protector.gapHers). At process start every scaffold entry is marked.
+    markGap(entries, why) {
+        let marked = 0;
+        for (const e of entries) {
+            if (e.kind !== 'scaffold' || e.gap_at != null) continue;
+            e.gap_at = this.now();
+            marked++;
         }
-        if (this.dirty) this.changed();
+        if (marked) {
+            this.log(`marked ${marked} scaffold entr${marked === 1 ? 'y' : 'ies'} as from before: ${why}`);
+            this.changed();
+        }
+        return marked;
+    }
+
+    startGap() {
+        this.markGap(this.list(), 'process start');
+        this.log(`kept ${this.list().filter(e => e.kind === 'scaffold').length} scaffold entries from before`);
+    }
+
+    // REQ-OWN-4: the bot may tidy a live scaffold entry; a gap entry only
+    // while `gap(entry)` holds (the component guard, Protector.gapHers). Apart
+    // from the material verdict: a lapsed dirt block is natural, yet not the
+    // bot's to tidy. Used by every tidy choice and the final pre-dig check.
+    scaffoldEligible(entry, { gap = () => false } = {}) {
+        return entry?.kind === 'scaffold' && !entry.removing && !entry.removed_at && (entry.gap_at == null || Boolean(gap(entry)));
+    }
+
+    // REQ-OWN-5 hygiene: a current-dimension scaffold entry whose loaded cell
+    // shows another block is retired (`where` limits it to a column); one
+    // being dug is not (retire skips it).
+    hygiene(where, why) {
+        const dim = this.dim();
+        for (const e of this.list()) {
+            if (e.kind !== 'scaffold' || e.dim !== dim || !where(e)) continue;
+            const block = this.bot.blockAt(new Vec3(e.pos.x, e.pos.y, e.pos.z));
+            if (block && block.name !== e.block) this.retire(e.pos, `${why}: now ${block.name}`);
+        }
     }
 
     // A !buildStructure run: its placements are `building` entries, exempt
@@ -282,6 +365,10 @@ export class Ledger {
         delete entry.removing;
         if (!dug) return;
         entry.removed_at = this.now();
+        // Dirty at once: a removed entry is not written, so an exit in the
+        // revert window must not leave it in the file (REQ-OWN-5).
+        this.dirty = true;
+        this.generation++;
         this.later(() => {
             if (this.entries.get(key) !== entry || !entry.removed_at) return;
             this.entries.delete(key);
@@ -318,6 +405,18 @@ export class Ledger {
         this.listen('blockUpdate', (oldBlock, newBlock) => this.onBlockUpdate(newBlock));
         // A dimension change unloads every column (blocks.js switchWorld).
         this.listen('chunkColumnUnload', corner => this.onColumnUnload(corner));
+        this.listen('chunkColumnLoad', corner => this.onColumnLoad(corner));
+        // REQ-OWN-5 durability: any exit writes what is dirty (synchronous;
+        // a write error is logged, never thrown into the exit).
+        const onExit = () => {
+            try {
+                this.flush();
+            } catch (err) {
+                console.error('[ledger] could not write the placements ledger at exit:', err?.message ?? err);
+            }
+        };
+        process.once('exit', onExit);
+        this.disposers.push(() => process.removeListener('exit', onExit));
         return this;
     }
 
@@ -438,6 +537,7 @@ export class Ledger {
     }
 
     onBlockUpdate(newBlock) {
+        this.generation++;
         if (!newBlock?.position) return;
         const key = cellKey(this.dim(), newBlock.position);
         const attempt = this.attempts.get(key);
@@ -455,20 +555,22 @@ export class Ledger {
         if (newBlock.name !== entry.block) this.retire(newBlock.position, `now ${newBlock.name}`);
     }
 
-    // REQ-OWN-3/4: an unloaded column drops its pending attempts and deletes its
-    // live scaffold entries (of any dimension: only the current one has loaded
-    // columns, so scaffold elsewhere is already gone by this rule).
+    // REQ-OWN-3/4: an unloaded column drops its pending attempts and keeps its
+    // scaffold entries, marked as from before (of any dimension: on a
+    // dimension change the old one's columns unload, whichever dimension the
+    // bot is in by then).
     onColumnUnload(corner) {
+        this.generation++;
         if (!corner) return;
         for (const attempt of [...this.attempts.values(), ...this.placing.values()])
             if (inColumn(attempt.pos, corner)) this.dropAttempt(attempt, 'chunk unloaded');
-        let deleted = false;
-        for (const [key, e] of this.entries) {
-            if (e.kind !== 'scaffold' || !inColumn(e.pos, corner)) continue;
-            this.entries.delete(key);
-            this.log(`deleted scaffold ${e.block} at ${fmt(e.pos)}: chunk unloaded`);
-            deleted = true;
-        }
-        if (deleted) this.changed();
+        this.markGap(this.list().filter(e => inColumn(e.pos, corner)), `chunk unloaded at ${corner.x},${corner.z}`);
+    }
+
+    // REQ-OWN-5: a loaded column retires its scaffold entries whose cell shows another block.
+    onColumnLoad(corner) {
+        this.generation++;
+        if (!corner) return;
+        this.hygiene(e => inColumn(e.pos, corner), 'chunk loaded');
     }
 }

@@ -1,5 +1,5 @@
 diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
-index b38bd30..2ca8205 100644
+index b38bd30..2067e4b 100644
 --- a/node_modules/mineflayer-pathfinder/index.js
 +++ b/node_modules/mineflayer-pathfinder/index.js
 @@ -14,6 +14,7 @@ const interactableBlocks = require('./lib/interactable.json')
@@ -48,7 +48,25 @@ index b38bd30..2ca8205 100644
          }, err => {
            console.error(err)
            lockUseBlock.release()
-@@ -550,6 +568,7 @@ function inject (bot) {
+@@ -541,7 +559,16 @@ function inject (bot) {
+       let canPlace = true
+       if (placingBlock.jump) {
+         bot.setControlState('jump', true)
+-        canPlace = placingBlock.y + 1 < bot.entity.position.y
++        // Fork: place only once her feet are clear of the target cell; the server refuses a block placed inside her.
++        canPlace = placingBlock.y + 2 <= bot.entity.position.y
++        // Fork: a tower planned from a mid-air cell can never clear. Standing with her feet in the reference cell
++        // shows it at once; the walking branch's futility rule covers the rest (honey, cobweb).
++        // (0.8: the planner's own 0.2 tolerance, movements.js getMoveUp; soul sand or farmland under her stays valid.)
++        const plannedMidAir = bot.entity.onGround && bot.entity.position.y < placingBlock.y + 0.8
++        if (!canPlace && (plannedMidAir || performance.now() - lastNodeTime > 3500)) {
++          resetPath('stuck')
++          return
++        }
+       }
+       if (canPlace) {
+         if (!lockEquipItem.tryAcquire()) return
+@@ -550,6 +577,7 @@ function inject (bot) {
              lockEquipItem.release()
              const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
              if (!lockPlaceBlock.tryAcquire()) return
@@ -56,7 +74,7 @@ index b38bd30..2ca8205 100644
              if (interactableBlocks.includes(refBlock.name)) {
                bot.setControlState('sneak', true)
              }
-@@ -557,6 +576,7 @@ function inject (bot) {
+@@ -557,6 +585,7 @@ function inject (bot) {
                .then(function () {
                  // Dont release Sneak if the block placement was not successful
                  bot.setControlState('sneak', false)
@@ -64,7 +82,7 @@ index b38bd30..2ca8205 100644
                  if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
                })
                .catch(_ignoreError => {
-@@ -576,7 +596,7 @@ function inject (bot) {
+@@ -576,7 +605,7 @@ function inject (bot) {
      let dx = nextPoint.x - p.x
      const dy = nextPoint.y - p.y
      let dz = nextPoint.z - p.z
@@ -73,7 +91,7 @@ index b38bd30..2ca8205 100644
        // arrived at next point
        lastNodeTime = performance.now()
        if (stopPathing) {
-@@ -611,6 +631,9 @@ function inject (bot) {
+@@ -611,6 +640,9 @@ function inject (bot) {
      if (bot.entity.isInWater) {
        bot.setControlState('jump', true)
        bot.setControlState('sprint', false)

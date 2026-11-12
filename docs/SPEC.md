@@ -18,7 +18,7 @@ iteration that builds it; its sub-bullets share the tag unless they carry their 
 
 | Tag | Iteration | Slices |
 |---|---|---|
-| `[I1]` | Usable for play: plan, gather and craft, combat then back to the task, clearing an area on request, a simple terrain-fitting shelter, text commands | S0-lite, S2, S2b, S2c, S3 |
+| `[I1]` | Usable for play: plan, gather and craft, combat then back to the task, clearing an area on request, a simple terrain-fitting shelter, text commands | S0-lite, S2, S2b, S2c, S2c-fu, S3 |
 | `[I2]` | Native tool calls and the rest of hardening | S1, S4 |
 | `[I3]` | Structures: Qwen's designs, the design library, owner templates | DX, S5A |
 | `[I4]` | Discovery beyond the loaded area, places memory | S5B |
@@ -36,7 +36,7 @@ Contents: 1 Purpose · 2 Scope · 3 Glossary · 4 Capability inventory ·
 5 Architecture · 6 Task record · 7 Interruption and resume · 8 Plan mode ·
 9 Obtain · 10 Find and explore · 11 Building (with 11.9 Clearing and 11.10 the
 bot's own blocks) · 12 Transport · 13 Safety ·
-14 Configuration · 15 Observability · 16 Known limits · 17 Open questions ·
+14 Configuration · 15 Observability (with 15.1 Chat to the owner) · 16 Known limits · 17 Open questions ·
 Appendix A Interaction coverage.
 
 ---
@@ -167,8 +167,9 @@ through ViaProxy. These limits are facts of the platform, not design choices:
 | **Region** | A functional part of a blueprint: a room, a top surface, a wall run (§11.7). The generator that made the blueprint names its regions. |
 | **Verification contract** | The list of functional checks for a blueprint, emitted by its generator (the shelter macro, the compiler, or the explicit contract of a catalog template). "Done" means every check passes. |
 | **Non-natural block** | A block that world generation does not place as terrain: planks, glass, crafted blocks, containers, beds, doors, cobblestone and so on. Protected (§13). |
-| **Placement ledger** | Positions where the bot itself placed blocks. In S2 it is held in the task record and recorded from Mineflayer's `blockPlaced` event, and its entries are exempt from protection. From S2c it is its own file with kinds (`station`, `scaffold`, `building`, `own`) whose protection differs by kind (§11.10). |
-| **Scaffold** | A block the pathfinder placed to move or fight (pillars, bridges, blocks for getting up). A live `scaffold` ledger entry is exempt everywhere and is removed by the tidy sweep (REQ-OWN-2, REQ-OWN-7). |
+| **Placement ledger** | Positions where the bot itself placed blocks. In S2 it is held in the task record and recorded from Mineflayer's `blockPlaced` event, and its entries are exempt from protection. From S2c it is its own file with kinds (`station`, `scaffold`, `building`, `own`) whose protection differs by kind (§11.10); from S2c-fu the file keeps the entries per world (REQ-OWN-1). |
+| **Scaffold** | A block the pathfinder placed to move or fight (pillars, bridges, blocks for getting up). A live `scaffold` ledger entry placed this session is exempt everywhere and is removed by the tidy sweep (REQ-OWN-2, REQ-OWN-7). From S2c-fu its record survives a restart, a crash and a chunk unload; such an entry (with `gap_at`) is the bot's only while its connected component stands free (REQ-OWN-4). |
+| **Chat category** | What a line the bot says is: `reply`, `question`, `alert`, `done` or `detail`. `work.chat` `quiet` (the default) shows every category but `detail`; `debug` shows all (REQ-CHAT-1). |
 | **Tidy sweep** | `tidyNear` in `work/tidy.js`: the bot removes its recorded scaffold within reach, without moving (REQ-OWN-7). |
 | **Clear box** | The cells a `clear` step empties, frozen at validation, with an optional kept outer layer (the shell) (§11.9). |
 | **Places memory** | `[I4]` The existing `MemoryBank` with a persisted `places.json` backing: named places, found targets and deaths (§10.7). |
@@ -292,17 +293,18 @@ Why (details in RESEARCH.md):
 | `models/native_tools.js` | `parseToolArguments` shim the adapter imports (about 22 lines). | I2 |
 | `agent/work/index.js` | `Work` class: init, hook installation, idle watcher, self-heal timer. | I1 |
 | `agent/work/config.js` | Defaults for the `work.*` settings of the built iterations (§14). | I1 |
+| `agent/work/chat.js` | The chat switch and categories: `chatMode`, `chatShown`, the turn's category (§15.1, REQ-CHAT-1). | I1 (S2c-fu) |
 | `agent/work/record.js` | Task record load/save (atomic), versioning, transitions. | I1 |
 | `agent/work/runner.js` | Runs, resume check, deadlines, the stall rule, step dispatch, reports. | I1 |
 | `agent/work/plan.js` | The text DSL parser (§12.0), validation and dry run of plans. | I1 |
 | `agent/work/commands.js` | Text commands `!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`, `!build` (I1); `!blockPositions` (I1, S2b); `!tidy` (I1, S2c); their tool forms (I2); owner-only `!saveTemplate` (I3). | I1, I2, I3 |
 | `agent/work/steps/*.js` | Step registry: `obtain`, `go_to`, `give` (I1, S2), `clear` (I1, S2c), `build` (I1, S3); `find` (I4). | I1, I4 |
-| `agent/work/ledger.js` | The placements ledger file (`placements.json`): kinds, the placement wrap and its settlement, retirement, the cap and eviction, forgetting old scaffold (§11.10). | I1 (S2c) |
+| `agent/work/ledger.js` | The placements ledger file (`placements.json`): kinds, the placement wrap and its settlement, retirement, the cap and eviction (§11.10). From S2c-fu: per world (file version 2), kept scaffold with its gap mark, hygiene, the exit flush, `scaffoldEligible`. | I1 (S2c, S2c-fu) |
 | `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
 | `agent/work/tidy.js` | The tidy sweep `tidyNear` and its triggers' launch checks (REQ-OWN-7 … 9). | I1 (S2c) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
-| `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
+| `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
 | `agent/work/site.js` | Fit search (§11.4). | I1 |
 | `agent/work/shelter.js` | The shelter macro: the permanent functional shelter generator, not rebuilt through the compiler (REQ-BLD-4). | I1 |
 | `agent/work/verify.js` | Functional verification of the contract a generator emits (§11.7). | I1, I3 |
@@ -328,15 +330,15 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 
 | File | Change | Status before | Iteration |
 |---|---|---|---|
-| `agent/agent.js` | I1: `this.work` init in `startEvents`, given `init_message` to tell a crash restart from a fresh start. I1 (S2b): the outage module created at init; a catch on the un-awaited `handleMessage` call in `respondFunc` (:174); `handleMessage` passes its self-prompt flag to `promptConvo` (:338); a loaded self-prompter `PAUSED` state with the outage flag restarts the recovery probe (:203; REQ-RES-18). I1 (S2c): owner-answer interception in `handleMessage`, after the forced-command block (:278-300) and before the history add (:323), so a matched answer to `pending_question` never reaches the model (REQ-REC-12; Surv adds its other consumers). I2: structured tool-call branch inside the stop-epoch checks, before the empty-response break (:329-338). | fork carry | I1, I2 |
+| `agent/agent.js` | I1: `this.work` init in `startEvents`, given `init_message` to tell a crash restart from a fresh start. I1 (S2b): the outage module created at init; a catch on the un-awaited `handleMessage` call in `respondFunc` (:174); `handleMessage` passes its self-prompt flag to `promptConvo` (:338); a loaded self-prompter `PAUSED` state with the outage flag restarts the recovery probe (:203; REQ-RES-18). I1 (S2c): owner-answer interception in `handleMessage`, after the forced-command block (:278-300) and before the history add (:323), so a matched answer to `pending_question` never reaches the model (REQ-REC-12; Surv adds its other consumers). I1 (S2c-fu): quiet chat (REQ-CHAT-1): `openChat(message, category = 'detail')` gates every line first; `routeResponse` passes the category through (the bot-to-bot branch unchanged); `reply` on the raw owner command's "does not exist" (:291) and result (:306) and on a model reply with no command (:408); in quiet a branch around the whole `show_command_syntax` dispatch (:369) sends only the text before the command, by the turn's voice (`work/chat.js` `replyCategory`, taken for every response with a command, :373, so it consumes a pending owner answer); `cleanKill` says "Restarting."/"Exiting." only when `detail` is shown (:572). I2: structured tool-call branch inside the stop-epoch checks, before the empty-response break (:329-338). | fork carry | I1, I2 |
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
-| `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). | upstream before S2b; fork carry since | I1 |
+| `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). I1 (S2c-fu): the "did not use command … Stopping auto-prompting" line is an `alert` (:141; REQ-CHAT-1). | upstream before S2b; fork carry since | I1 |
 | `agent/modes.js` | I1 (S2c): in `execute` (:306-330), `should_reprompt` gains `interrupted_action !== 'action:tidy'`, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). Retire when upstream offers a quiet-action flag and a mode-end event. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
-| `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). | fork carry | I1 |
+| `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). | fork carry | I1 |
 | `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips junk-type item entities within 3 blocks of a recorded junk drop point (REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
@@ -398,6 +400,8 @@ silently recording every pillar as `own`.
 | `placements[]` | S2: the placement ledger, `{pos, block, build_id?, kind?: permanent|station, at}` for every block the bot placed while this task was active, the crafting tables and furnaces it placed while it was not, plus `station` entries carried forward from the task it replaced (REQ-BLD-22). From S2c the ledger is its own file (REQ-OWN-1); stations found here are migrated once, and blueprint cells are `building` entries in the placements ledger (REQ-OWN-1). | code |
 | `pending_question` | `{id, kind, text, options, asked_at}` while code waits for an owner answer (REQ-REC-12); `kind` tells the questions apart: `clear_start` (REQ-CLR-4) and `clear_leftovers` (REQ-CLR-9), which also holds the positions and blocks it covers. I1 (S2c) for the clear step's questions; Surv for the rest. | code |
 | `clean_stop` | Set when the agent process receives SIGINT; cleared by startup classification after it is read (REQ-REC-7). | code |
+| `notify_done` | Optional (S2c-fu; the version is unchanged): whether the owner hears the done line, set at `!taskStart` from the turn's voice and by an owner's `!taskResume` or `!taskRevise`; a record without it is judged at done time (REQ-CHAT-1). | code |
+| `blocks_by_step` | Optional (S2c-fu): blocks per step ordinal, `{ "<cursor + 1>": count }`, for the "blocked again" alert (REQ-CHAT-2). | code |
 | `metrics` | (retired: totals come from `requests.jsonl` and the bot log, REQ-OBS-2.) | — |
 | `notes` | (retired: model-written state is what the record exists to remove, C03.) | — |
 
@@ -714,7 +718,7 @@ Until the survival iteration the behaviour is always `continue` and there is no
 
 0 for combat, creepers, unstuck, timeouts, crash restarts, night, pending owner
 questions (I1 for the clear step) and the bot's own tidy sweeps (no decision
-calls: an announced tidy line enters history and can contribute to a
+calls: a tidy line enters history and can contribute to a
 memory-summary call, which the live trials count separately). While the model
 is unreachable, retries are not counted as calls spent. 1 each for a death, a
 blocked step (a stall, an exhausted search, an unfittable build) and a plan
@@ -1618,7 +1622,8 @@ analysis).
     blocks are left that are not natural and not in my records: cobblestone
     16 (one at −98,64,479), oak_planks 2 (one at −100,63,480). Remove them too?
     Answer yes or no." ("not in my records", not "that I did not place": the
-    bot's own scaffold forgotten at a restart is among them.) Every type is
+    bot's own scaffold evicted by the cap, or recorded in an unknown world,
+    is among them.) Every type is
     listed with its count, with no cap, since a yes grants all of them.
   - Containers (`work.clear.containers`) are listed each by name and position,
     every one of them, on lines of their own, with the warning that their contents would drop (for
@@ -1671,6 +1676,21 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
   unreadable or unknown-version file is renamed aside to
   `placements.json.bad-<ms>` and logged, so the first write cannot overwrite
   its entries; the ledger starts empty.
+  - *Per world* (S2c-fu; DECISIONS 2026-11-12, "she should be able to work in
+    different worlds"). The file is version 2:
+    `{ version: 2, updated_at, worlds: { <id>: { entries: [...] } } }`. The
+    world id is `seed:<16 hex digits>` of the login packet's
+    `worldState.hashedSeed` (protocol 26.1 `SpawnInfo`), kept as
+    `bot.game.hashedSeed` by the `utils/mcdata.js` carry (§5.3) and updated by
+    a respawn packet; the ledger reads it once, at load (`Work.init`, after
+    login). Load reads only the current world's entries; every write replaces
+    only that world's slot and writes the other worlds back untouched. A
+    version-1 file (one list, no world) was written on this server: it is
+    folded once into the current world's slot and written back at load as
+    version 2 (one quarantined fold; the v1 shape is gone). An unknown world
+    (no hashed seed): nothing is loaded or written (what the bot places that
+    session lives in memory only, every kind; one log line), and a version-1
+    file is left as it is for a start that knows its world.
 - **REQ-OWN-2 Kinds.** [I1] Stated once; this changes the ledger branch of
   `isProtected` (protect.js), which in S2 exempts every matching entry. Every
   exemption holds only while the recorded block is still there (REQ-SAFE-2).
@@ -1709,24 +1729,77 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
     (REQ-OWN-9) settles as `own`.
   - This also fixes the S2 defect that records task-time pathfinder blocks as
     `air` (ISSUES, cube analysis item 17), which left them protected.
-- **REQ-OWN-4 Old scaffold is forgotten.** [I1] (DECISIONS 2026-11-10 and
-  2026-11-11.) At process start (`Work.init`, not the runner's per-run reload)
-  every live `scaffold` entry is deleted, and at any time every one in a chunk
-  column the client unloads (`chunkColumnUnload`; a dimension change unloads
-  every column). The cell then falls back to the default predicate: an old
-  cobblestone pillar is protected like any non-natural block (so a same-type
-  rebuild by the owner is safe; like any unrecorded block it also blocks the
-  bot's own navigation and collection), and an old dirt pillar is natural like
-  all dirt (REQ-BLD-21). Nothing of it is tidied automatically; a clear box
-  removes it (cobblestone through the leftovers question, REQ-CLR-9). Entries
-  already re-kinded `own` by an owner `!stop` are kept.
+- **REQ-OWN-4 Scaffold records survive; the component guard.** [I1] (S2c-fu;
+  DECISIONS 2026-11-11 "After the S2c live trials" and 2026-11-12, which
+  replace the 2026-11-10 "forgotten, not tidied automatically" rule.)
+  - *Kept.* `scaffold` entries are kept through a clean stop, a crash and a
+    chunk unload (a dimension change, which unloads every column, included);
+    an unload still drops its column's pending attempts.
+  - *Gap mark.* An entry that lived through a gap gets `gap_at` (ms of the
+    first gap; never cleared): at process start (`Work.init`, not the runner's
+    per-run reload) every scaffold entry is marked, and an unloaded column
+    marks its scaffold entries (of any dimension). Init logs
+    `[ledger] kept N scaffold entries from before`. An entry placed this
+    session keeps today's rule (exempt everywhere).
+  - *The component guard*, in `isProtected` (protect.js), so pathfinding,
+    collection, the dig seam and the tidy sweep all see it. A gap `scaffold`
+    entry outside an active clear box is the bot's only while its whole
+    connected component of gap scaffold entries (face-connected, live, block
+    matching) stands free: every face neighbour of every member is loaded and
+    is empty or liquid, a member, her live matching same-session scaffold
+    (a `scaffold` entry without `gap_at`), or natural by the default
+    predicate's own tests (logs and leaves only through the tree and canopy
+    tests, never by name, so a log build around her pillar lapses it). An
+    `own`, `building` or `station` neighbour lapses it like an unrecorded
+    block, whatever its material (checked before the natural test: kept dirt
+    or stone is not terrain; fix wave 2, S4): `own` holds owner-kept
+    scaffold, so "nothing of his touches them"
+    rules it out (S2c-fu fix wave 1, D3; design §8b counted any non-scaffold
+    entry as hers, the unsafe direction). A
+    component of more than 64 members is lapsed (a constant; measured: an
+    uncached 40-block component added 18 ms per A* search, 160 blocks
+    110 ms). The verdict, and the tree and canopy answers behind it (the
+    guard keeps its own, never a run's memos), is memoized per component
+    until the ledger's next
+    block or entry change (any `blockUpdate`, column load or unload, or entry
+    change) or one game tick (50 ms). Otherwise the entry is *lapsed*: the
+    cell falls through to the default predicate (an old cobblestone pillar is
+    protected like any non-natural block, an old dirt pillar is natural like
+    all dirt), the record is kept, and it stands free again once the foreign
+    neighbour goes. Inside an active clear box a gap entry is the bot's.
+  - *Eligibility*, apart from the material verdict, since a lapsed dirt block
+    is natural yet must not be tidied: `ledger.scaffoldEligible(entry, { gap })`
+    (live `scaffold`, not being dug, and a gap entry only while `gap(entry)`,
+    the Protector's `gapHers`: in an active clear box, or standing free). The
+    tidy sweep's candidates, its pillar-down test, the trigger discovery
+    (`Tidy.within`, `modeScaffold`) and its final pre-dig check all use it;
+    the structure under the bot (`standingOn`) keeps every matching recorded
+    block, whatever its kind (its connectivity is a safety feature).
+  - *Who removes them* (the owner's answer of 2026-11-12, Q1: yes): the guard applies
+    to every caller, so old scaffold that stands free is removed as before by
+    the fight-end and task-end sweeps, a `!tidy` of either side, gathering
+    (`collectBlocks` treats her blocks as fair game) and the pathfinder.
+  - Entries re-kinded `own` by an owner `!stop` are kept, as before.
 - **REQ-OWN-5 Cap and retirement.** [I1]
-  - `work.ledger_max` (2000) caps live `scaffold` entries only: the oldest is
-    evicted, and an evicted pillar is treated like old scaffold (REQ-OWN-4).
-    `own`, `building` and `station` entries are never evicted; they grow only
-    with what the bot builds (a log warning above 10 000).
+  - `work.ledger_max` (2000) caps live `scaffold` entries only, per world (gap
+    entries included): the oldest is evicted, and an evicted pillar falls back
+    to the default predicate as an unrecorded block. The cap also applies once
+    right after load, marking the ledger dirty when it evicts, so a lowered cap
+    takes effect at the next start. `own`, `building` and `station` entries are
+    never evicted; they grow only with what the bot builds (a log warning above
+    10 000).
   - An entry whose block changed is retired (REQ-SAFE-2, and on `blockUpdate`),
     only for loaded cells: an unloaded cell is unknown, not gone.
+  - *Hygiene* (S2c-fu): when a chunk column loads (`chunkColumnLoad`), the
+    current dimension's `scaffold` entries in that column whose cell shows
+    another block are retired (an entry being dug is skipped); `Work.init` runs
+    the same check once over the cells already loaded. Retirement on any
+    `isProtected` query stays as before.
+  - *Durability* (S2c-fu): `Ledger.install` adds a `process.once('exit')`
+    handler that flushes what is dirty (synchronous; a write error is logged,
+    never thrown), removed by `dispose`; a successful tidy dig marks the ledger
+    dirty at once, so an exit inside the revert window does not leave the
+    removed entry in the file.
   - *Tidy digs.* Before `bot.dig` the entry is marked `removing` and is exempt
     from retirement while the dig runs (Mineflayer writes the predicted air
     locally first, digging.js:160). After the dig it is `removed_at`; a
@@ -1868,10 +1941,10 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
        trigger itself; the separate label-recording wrap is REQ-OWN-7's.)
   3. *`!tidy`* (owner or model) runs the same sweep as `action:tidy`. It is
      refused while a task is live: "A task is running; I tidy when it ends."
-     (As built: when the tidy line was not announced, the command returns it
-     instead, or "No scaffold of mine within reach." for an empty sweep, or
-     "Nothing tidied (<why>)." when the sweep ended before choosing anything; an
-     interrupted `!tidy` returns nothing.)
+     (As built, S2c-fu: the answer is REQ-OWN-10's; for a sweep with no line
+     the command returns "No scaffold of mine within reach." for an empty
+     sweep, or "Nothing tidied (<why>)." when the sweep ended before choosing
+     anything; an interrupted `!tidy` returns nothing.)
   - The modes carry also keeps a fight that interrupts a sweep from prompting the
     model (`should_reprompt` excludes `action:tidy`; otherwise a 16–45 s call
     for nothing).
@@ -1899,19 +1972,27 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
   synchronously (`bot.stopDigging()`), and no dig starts after a keep; the
   action, task and resume are still stopped by the `!stop` command. The owner
   keep also clears the runner's `tidy_after_mode` flag.)
-- **REQ-OWN-10 Tidy message.** [I1] `work.tidy.announce` (default true): after a
-  sweep that removed or left something, one line rendered by code through the
-  work report seam: "Removed 5 of my scaffold blocks here." / "Removed 3 of my
-  scaffold blocks; left 2 (next to water)." Nothing for an empty sweep. (The
-  owner finds the bot verbose in general; the line is switchable, to review
-  later.) As built: nothing either for a sweep a mode or a stop interrupted (the
-  sweep after the mode, or the stop, follows); the line reports only blocks
-  left for a reason of their own (a cell reason, as in the examples), never
-  those a hostile, a bound or the ground kept the sweep from reaching, so a
-  sweep that removed nothing and left nothing for a cell reason says nothing;
-  several reasons are counted ("left 3 (2 next to water, 1 part of what I
-  stand on)"); the line goes through `postReport`, so it also enters the
-  model's history.
+- **REQ-OWN-10 Tidy message.** [I1] After a sweep that removed or left
+  something, one line rendered by code through the work report seam:
+  "Removed 1 scaffold block of mine here." / "Removed 5 scaffold blocks of
+  mine here." / "Removed 3 scaffold blocks of mine; left 2 (next to water)."
+  Nothing for an empty sweep. As built: nothing either for a sweep a mode or a
+  stop interrupted (the sweep after the mode, or the stop, follows); the line
+  reports only blocks left for a reason of their own (a cell reason, as in the
+  examples), never those a hostile, a bound or the ground kept the sweep from
+  reaching, so a sweep that removed nothing and left nothing for a cell reason
+  says nothing; several reasons are counted ("left 3 (2 next to water, 1 part
+  of what I stand on)").
+  - *Under `work.chat`* (S2c-fu, REQ-CHAT-1; `work.tidy.announce` is retired,
+    one switch): the line always goes into history through `postReport`, and to
+    chat as `detail` (shown in debug only).
+  - *`!tidy`'s answer:* a `!tidy` in an owner turn, typed by him (shown as
+    `reply`) or issued by the model for his words (the line comes back to the
+    model, whose next response in his turn is shown; fix wave 1, G2), returns
+    the line as its command result whenever the chat line was not said; a
+    `!tidy` in her own turns returns nothing once its line was posted (no
+    second history entry); whether the line was said no longer depends on a
+    switch of its own.
 - **REQ-OWN-11 Interplay.** [I1]
   - The clear step: inside its box, `scaffold` and `own` are ordinary cells
     (REQ-CLR-5); the task-end sweep then removes reachable scaffold outside the
@@ -2236,9 +2317,9 @@ About 13 tools in all.
 | `work.clear.marker_radius` | 32 | Marker search radius (REQ-CLR-2). S2c. | clear council |
 | `work.clear.containers` | every item-holding block of the 26.1 registry (56): chest, trapped_chest, the 8 copper chests, barrel, every shulker box, hopper, dispenser, dropper, furnace, blast_furnace, smoker, brewing_stand, crafter, lectern, chiseled_bookshelf, the 12 wood shelves, decorated_pot, jukebox, campfire, soul_campfire, suspicious_sand, suspicious_gravel | Blocks that hold items: kept unless the owner's explicit answer grants them (REQ-CLR-5, 9); a test checks the families against the registry. S2c. | clear council; owner (containers, 2026-11-11 "leave out any chest or container"); main-seat ruling (split) |
 | `work.clear.never_remove` | spawner | Blocks a clear always keeps (REQ-CLR-5). S2c. | clear council; main-seat ruling (split) |
-| `work.ledger_max` | 2000 | Cap on live `scaffold` entries (REQ-OWN-5). S2c. | clear council |
+| `work.ledger_max` | 2000 | Cap on live `scaffold` entries per world, applied also once after load (REQ-OWN-5). S2c; per world from S2c-fu. | clear council |
 | `work.tidy.enabled` | true | Automatic tidy triggers on or off; `!tidy` always works (REQ-OWN-8). S2c. | clear council |
-| `work.tidy.announce` | true | One line after a sweep that removed or left something (REQ-OWN-10). S2c. | owner (2026-11-10) |
+| `work.chat` | quiet | `quiet` (every chat category but `detail`) or `debug` (today's full output); an unknown value is logged once and means quiet (REQ-CHAT-1). Read through `prompter.work_config`, so it exists before `Work`. S2c-fu. | owner (2026-11-11, 2026-11-12); quiet council |
 
 The four model keys are flat keys of the profile's `work` section, so the
 one-level merge never drops one of them; S2b adds them to the defaults in
@@ -2259,7 +2340,9 @@ back-off (5 s doubling to 60 s). From S2c: the clear step's 16 digs per unit and
 window, 3 s revert window and 10 000-entry log warning; the tidy sweep's reach
 (4.5 blocks from the eyes), hostile radius 16, 32 digs and 60 s per sweep, 2 s
 pillar-down wait, 5 s task-end launch window, 5 s re-check for up to 60 s after a
-mode, and the 60 s window in which a model `!stop` counts as the owner's.
+mode, and the 60 s window in which a model `!stop` counts as the owner's. From
+S2c-fu: the component guard's 64-member limit and its one-tick (50 ms) memo
+(REQ-OWN-4).
 
 **Keys of later iterations** (added to `config.js` when their iteration is built)
 
@@ -2301,7 +2384,10 @@ Retired keys (W3): `work.danger_radius` (now the constant 8),
 `work.no_progress_s`), `work.report_with_model` (reports always come from facts),
 `work.view_max_chars`, `work.notes_max_chars` / `result_max_chars` (constants, or
 retired with `notes`), `work.build.scaffold_block` / `scaffold_reserve`
-(constants), `work.probes_enabled` (no `!probe` command).
+(constants), `work.probes_enabled` (no `!probe` command). S2c-fu:
+`work.tidy.announce` (the tidy line is a `detail` chat line under `work.chat`;
+one switch, REQ-OWN-10); a profile that still sets it gets the usual
+"ignoring unknown work setting" log line.
 
 Data tables (not tunables): `work/data/natural_blocks.json` (I1),
 `structure_signatures.json` and `biome_priors.json` (I4), `smelting.json` (I5).
@@ -2326,10 +2412,109 @@ Data tables (not tunables): `work/data/natural_blocks.json` (I1),
 - **REQ-OBS-4** [I1] (S2c) The bot log records every placement attempt with its
   source, `by` and position and whether it settled to an entry; every tidy
   sweep's removals and leftovers with their reasons; and one line, with position
-  and reason, for each ledger change that is not a placement: the forget at
-  process start, a delete on chunk unload, a cap eviction, a retirement and an
-  owner keep (REQ-OWN-4, 5, 9). So the S2c trials can count
+  and reason, for each ledger change that is not a placement: the gap marks at
+  process start and on chunk unload (counted; from S2c-fu, which replaced the
+  forget and the delete), a cap eviction, a retirement and an owner keep
+  (REQ-OWN-4, 5, 9). So the S2c trials can count
   the bot's own blocks left behind and why (DECISIONS 2026-11-11; PLAN S2c).
+  From S2c-fu every chat line quiet drops is logged as
+  `[chat] quiet: dropped (<category>): <line>` (REQ-CHAT-1).
+
+### 15.1 Chat to the owner `[I1]` (S2c-fu)
+
+Owner rulings: DECISIONS 2026-11-11 "After the S2c live trials" ("she talks too
+much in chat") and 2026-11-12 "Quiet chat and remembered scaffold". Design:
+`runtime/diagnostics/i1-build/quiet-council/recommended-design.md` r4. The
+chat rules sit here, beside the log rules, because they decide what the owner
+observes; the log keeps everything (the full model responses stay in the
+agent log, and every dropped line is logged).
+
+- **REQ-CHAT-1 The switch and the categories.** [I1] One switch,
+  `work.chat`: `quiet` (default) or `debug` (§14), a flat key in
+  `WORK_DEFAULTS`, read through `agent.prompter.work_config` (built in
+  `Agent.start` before `Work`, kept by the panel's Apply) by one helper,
+  `work/chat.js` (`chatMode`, `chatShown`); an unknown value is logged once per
+  process and means quiet. Every line the bot says has a category; quiet shows
+  every category but `detail`, debug shows all (today's output paths). The gate
+  is the first line of `agent.openChat(message, category = 'detail')`, so an
+  untagged line is `detail`; `routeResponse` passes the category through, and
+  the bot-to-bot branch is unchanged. The profile text (§3 of the design)
+  applies in both modes, so debug shows less model narration than before.
+
+| Category | Quiet | Lines |
+|---|---|---|
+| `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10) |
+| `question` | shown | the work layer's owner questions (REQ-REC-12) |
+| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2) |
+| `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
+| `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror |
+
+  - *The model's replies.* In quiet a branch around the whole
+    `show_command_syntax` dispatch (agent.js) sends only the text before the
+    command, never its syntax, with the category from the turn: an owner turn
+    or a blocked-report turn → `reply`; the command `!endGoal` → `done`;
+    otherwise `detail`. A reply with no command is `reply`. Debug keeps today's
+    dispatch.
+  - *The turn's voice.* The work layer's `handleMessage` wrap (`guardTurns`)
+    stores it on the turn: `owner` when the source is the owner (agent.js's
+    own test: not `'system'`, not the bot's name, not another bot; not
+    `fromOwner()`, which is true for `'system'` when `only_chat_with` is
+    empty), `alert` when the message is the blocked report the work layer
+    hands to the model (marked synchronously right before that call and
+    consumed at the turn's entry), else `own`. `Work.turnVoice()` is null for
+    a finished turn and for the question's own post, so runner code in an
+    inherited context never reads a stale `owner`. A blocked-report turn also
+    carries whether the blocked task was the owner's (`notify_done`, or the
+    legacy judgement below), so a task the model starts in it is his
+    (`Work.ownerTurn()`; fix wave 1, G3).
+  - *The owner's answer pending* (fix wave 1, G1). While a goal runs, agent.js
+    answers an owner message with one response (`max_responses = 1`); when
+    that is a bare query, its answer comes in her next, self-prompted turn.
+    So an owner turn that began while a goal ran (`self_prompter.isActive()`
+    at its start), whose words went to the model (not a raw command, not an
+    answer code consumed, REQ-REC-12) and that showed no line leaves
+    `Work.answerPending`. The model's next response, in any turn, takes it
+    (`Work.takeAnswer`, from `replyCategory`, which the quiet branch calls
+    for every response with a command), whether or not it shows text: its
+    text before the command, if any, is `reply`. Any shown `reply` line
+    clears it too (a reply with no command), as does the end of an owner turn
+    that showed one (fix wave 2, A1).
+  - *Work-layer lines* go through `deliver(report, { current, category, chat
+    = report })`: the report always enters history; its chat text is queued
+    only when its category is shown, with no pacing wait for a dropped one;
+    `postReport` passes the options through.
+  - *The done line.* A task the owner asked for ends with one short line,
+    `Task done: "<objective>".` (`done`); a task with a clear step keeps its
+    whole done report (anything left must show); debug shows the whole report
+    as before; a task she started herself sends its report to history only.
+    The record's optional `notify_done` (version unchanged) is set at
+    `!taskStart` from the turn's voice (`owner` → true; in a blocked-report
+    turn, inherited from the blocked task, G3); an owner's
+    `!taskResume` or `!taskRevise` sets it true; a crash resume keeps it. A
+    record without it is judged at done time as
+    `Boolean(requested_by && !goal)`, with no write-back.
+  - *The box statement* of a `markers=` clear is a structured part of the
+    start (and revise) result, `result.statement`, sent as its own `alert`
+    line; the rest of the line follows the turn; history keeps the whole line.
+    A `box=` clear states its box in its question, so its statement stays in
+    the line.
+  - *Questions are not disarmed by dropped lines:* the `openChat` wrap calls
+    `work.onChat()` only for a line that is shown.
+  - Owner answer (2026-11-12, Q2): in quiet, a raw long command
+    (`!collectBlocks`, `!goToCoordinates`) has no receipt until it ends (the
+    echo stays `detail`).
+- **REQ-CHAT-2 Alerts that code says.** [I1]
+  - *A step blocked a second time.* The record's `blocks_by_step` (step
+    ordinal `cursor + 1` → count; optional, version unchanged) counts the
+    blocks of `blockStep` (owner questions are not blocks); it is kept through
+    a resume, and through a revision of that ordinal whose skill and args are
+    unchanged, whatever the order the args are written in (a changed one
+    starts again). When a count first reaches 2, code
+    sends one `alert` line, "Step N blocked again: <reason>.", besides the
+    model's relay of the blocked report.
+  - *Her death.* Work's `death` listener sends "I died at x, y, z; my task is
+    paused." (or "I died at x, y, z." when no task was active), since the
+    model's turn for a death is her own and quiet drops its text.
 
 Targets (measured, not promised):
 
@@ -2371,9 +2556,15 @@ Recorded, not built:
   - bridges and pillars left behind after travel: they stay until an area clear
     covers them (owner ruling);
   - scaffold out of reach, including free-standing pillars taller than reach;
-  - scaffold from before a restart or from a chunk the client unloaded: it is
-    forgotten, not tidied (owner ruling; REQ-OWN-4);
-  - a crash mid-sweep: the rest becomes unrecorded;
+  - (S2c-fu: scaffold from before a restart or an unload is no longer
+    forgotten; it is kept and tidied while it stands free, REQ-OWN-4. The
+    walking tidy slice can enumerate these records and rank them by
+    `gap_at`.)
+  - a crash mid-sweep: the entries not yet dug survive in the file and are
+    marked `gap_at` at the restart, so they are tidied while they stand free
+    (REQ-OWN-4); on an abrupt stop, a tidy dig of the last 3 s (its revert
+    window, `revertMs`) may still be in the file (the exit-flush bullet
+    below);
   - water placed by `self_preservation` (bucket use never fires `blockPlaced`);
   - torches from `torch_placing` (off on the deployment);
   - placements by generated code through `bot.activateBlock` (unrecorded, as in
@@ -2393,7 +2584,7 @@ Recorded, not built:
   - occupancy is checked before the dig packet, not during a long hand dig: a
     player who steps onto a block mid-dig can fall (inherited from REQ-CLR-6;
     DECISIONS 2026-11-10, "even one the owner walks on");
-  - "0 model calls" for tidying means no decision calls: announced tidy lines
+  - "0 model calls" for tidying means no decision calls: tidy lines
     enter history and can contribute to memory-summary calls, counted
     separately in the live trials (fewer lines since REQ-OWN-10's as-built
     rule);
@@ -2404,6 +2595,78 @@ Recorded, not built:
   - after REQ-OWN-9's narrowing, "stop tidying" in words through the MindServer
     helper does not open the 60 s window for a model `!stop` (the helper's raw
     `!stop` still keeps); the live trial of that case uses game chat.
+- Quiet chat and remembered scaffold, S2c-fu (design r4 §4, §6, §10; LOW
+  unless noted):
+  - a same-type replacement with identical surroundings cannot be told apart:
+    an owner block of the same type in a cell where her old scaffold was, with
+    nothing foreign around, still reads as hers (REQ-OWN-4);
+  - a regenerated world with the same seed shares its world id, so her old
+    records apply there (REQ-OWN-1);
+  - the task record, structures and memory are not per world yet: a world
+    switch with an active task would resume it at the old coordinates
+    (flagged for the owner, DECISIONS 2026-11-12);
+  - text that quiet drops stays in the model's history (the profile puts
+    questions in replies with no command; every drop is logged);
+  - owner-turn action chains show the text of every response (no "drop i ≥ 1
+    after an action" refinement), so a long chain in an owner turn may show a
+    few lines;
+  - the ledger reads the world id once, at load: a `login` or `respawn`
+    packet with another hashed seed later in the same process (a server
+    transfer or a configuration-phase re-entry, which Mineflayer handles)
+    updates `bot.game.hashedSeed` but not the loaded ledger, which then
+    mis-files the new world's placements under the first world's key, where
+    they would match other blocks at the same coordinates on return (adversary
+    r1 D9). Not reachable on the deployment: every disconnect through ViaProxy
+    exits the process and the restart loads again (agent.js `end`/`kicked` →
+    `cleanKill`);
+  - the exit flush covers `process.exit` and SIGINT (the MindServer stop),
+    not SIGTERM, SIGKILL or an out-of-memory kill: such an end loses at most
+    the last 2 s of changes (the write throttle), and a tidy dig's removal
+    reaches the file only after its 3 s revert window (`revertMs`), so a dig
+    of the last 3 s may still be in the file; hygiene at the next start
+    retires those cells;
+  - a failed unstuck (`modes.js`: `moveAway` not done within 10 s) restarts
+    the process through `cleanKill`, and in quiet its "Restarting." is
+    `detail`, so the owner sees her stop and come back with no word (the
+    design keeps it `detail`; the pathfinder's futility guard removes the
+    known pit path into it);
+  - the owner's answer pending (REQ-CHAT-1) lasts one model response: when
+    her next response is a bare command, the answer is not shown at all, and
+    when its text is unrelated narration, that one line is shown as his
+    answer; two overlapping owner turns set it last-writer-wins at their
+    ends; an empty response or an unknown command does not consume it, so it
+    waits for the next response with a known command (at most one extra line
+    shown; S2c-fu final review, ruled a residual);
+  - a model `!tidy` in an owner turn writes its tidy line to history twice
+    (chat shows it once);
+  - a version-1 file met in an unknown world is left as it is, and stations
+    from an S2 task record migrated in an unknown world live in memory only
+    (the record's `placements` key is still removed); neither happens on the
+    deployment, whose ledger is already a file and whose server sends a seed.
+- The pit escape, S2c-fu amendment 1 (the pathfinder carry places a tower
+  block only once her feet clear the cell, and resets a tower she cannot
+  clear, at once when she stands in its reference cell, else after 3.5 s,
+  CHANGES.md; live confirm round in the private
+  `i1-build/s2cfu-review/pit-probe-report.md`). The fault is narrowed, not
+  closed: one refusal was seen after the placement fix with her feet clear of
+  the cell (cause unknown):
+  - a `GoalNear` of range 2–3 (`goToPosition`'s default 2, `work/dig.js`'s
+    approach 3) is already met from inside a pit one or two blocks below its
+    rim, so she may stop standing on her own tower inside the pit (seen live
+    at ranges 2 and 3); the fix is the callers' (a standable goal cell with
+    range 0–1, or a reach check that walks on), not the pathfinder's;
+  - once seen live: an 18 s jump in place after a refused tower placement,
+    with no further attempt, ended by the unstuck mode. Hypothesis, not
+    logged: a path reset in mid-air plans from her floored mid-air cell a
+    tower block she can never clear, and the jump-placement branch returned
+    before the 3.5 s `lastNodeTime` stuck check. The carry now resets such a
+    plan in the jump-placement branch (`resetPath('stuck')`): at once when
+    she stands on the ground with her feet in the reference cell, so the
+    replan starts from the ground, and else on that 3.5 s check (honey,
+    cobweb); that it escapes is a live check.
+    The probe that settles the cause (a clean 4-deep, 1-wide pit at range 2,
+    several runs, logging `path_reset` and `path_update`'s `toPlace`) is in
+    that report.
 - The clear step and the ledger, S2c review round 1 (LOW unless noted):
   - the tell A guard (REQ-OWN-6) is a text-order check of the installed
     pathfinder source: it catches the predicted write removed, renamed or

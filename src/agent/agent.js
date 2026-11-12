@@ -19,6 +19,7 @@ import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
 import { Work } from './work/index.js';
 import { ModelOutage } from './model_outage.js';
+import { chatMode, chatShown, replyCategory } from './work/chat.js';
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
@@ -285,8 +286,9 @@ export class Agent {
         if (!self_prompt && !from_other_bot) { // from user, check for forced commands
             const user_command_name = containsCommand(message);
             if (user_command_name) {
+                // Fork carry (REQ-CHAT-1): the answers to a raw owner command are `reply`.
                 if (!commandExists(user_command_name)) {
-                    this.routeResponse(source, `Command '${user_command_name}' does not exist.`);
+                    this.routeResponse(source, `Command '${user_command_name}' does not exist.`, 'reply');
                     return false;
                 }
                 this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
@@ -301,7 +303,7 @@ export class Agent {
                         await this.history.add('system', execute_res);
                         await this.history.save();
                     }
-                    this.routeResponse(source, execute_res);
+                    this.routeResponse(source, execute_res, 'reply');
                 }
                 return true;
             }
@@ -364,7 +366,16 @@ export class Agent {
                 if (checkInterrupt()) break;
                 this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
 
-                if (settings.show_command_syntax === "full") {
+                if (chatMode(this) === 'quiet') {
+                    // Fork carry (REQ-CHAT-1): only the text before the command,
+                    // never its syntax, by the turn's voice; the category is
+                    // taken for every response (it consumes a pending answer).
+                    const category = replyCategory(this, command_name);
+                    let pre_message = res.substring(0, commandStart(res)).trim();
+                    if (pre_message.length > 0)
+                        this.routeResponse(source, pre_message, category);
+                }
+                else if (settings.show_command_syntax === "full") {
                     this.routeResponse(source, res);
                 }
                 else if (settings.show_command_syntax === "shortened") {
@@ -394,7 +405,7 @@ export class Agent {
             }
             else { // conversation response
                 this.history.add(this.name, res);
-                this.routeResponse(source, res);
+                this.routeResponse(source, res, 'reply');
                 break;
             }
             
@@ -404,7 +415,7 @@ export class Agent {
         return used_command;
     }
 
-    async routeResponse(to_player, message) {
+    async routeResponse(to_player, message, category = 'detail') {
         if (this.shut_up) return;
         let self_prompt = to_player === 'system' || to_player === this.name;
         if (self_prompt && this.last_sender) {
@@ -419,12 +430,14 @@ export class Agent {
         }
         else {
             // otherwise, use open chat
-            this.openChat(message);
+            this.openChat(message, category);
             // note that to_player could be another bot, but if we get here the conversation has ended
         }
     }
 
-    async openChat(message) {
+    async openChat(message, category = 'detail') {
+        // Fork carry (REQ-CHAT-1): the one chat gate; an untagged line is `detail`.
+        if (!chatShown(this, category)) { console.log(`[chat] quiet: dropped (${category}): ${message}`); return; }
         let to_translate = message;
         let remaining = '';
         let translate_up_to = commandStart(message);
@@ -556,7 +569,7 @@ export class Agent {
 
     cleanKill(msg='Killing agent process...', code=1) {
         this.history.add('system', msg);
-        this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
+        if (chatShown(this, 'detail')) this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.'); // fork carry (REQ-CHAT-1)
         this.history.save();
         process.exit(code);
     }
