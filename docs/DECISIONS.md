@@ -254,3 +254,5 @@ The owner ruled on the three findings of the S2e trials (ISSUES "S2e live trials
   arrows are plainly kept: no new list kind. When the bag is full of kept items and she needs to
   collect something, the answer is S2e part B, putting things in a chest, not throwing them. Part
   B stays parked until the owner's word; this need goes with it.
+- **Best one, period.** Of bows and of crossbows she keeps exactly one, the best; every other
+  one is dropped, enchanted or not.
