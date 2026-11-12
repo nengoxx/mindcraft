@@ -1,24 +1,26 @@
 # Handoff
 
-## 2026-11-12 (midday) — S2d fixed and deployed (solo trials pass); P15 done; S2e building
+## 2026-11-12 (afternoon) — S2d and S2e deployed; S2e solo trials running
 
-- The operator runs under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112b.log`;
-  restarted fully after a server restart left the old proxy unable to log her in, ISSUES "Operator: the proxy after a
-  server restart").
-- S2d: F1 fixed `65fce4a`, F2 fixed `33a0c5d`, deployed; the re-run solo trials pass (ISSUES "S2d re-run trials after
-  both fixes"). Left for the owner: following at dusk and a follow still on 10+ minutes later. The probe logging is
-  removed (`node_modules` restored, sha256 `6d9941df…37d1b`).
-- P15 ran live (owner ruling 2026-11-12: build S2e first, P15 before the deploy): G1 confirmed, the design's toss values
-  hold (`runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`).
-- **Running:** the S2e builder (part A) in the worktree `~/.cache/tmp/mindcraft-s2e` (branch `s2e` from `72d7d76`),
-  brief `runtime/diagnostics/i1-build/s2e-review/brief-s2e.md`, report to `s2e-builder-report.md` beside it.
-  **If this session ends now:** that worktree holds unreviewed work; next is its review round (Sol + Opus adversary),
-  then merge, deploy, S2e trials.
+- The operator runs under the `mindcraft` session (background job, log `runtime/logs/operator-start-20261112b.log`).
+  After a server restart, a full operator Stop/Start (fresh proxy) is what logs her in again (ISSUES "Operator").
+- S2d: F1 `65fce4a`, F2 `33a0c5d`, deployed; solo trials pass. Left for the owner: the two follow trials.
+- S2e part A merged `0da559e` (review: Sol + Opus adversary, three rounds, closed; rulings and reports in
+  `runtime/diagnostics/i1-build/s2e-review/`; residuals in SPEC §16), deployed by an agent restart at 12:36 UTC. Its
+  first idle pass ran by itself at once (2 wheat seeds, 1 spider eye, 21 dirt; no model call).
+- **Running:** an Opus trial lane on S2e's solo trials (brief and report `s2e-review/brief-trials.md`,
+  `live-trials-report.md`). **If this session ends now:** read that report when it exists; nothing unreviewed is
+  left in a worktree.
+- Next after the trials: the owner's follow trials (S2d and S2e), then the chest (S2e part B, parked until the owner's
+  word after S2e's trials), then S3.
 
-**Test card for the owner (this afternoon).** Watch a night: she places her bed
-beside her, sleeps, the night skips, and she should take the bed back every time (no "I lost my bed" line). Tell her
-to follow you at dusk: she sleeps, then follows again, and still follows 10+ minutes later. Tell us any "I lost my
-bed" / "I left my bed" line you see (whispers, not in our log).
+**Test card for the owner (this afternoon).** Watch a night: she places her bed beside her, sleeps, the night skips,
+and she takes the bed back every time. Tell her to follow you at dusk: she sleeps, then follows again, and still
+follows 10+ minutes later. Inventory: with her bag nearly full (fewer than 4 free slots), she drops her junk and
+surplus by herself within seconds, idle or while following you, in front of her and away from you; she should not
+pick it back up. `!itemList` shows her list. Give her something on the junk list (rotten flesh, gravel) to see it go;
+to keep a gift, the list needs "all" or a count for it. Tell us any "I lost my bed" / "I left my bed" line, and any
+item list error line.
 
 ## 2026-11-12 (later) — S2c-fu done; S2d built but its live trials failed; next: the S2d fix slice
 
