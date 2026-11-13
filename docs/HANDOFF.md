@@ -1,16 +1,25 @@
 # Handoff
 
-## 2026-11-13 (afternoon) — both slices approved and building
+## 2026-11-13 (evening) — the blocks and combat slices are merged; not yet live
 
-- The owner answered both designs (DECISIONS 2026-11-13 "Both designs answered", and "Following him on the move").
-  The combat design closed at r10 (adversary r4–r8 confirms; rulings in `combat/rulings-adversary-r4-r8.md`).
-- Two builders run in worktrees: `<scratch>/mindcraft-ownblocks` (branch `ownblocks`, design
-  `ownblocks/recommended-design.md` r4 plus the owner's yes to §8) and `<scratch>/mindcraft-combat`
-  (branch `combat`, design r10). Briefs: `brief-builder.md` in each record folder; reports land as
-  `builder-report.md` there.
-- **If this session ends now:** read both builder reports, re-run the gate in each worktree, then the review round
-  (Sol + a fresh Opus adversary) per slice; nothing is merged or deployed. The server was down from 13:07 (Aternos
-  shutdown); her agent process exited and needs an operator restart once the server is up.
+- **Merged on develop, not pushed:** the blocks slice (`7e788a0`, merge `a52c95d`: truthful `!collectBlocks`
+  count, `!collectPlaced` on the owner's word) and the combat slice (`46e6cb4`, merge `0524542`: engage a skeleton
+  on aggro, leash 16, walk back, follow and travel rules). Gate 582/582 and the operator checks pass on develop.
+  Each slice: council design approved by the owner, a builder, Sol + Opus adversary review, two fix waves, both
+  confirms closed. Records: `runtime/diagnostics/i1-build/ownblocks/` and `combat/` (rulings `rulings-r*.md`,
+  `rulings-build-r*.md`); residuals in SPEC §16.
+- **Private profile set** (backup `~/.cache/tmp/combat-tmp/deploy/amaia.json.bak`): `work.combat.ranged` the four
+  skeletons (all four exist in the 26.1 registry), `travel_speed` 2. `work.collect` uses the defaults.
+- **Not deployed:** the Minecraft server has been offline since 13:07 (Aternos shutdown, status ping "This server is
+  offline"); her agent process exited and a MindServer restart did not relaunch it. **Next:** once the owner starts
+  the server, `operator/mindcraft.sh stop`, then `start` as a background job (log under `runtime/logs/`); check she
+  loads the new code and profile (`live.mjs settings`); then the live trials: the blocks slice (PLAN "Ownblocks"
+  live acceptance 1–4, his obsidian at -490 71..72 1813) and combat at night (PLAN "Combat" 1–4; 5 is his), plus
+  the memory question ("do you need a diamond pickaxe for obsidian?").
+- **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
+  staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
+- Open owner question: `goToPlayer`'s pause of `self_defense` (he is unsure; recommendation in DECISIONS "Both
+  designs answered": keep it; a later "defend the owner" slice).
 
 ## 2026-11-13 — the gear slice is deployed; its trials mostly pass
 
