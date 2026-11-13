@@ -11,10 +11,13 @@
   nothing of his was dropped or replaced. Trial 2 (armour thrown to her) waits for the owner. Trial 4 (obsidian through
   `!collectBlocks`) failed by protection, not gear: his blocks are protected, and collectblock silently skips them, so
   "Completed 2 … net change: none" (a pre-existing defect, ISSUES). Mining obsidian with the copy is proven by P17.
-- **Next, for the owner to pick:** (1) how he lets her mine one of his blocks; (2) the false `!collectBlocks` count
-  (fix); (3) her memory holds a false lesson "obsidian requires a diamond pickaxe" (correct it?); (4) the G1 question
-  (an unbreakable better armour piece replacing his); (5) the combat-start slice (DECISIONS 2026-11-13: skeletons
-  engaged when they aggro, if a path is easy; nether shooters like blazes may be hidden from), a council design.
+- **The owner answered (DECISIONS 2026-11-13, "His blocks on request [...]"):** fix the false `!collectBlocks`
+  count; she mines a block of his only when he asks (one council slice with the count fix); better armour is worn
+  whoever gave it (G1 closed, already built); the false obsidian lesson in her memory is corrected once.
+- **Next:** that council slice, and the combat-start slice (DECISIONS 2026-11-13: skeletons engaged when they aggro,
+  if a path is easy; nether shooters like blazes may be hidden from), also a council design; P18 (a passive
+  listener for arrows and skeleton aggro) runs before its brief is finished
+  (`runtime/diagnostics/i1-build/combat/problem-brief.md`).
 - The gear worktree `<scratch>/mindcraft-gear` (branch `gear`, merged) can be removed with
   `git worktree remove` once nothing more is needed from it.
 - **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`. Back on

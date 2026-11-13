@@ -3604,9 +3604,9 @@ Recorded, not built:
     then refuses; no such item is on the owner's deployment;
   - (code review r1, adversary G1) an unbreakable armour piece that outranks
     his replaces it, and his then goes as a spare under `gear: "best"`; only
-    he can give her unbreakable pieces. Pending the owner's answer (the
-    ruling "picked-up armour must never replace his" was made with
-    breakable pickups in mind);
+    he can give her unbreakable pieces. Ruled intended (DECISIONS
+    2026-11-13, "His blocks on request [...]": she wears the best piece
+    whoever gave it);
   - (code review r1, adversary G4) on a hardness-0 block (short grass, a torch)
     every item digs in 0 ticks, so `unbreakable` decides before `held` and she
     swaps her hand to an unbreakable tool for each such dig;

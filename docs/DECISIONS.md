@@ -314,3 +314,20 @@ should engage and kill it. Ideally before getting hit by the arrow, just like wh
 "blazes and stuff from the nether can be a little bit annoying [...] if a blaze is shooting her in the nether, she
 could just hide instead." Where engaging needs more than an easy path, "we should talk about that": the design brings
 that case, and hiding from such mobs, back to him.
+
+## 2026-11-13 — His blocks on request, the false collect count, better armour, her false lesson
+
+The owner's answers after the gear live trials (ISSUES "Gear live trials, 2026-11-13 night"):
+- **The collect count:** "fix the collect bug": `!collectBlocks` reports only blocks it really removed, and says
+  when a block was skipped as protected.
+- **His blocks:** "if I ask, obviously she can mine a block that I placed, but only if I ask." Protection stays the
+  default; his request lifts it for the blocks he asked about. How the code knows he asked goes to the council,
+  together with the count fix (one slice: both change the same collect path).
+- **Better armour (closes G1):** "if I ever give her a better armor, obviously she should pick the best one": armour
+  is ranked by the gear rules (an unbreakable piece first, then its real values) whoever gave it, and a displaced
+  piece of his becomes a spare like any other. This is what the gear slice already does.
+- **Her false lesson:** "obviously that is true generally in the game, but for things like custom items [...] not
+  really. So let's fix that issue in the best way possible, the cleanest way possible." The lesson "obsidian
+  requires a diamond pickaxe" came from the false count, not from the game: the main seat corrects that memory
+  entry once, and the count fix removes the cause. Her lessons about tools should come from the item's own data
+  (the gear rules), not from material names.
