@@ -21,7 +21,8 @@ are deliberately absent from tracked source.
 
 `process/agent_process.js` remains upstream; `self_prompter.js` is carried since
 I1 S2b (the outage pause, below) and `modes.js` since I1 S2c (the tidy carry,
-below; grown in I1 S2d by the `sleeping` mode).
+below; grown in I1 S2d by the `sleeping` mode and in the combat slice by the
+`self_defense` branch).
 Native retry: exit code >1 ends parent; otherwise a nonzero/non-SIGINT exit after
 at least 10 seconds reloads memory and retries; early crashes stay down. Full manual
 Start defaults to memory disabled. This is distinct from an autostart service.
@@ -693,3 +694,55 @@ The work fixture's `items()` uses the 36 slots 9–44 as Mineflayer does, and
 it gains `Block`, `realItem` (prismarine-item from the item's network form,
 with components and removed components) and `OWNER_GEAR` (the owner's items
 as P17 logged them), and loads `work/gear.js`.
+
+I1 combat slice (SPEC §7.10 REQ-CMB-1 … 9, §7.3 REQ-RES-8; DECISIONS
+2026-11-13 "Combat starts late against skeletons", "Combat stays near where
+it started", "Both designs answered", "Following him on the move"; design
+`runtime/diagnostics/i1-build/combat/recommended-design.md` r10, probe P18).
+Why: `self_defense` engaged a skeleton only within 8, after its arrows, and
+chased mobs far from where the fight began; `isClearPath` replaced the path
+she was walking and let towering count as clear. Our own new file is
+`work/combat.js` (`Combat`: `pick`, `fight`, the anchor, the travelling
+sampler, `threat`; `fightMovements`, `followPending`, `cutsFollow`, the
+constants `COMBAT`). In our own files: `work.combat` (six keys, merged one
+level) in `work/config.js`; `Combat` built in `Work.init`, and the follow target lookup
+moved from the item cleanup to `Work.followTarget()` (one helper, one cache;
+`work/inventory.js` exports `FOLLOW_LABEL` and calls it); the runner's resume
+check calls `work.combat.threat()` (`HOSTILE_RADIUS` and the
+`getNearestEntityWhere` + `isClearPath` pair are gone from `work/runner.js`).
+Two upstream carries:
+- `agent/modes.js` (grown carry): `self_defense.update`, when
+  `agent.work.combat` exists, reads `agent.stop_epoch`, the cut action's
+  label and whether the fight cuts the follow (`combat.following()`), asks
+  `combat.pick()` and, with a target, says "Fighting …!" and executes
+  `combat.fight(target, { epoch, cut, following })`; otherwise upstream's
+  code runs unchanged. `defendSelf` is not changed. Why: the ranged rule, the
+  leash and the walk back need one picker for the mode and the runner, and a
+  fight routine with one movement owner (design §1, §4). Reapply check:
+  `work-combat.test.mjs` "the self_defense carry: with the task layer the
+  mode runs combat.fight on its pick, the stop epoch read first" and "§5 in a
+  task: the fight walks back before idle, then the task resumes". Retire
+  when upstream engages ranged mobs on aggro and bounds a fight's wandering.
+- `agent/library/world.js` (grown carry): `isClearPath` sets
+  `scafoldingBlocks = []` and `allow1by1towers = false` (`canPlaceOn` is not
+  a Movements field, so placing was never off), calls
+  `updateLavaAvoidance` as `getPathTo` did, and searches with
+  `bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal,
+  { timeout: 40, tickTimeout: 40 }).next().value.result` instead of
+  `getPathTo` (today's effective 40 ms). Why: `getPathTo` stores its search
+  as the pathfinder's context, so her next tick continued the clear-path
+  search and walked toward the mob, and a task's `goto` could stand until
+  unstuck (design §1); and the gate's comment, SPEC and REQ-RES-8 always said
+  "no placing". This also changes the hunting, item_collecting and cowardice
+  gates. Reapply check: `work-combat.test.mjs` "§1 (REQ-CMB-2): isClearPath
+  places nothing …" and "… leaves the path she is walking alone …" (both
+  fail on the old code). Retire when upstream's `isClearPath` does both.
+
+The pathfinder removes every `diggingCompleted` listener on a path reset
+(`detectDiggingStopped` calls `removeAllListeners`, index.js:126-130) and
+Mineflayer on death, so the fight counts her digs by wrapping `bot.dig` for
+its life instead; a later slice that needs dig events should do the same.
+The work fixture gains `pvp.forceStop`, `pathfinder.getPathFromTo` (a
+generator, as installed) and `pathfinder.isMining` and loads `work/combat.js`; the runner's two resume
+check tests turn `self_defense` on, since the check now asks only while it
+is on.

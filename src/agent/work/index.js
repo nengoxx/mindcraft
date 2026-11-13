@@ -13,7 +13,8 @@ import { Ledger, ledgerPath } from './ledger.js';
 import { clearScope } from './steps/clear.js';
 import { Tidy } from './tidy.js';
 import { Sleeper, SLEEP_LABELS } from './sleep.js';
-import { Upkeep, ITEMS_LABEL } from './inventory.js';
+import { Upkeep, ITEMS_LABEL, FOLLOW_LABEL } from './inventory.js';
+import { Combat } from './combat.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
 import { stepResult, doneReport, doneLine, blockedReport, blockedAgainLine, deathLine, failedReport, goalStopped, chatLines } from './report.js';
@@ -57,6 +58,8 @@ export class Work {
         this.tidy = null;        // tidying the bot's own scaffold (tidy.js, REQ-OWN-7 … 10)
         this.sleeper = null;     // sleeping through the night (sleep.js, REQ-SLP-1 … 10)
         this.items = null;       // the idle inventory cleanup (inventory.js, REQ-OBT-11)
+        this.combat = null;      // whom to fight, the leash and the walk back (combat.js, REQ-CMB-1 … 9)
+        this.follow = null;      // {fn, name}: the pending follow's target, seen while it ran (followTarget)
         this.lastStart = null;   // {label, voice, goal}: the last action started (the runAction wrap)
         this.liveTurns = new Set();  // every handleMessage call in flight (guardTurns; the cleanup's turn count)
         this.ownerGeneration = 0;    // bumped by every owner message (the cleanup's currency)
@@ -128,6 +131,10 @@ export class Work {
         this.disposers.push(() => this.tidy.dispose());
         this.sleeper = new Sleeper(this);
         this.disposers.push(() => this.sleeper.dispose());
+        // REQ-CMB-1: the self_defense carry's policy; unknown mob names are logged and dropped.
+        this.combat = new Combat(this);
+        this.disposers.push(() => this.combat.dispose());
+        this.combat.check();
         // REQ-OBT-11: the item names against the registry; a bad list is told once.
         this.items = new Upkeep(this);
         this.items.check();
@@ -553,6 +560,20 @@ export class Work {
 
     owner() {
         return settings.only_chat_with?.[0] ?? this.lastOwnerMessage?.username ?? null;
+    }
+
+    // The follow's target while it runs (its GoalFollow entity), kept for the
+    // pending follow it belongs to; else the owner. One helper and one cache
+    // for the item cleanup and combat (combat design r10 §4): combat's mode
+    // update calls it while the follow still runs, so it learns whom she follows.
+    followTarget() {
+        const actions = this.agent.actions;
+        const bot = this.agent.bot;
+        const goal = bot.pathfinder?.goal;
+        if (actions.currentActionLabel === FOLLOW_LABEL && actions.currentActionFn === actions.resume_func && goal?.entity?.username)
+            this.follow = { fn: actions.resume_func, name: goal.entity.username };
+        const name = this.follow?.fn === actions.resume_func ? this.follow.name : this.owner();
+        return name ? bot.players?.[name]?.entity ?? null : null;
     }
 
     view() {

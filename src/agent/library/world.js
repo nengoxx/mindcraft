@@ -396,10 +396,18 @@ export async function isClearPath(bot, target) {
      */
     let movements = new pf.Movements(bot)
     movements.canDig = false;
-    movements.canPlaceOn = false;
+    // Fork carry (REQ-CMB-2): placing really off (canPlaceOn is not a
+    // Movements field): no scaffold blocks, no towers.
+    movements.scafoldingBlocks = [];
+    movements.allow1by1towers = false;
     movements.canOpenDoors = false;
+    if (movements.updateLavaAvoidance) movements.updateLavaAvoidance(); // as getPathTo does
     let goal = new pf.goals.GoalNear(target.position.x, target.position.y, target.position.z, 1);
-    let path = await bot.pathfinder.getPathTo(movements, goal, 100);
+    // Fork carry (REQ-CMB-2): getPathFromTo searches without touching the path
+    // she is walking (getPathTo replaces the pathfinder's search context, so
+    // her next tick continued this search instead). The bound is today's
+    // effective 40 ms (getPathTo's 100 ms total stopped at the 40 ms tick).
+    let path = bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout: 40, tickTimeout: 40 }).next().value.result;
     return path.status === 'success';
 }
 

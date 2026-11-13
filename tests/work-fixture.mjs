@@ -104,6 +104,7 @@ export const modules = {
     tidy: await import('../src/agent/work/tidy.js'),
     sleep: await import('../src/agent/work/sleep.js'),
     inventory: await import('../src/agent/work/inventory.js'),
+    combat: await import('../src/agent/work/combat.js'),
     gear: await import('../src/agent/work/gear.js'),
     report: await import('../src/agent/work/report.js'),
     ask: await import('../src/agent/work/ask.js'),
@@ -331,7 +332,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.setControlState = () => {};
     bot.chat = msg => bot.calls.push(['chat', msg]);
     bot.whisper = (to, msg) => bot.calls.push(['whisper', to, msg]);
-    bot.pvp = { attack(entity) { delete bot.entities[entity.id]; }, stop() {}, meleeAttackRate: { getTicks: () => 12 } };
+    bot.pvp = { attack(entity) { delete bot.entities[entity.id]; }, stop() {}, forceStop() {}, meleeAttackRate: { getTicks: () => 12 } };
     bot.collectBlock = {
         cancelTask: async () => {},
         collect: async block => {
@@ -349,10 +350,13 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.pathfinder = {
         movements: null, goal: null,
         bestHarvestTool: () => null,
+        isMining: () => Boolean(bot.hooks.mining),   // index.js:165: a path dig is running
         setMovements(m) { this.movements = m; },
         setGoal(goal) { this.goal = goal; },
         stop() { this.goal = null; },
         getPathTo: () => ({ status: bot.hooks.noPath ? 'noPath' : 'success', path: [] }),
+        // index.js:79-106: a generator whose first value carries the result (isClearPath, combat's easyPath).
+        *getPathFromTo() { yield { result: { status: bot.hooks.noPath ? 'noPath' : 'success', path: [] } }; },
         goto: async goal => {
             bot.calls.push(['goto', goal.constructor.name]);
             // A hook that moved the bot itself returns 'moved'.

@@ -1,6 +1,5 @@
 import * as skills from '../library/skills.js';
 import * as world from '../library/world.js';
-import * as mc from '../../utils/mcdata.js';
 import { STEPS } from './plan.js';
 import { clipResult } from './record.js';
 import { planRemoval, removalEnabled, dropItems, largestItems, ownerNear, INVENTORY } from './inventory.js';
@@ -10,7 +9,6 @@ import { INVENTORY_FULL, INVENTORY_KEPT } from './report.js';
 // run(), because an exception would clear resume_func (REQ-RES-4,
 // action_manager.js:144).
 
-export const HOSTILE_RADIUS = 8;        // the self_defense radius (REQ-RES-8), a constant
 export const MAX_STEP_ATTEMPTS = 3;     // failed units of one step before it blocks
 const RETURN_CLOSENESS = 2;
 
@@ -135,12 +133,15 @@ export class Runner {
             if (step && !step.progress) step.progress = newProgress(step, STEPS[step.skill].measure(this.ctx(), step), work.now());
             work.log(`run start: step ${record.cursor + 1}/${record.plan.length}`);
 
-            // REQ-RES-8: the resume check. It returns and lets the modes act; the
+            // REQ-RES-8: the resume check: no hostile self_defense would fight
+            // now (REQ-CMB-8: the mode's own pick, so a target the mode ignores
+            // is ignored here too). It returns and lets the modes act; the
             // next idle retries it. A long refusal is caught by the stall rule.
-            const enemy = world.getNearestEntityWhere(this.bot, entity => mc.isHostile(entity), HOSTILE_RADIUS);
-            if (enemy && await world.isClearPath(this.bot, enemy)) {
-                if (step?.progress) step.progress.last_cause = `${enemy.name} within ${HOSTILE_RADIUS} blocks`;
-                work.log(`resume check refused: ${enemy.name} within ${HOSTILE_RADIUS} blocks`);
+            const enemy = await work.combat?.threat();
+            if (enemy) {
+                const away = Math.round(distance(this.bot.entity.position, enemy.position));
+                if (step?.progress) step.progress.last_cause = `${enemy.name} ${away} blocks away`;
+                work.log(`resume check refused: ${enemy.name} ${away} blocks away`);
                 work.save();
                 return;
             }

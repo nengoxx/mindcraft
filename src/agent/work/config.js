@@ -95,11 +95,26 @@ export const WORK_DEFAULTS = Object.freeze({
         when: 'always',
         max_mode_cuts: 6,
     }),
+    // Combat (REQ-CMB-1 … 9; DECISIONS 2026-11-13). `ranged`: the mobs fought
+    // once they aggro, within `ranged_radius` of her and along a path with at
+    // most `path_digs` digs (none in public: no early engagement); a target
+    // whose health has not dropped for `give_up_s` is given up; every fight
+    // stays within `leash` of where the first fight began (the owner: "an
+    // area [...] by default", 16) and walks back; `travel_speed` (blocks/s, 0
+    // off): while she follows a player moving this fast she passes the mobs.
+    combat: Object.freeze({
+        ranged: Object.freeze([]),
+        ranged_radius: 16,
+        path_digs: 3,
+        give_up_s: 15,
+        leash: 16,
+        travel_speed: 0,
+    }),
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one
 // sub-key keeps the other defaults.
-const MERGED = new Set(['clear', 'tidy', 'sleep']);
+const MERGED = new Set(['clear', 'tidy', 'sleep', 'combat']);
 
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
 export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
