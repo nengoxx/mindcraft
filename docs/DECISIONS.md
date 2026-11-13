@@ -365,3 +365,20 @@ The owner's answers to the two council designs (`runtime/diagnostics/i1-build/ow
   instead of stopping and engaging with every mob that it encounters, which is usually what happens when going for
   long distances anyway." While she follows him and he is travelling, she does not stop to engage the mobs they
   pass; the combat design specifies when he counts as travelling.
+
+## 2026-11-13 (evening) — Travel after the live trials (the next slice)
+
+The owner's answers to the main seat's suggestions on the travel findings (ISSUES "Live trials 2026-11-13
+evening"): "yes [...] pretty much let's go with your suggestions."
+- **A fight cuts a walk:** the code itself restarts the cut walk (`goToCoordinates`, `goToPlayer`,
+  `searchForBlock`) after the fight, with no model call; the "action was interrupted" message does not reach the
+  model for a walk the code resumes. Following him already resumes (the combat ruling above).
+- **Stuck in a low cave:** after repeated stuck resets at the same spot, she tries one fallback, climbing out as
+  `goToSurface` does, then walks on to the goal; if that fails she tells him in chat instead of asking the model.
+- **"Took too long to decide path":** one automatic retry.
+- **A full bag underground:** with no drop spot near, the cleanup climbs to the surface (or back up her shaft),
+  drops there, then goes back and the task finishes.
+- **After his "no" to a mining question:** a fixed short reply ("OK, I'll leave them."), no model call.
+- **`goToPlayer`'s pause of `self_defense`:** kept as upstream has it; "defend the owner" is a later slice.
+- **His trials:** "I can't really do the tests that require me [...] please do all you can by yourself." The main
+  seat runs what it can as the owner (`live.mjs say`); what needs his player moving is recorded as untested.
