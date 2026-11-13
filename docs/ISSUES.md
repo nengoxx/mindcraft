@@ -143,7 +143,11 @@ samples; equipping and cleanup made 0 model calls.
 (`CollectBlock.js:70`). Evidence: log 3811 "Completed 2 … net change: none" with both blocks still standing at 01:39
 and after. Siblings: the same count after any skip collectblock makes (a block changed or turned to air). Escaped: no
 test drives collectblock's skip path. Fix direction: check `safeToBreak` (the protector) before `collect`, report
-"protected: N" in the line, and count only real removals.
+"protected: N" in the line, and count only real removals. Root cause confirmed by the council's adversary (a probe with the real
+collectblock and protection): only obsidian is selected at all, through the upstream allowance
+`unsafeBlocks = ['obsidian']` that bypasses the search filter's `safeToBreak`; the skipped block is never excluded,
+so `num = 2` picked the same block twice. Designed with the owner's "only if I ask" (blocks design r4), waiting for
+the owner.
 
 ### Owner report, 2026-11-13: combat starts late against skeletons
 
@@ -162,6 +166,12 @@ her before she literally moves." Quick audit (main seat, code read; not reproduc
   slice's (`equipHighestAttack` ranks by a value missing on 26.1).
 - Idea (not scheduled; the owner decides): engage ranged hostiles (skeleton, stray, bogged, pillager) up to about
   16 blocks, and react when hurt by a projectile; keep the clear-path gate for melee mobs only.
+- Reproduced live, 2026-11-13 night (probe P18, a passive recorder; `runtime/diagnostics/i1-build/combat/`): one
+  skeleton turned aggressive at 14.6 blocks and hit her five times from 8-16 blocks over 19 s while she fought mobs
+  inside 8. The aggressive bit (metadata `mob_flags` & 4) shows about 1 s before the first arrow, and arrow hits
+  name the shooter (`damage_event`) although she is invincible. Also found: `isClearPath` lets the pathfinder place
+  blocks (`canPlaceOn` is not a Movements field) and its `getPathTo` replaces the path she is walking. Designed by
+  the council (combat design r3), waiting for the owner.
 
 ### S2e-fu live trials, 2026-11-12 evening (an Opus trial lane acting as the owner)
 

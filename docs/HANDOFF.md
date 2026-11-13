@@ -12,12 +12,25 @@
   `!collectBlocks`) failed by protection, not gear: his blocks are protected, and collectblock silently skips them, so
   "Completed 2 … net change: none" (a pre-existing defect, ISSUES). Mining obsidian with the copy is proven by P17.
 - **The owner answered (DECISIONS 2026-11-13, "His blocks on request [...]"):** fix the false `!collectBlocks`
-  count; she mines a block of his only when he asks (one council slice with the count fix); better armour is worn
-  whoever gave it (G1 closed, already built); the false obsidian lesson in her memory is corrected once.
-- **Next:** that council slice, and the combat-start slice (DECISIONS 2026-11-13: skeletons engaged when they aggro,
-  if a path is easy; nether shooters like blazes may be hidden from), also a council design; P18 (a passive
-  listener for arrows and skeleton aggro) runs before its brief is finished
-  (`runtime/diagnostics/i1-build/combat/problem-brief.md`).
+  count; she mines a block of his only when he asks; better armour is worn whoever gave it (G1 closed, already
+  built); her false obsidian lesson is corrected in `runtime/bots/amaia/memory.json` (backup in the session scratch).
+- **Two council designs are ready for the owner, not yet approved or built:**
+  - *His blocks on request + the truthful count:* `runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4
+    (proposals: main seat, Sol, Opus; adversary r1–r3 and a Sol review closed; nothing above LOW open). A new
+    `!collectPlaced(type, num)`: typed by him it mines at once; run by the model in his turn, code asks him a yes/no
+    question listing the exact blocks. Four owner questions in its §8 (recommendations: yes to all).
+  - *Combat start + leash:* `runtime/diagnostics/i1-build/combat/recommended-design.md` r3 (proposals: main seat
+    plus addendum, Sol, Opus; adversary r1–r2 and a Sol review closed; adversary r3 confirm was sent at the end of
+    the session: read `adversary-r3.md` there if it exists, else re-run that confirm). Skeleton family engaged on the
+    aggressive bit (P18: about 1 s before the first arrow) or a hit, within 16, with an easy path (walk, at most 3
+    natural digs, no placing, no doors); leash 16 on her position around the first fight's spot, walk back inside
+    the fight action; `isClearPath` fixed (it replaced her walking path, and placed blocks). Five owner questions in
+    its §10.
+  - P18 (passive recorder, 2026-11-13 night) reproduced the owner's report: one skeleton hit her 5 times from 8-16
+    blocks over 19 s; lines in `runtime/diagnostics/i1-build/combat/p18-lines.txt`. The mineflayer hook is removed
+    (`cmp` clean).
+- **Next:** the owner's answers on both designs; then a builder brief per slice (the blocks slice first: smaller),
+  review (Sol + Opus adversary), deploy, live trials where he put her (combat at night).
 - The gear worktree `<scratch>/mindcraft-gear` (branch `gear`, merged) can be removed with
   `git worktree remove` once nothing more is needed from it.
 - **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`. Back on
