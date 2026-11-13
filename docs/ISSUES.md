@@ -117,6 +117,49 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Live trials 2026-11-13 evening: collect, combat, a long walk (main seat acting as the owner)
+
+After the deploy of the blocks and combat slices (develop `0524542`, then `21f63d0`); private `work.combat`
+(the four skeletons, `travel_speed` 2). A passive recorder (P19, a copy of P18 that also logs what she says)
+ran through a temporary hook in mineflayer's `place_block.js`. Evidence is labelled: *seen* (in the game),
+*staged* (the real code on a set-up situation), *theory*.
+
+| Finding | Evidence | Effect | Status / idea |
+|---|---|---|---|
+| `!collectBlocks("copper_ore", 1)` dug the ore (+4 raw_copper, 3 dirt dug on the path) but reported "Collected 0 of 1 … changed". The pathfinder's `detectDiggingStopped` used `removeAllListeners(event, fn)` (Node ignores `fn`), so the first dig on any path removed every `diggingCompleted` listener until a respawn: the collect count's and the task runner's progress listener. | seen; root cause reproduced in a scratch simulation (review) | False "not dug" reports, the false-lesson risk again; task progress blind after a path dig. | Fixed `21f63d0` (carried pathfinder patch). Seen fixed: `!collectBlocks("copper_ore", 3)` → "Collected 3 of 3 … +11 raw_copper, +24 cobblestone". |
+| A fight cuts a typed `!goToCoordinates` (not resumable upstream); the "(AUTO MESSAGE) your action was interrupted" prompt costs a model call, and the model did not resume the walk: once it re-answered an old question ("No, iron pickaxe or better works"), once it replied empty. She stays where the fight ended. | seen, 5 times on a ~700-block walk at night and dawn | The walk ends at every fight; one wasted model call each; the owner must repeat the command. | Open. Design question for the owner: resume an interrupted walk (`goToCoordinates`, `goToPlayer`, `searchForBlock`) after a fight, as the combat slice already walks her back to the anchor. |
+| On the same walk, at -362,71,1685 (a low cave under a meadow), `!goToCoordinates` said "Found non-destructive path" but she never left the cave: the pathfinder's partial path stepped up to (-367.5,72,1689.5) and then towered (`place1`); her jump peaked at y 72.2 and fell back, `path_reset stuck` every 0.6 s for 20 s, then `unstuck` cut the walk ("I'm stuck!") and moved her back, and the AUTO MESSAGE cost a model call (an empty reply, sometimes a memory update too). 13 re-sends made no progress. Likely cause: the cave ceiling stops the jump (feet max 72.2), and the planner does not see it; not proven (the block above her start was not logged). `!goToSurface` got her out at once (dug and towered to y 95). | seen (P19 path log) | A long walk stalls forever in a cave; 1–2 wasted model calls per retry; the owner sees no message. | Open. Ideas: on repeated `stuck` resets at the same node, fall back to the destructive search or `goToSurface` once; let `unstuck` report its cause instead of an AUTO MESSAGE. |
+| Other walk stops: "Pathfinding stopped: Took to long to decide path to goal!" once (at -126,52,1585, underground); after one AUTO MESSAGE the model re-answered the old obsidian question a third time. In all, the ~700-block walk needed 22 re-sends (5 fight cuts, 13 stuck retries in the cave, the rest fights near the goal), 29 model calls that moved nothing (20 AUTO MESSAGE replies, 9 memory updates), and one `!goToSurface`. | seen | Travel is not autonomous: without the owner re-sending, she stops at the first fight. | Open, with the AUTO MESSAGE row above. |
+| After the owner's "no" to the mining question she says nothing (the answer is recorded in history only). | seen | He gets no acknowledgement. | Minor; maybe a short "OK, I leave them." |
+| After the copper collect at y 80, she stayed in her tunnel; later the walk ran underground for long stretches (y 52) because the straight line went through hills. | seen | Slower walks; more cave traps. | Note only. |
+| Collecting sand at the shore, she dug down to y 50 in a one-wide shaft; the cleanup then found "no free direction nearby" (no drop spot within `walkRadius` 5), the task blocked on "inventory full" (cobblestone 86, phantom_membrane 71: over the one-stack cap), and the model asked the owner what to drop (1 call). `!goToSurface` → the cleanup dropped the junk and surplus at once; `!taskResume` finished (64 sand). The same "no free direction" after the task ended, underground again. | seen | A task stops on a full bag although it holds junk to drop; the owner must step in. | Open. Idea: with no free direction near, the cleanup climbs to the surface (or back up her shaft) to drop, like `goToSurface`. |
+| A task cut by fights resumes by itself: five phantom swoops cut a sand task; after each fight (within 2 of the anchor) the runner restarted the step, 0 model calls. | seen | — | Pass (design §5, in a task). |
+| After a collect that tunnelled (copper at y 80), she stays at the bottom of her tunnel; at night no mob could reach her, so the combat trial saw nothing until she was walked back up. | seen | Not a bug; trials (and night defence of a following owner) depend on where a collect leaves her. | Note only. |
+| On her hill (122,95,1464) two nights brought almost no mobs within 16 (one skeleton at 22–29, a creeper at 32). | seen | Combat trials need a darker or busier spot, or a walk. | Note only. |
+
+Combat on the walk (seen): a skeleton aggroed at 12.7 blocks (`mob_flags` bit at 18:45:28.98); she engaged at 11.7
+("aggressive; path 10 nodes, 0 digs, 8 ms") before its first arrow (29.92, a miss) and killed it in 6 s, 0 hits,
+max 9.5 from the anchor; P18 had one skeleton hit her 5 times over 19 s. Zombies, a creeper and about eight phantoms
+fought within 0–6.2 of each anchor, each followed by "back at the anchor". The memory question ("do you need a
+diamond pickaxe to mine obsidian?") → "No, iron is enough. Diamond works but isn't needed." (1 call; her iron
+pickaxe copy does mine obsidian). The server dropped her twice (17:20, 18:31); the operator reconnected her.
+
+Blocks slice at his obsidian (-490 71..72 1813), all seen, all pass: (4) "get me 2 obsidian" → `!taskStart` refused
+("no method for obsidian"), `!collectBlocks` → "Collected 0 of 2 obsidian. 2 obsidian within 8 are protected (not
+natural); I mine those only if the owner asks me to (!collectPlaced).", then the model asked him whether to use
+`!collectPlaced` (3 calls, nothing dug; it said "placed by someone else"). (3) "mine the two obsidian blocks I placed"
+→ `!collectPlaced("obsidian", 2)` (1 call) → "May I mine 2 protected obsidian at -490,71,1813 and -490,72,1813? Answer
+yes or no." → "no" (0 calls), nothing dug. (1) typed `!collectPlaced("obsidian", 1)` → "Collected 1 of 1 obsidian"
+(0 calls). (2) "please mine the obsidian I placed" → the question for the one left (1 call) → "yes" → "Collected 1
+of 1 obsidian" (0 calls) → the hand-back "Both done." (1 call). A dirt task (`obtain dirt 40`) finished with 41 dirt
+in daylight, no fight, 0 calls.
+
+Combat, all trials: skeletons engaged on the aggressive bit twice (11.7 before its first arrow, 0 hits; 1.3, 1 hit);
+about 30 fights with zombies, creepers and phantoms, each within 0–9.5 of its anchor, each ended by a walk back or
+already within 2. Not tested by the main seat: following the owner (the leash on him, the follow skip, travelling):
+the owner's trial. The recorder log is kept as `runtime/diagnostics/i1-build/combat/p19-trial-log.txt`; the hook is
+removed (`cmp` clean) and she was restarted without it.
+
 ### Gear live trials, 2026-11-13 night (an Opus trial lane acting as the owner)
 
 After the deploy (`6e699b6`, private `gear: "best"`, `cap: "stack"`, `surplus_slots: 2`). Report:

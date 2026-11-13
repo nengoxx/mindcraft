@@ -1,21 +1,23 @@
 # Handoff
 
-## 2026-11-13 (evening) — the blocks and combat slices are merged; not yet live
+## 2026-11-13 (evening) — blocks and combat live; trials pass; travel is the weak spot
 
-- **Merged on develop, not pushed:** the blocks slice (`7e788a0`, merge `a52c95d`: truthful `!collectBlocks`
-  count, `!collectPlaced` on the owner's word) and the combat slice (`46e6cb4`, merge `0524542`: engage a skeleton
-  on aggro, leash 16, walk back, follow and travel rules). Gate 582/582 and the operator checks pass on develop.
-  Each slice: council design approved by the owner, a builder, Sol + Opus adversary review, two fix waves, both
-  confirms closed. Records: `runtime/diagnostics/i1-build/ownblocks/` and `combat/` (rulings `rulings-r*.md`,
-  `rulings-build-r*.md`); residuals in SPEC §16.
-- **Private profile set** (backup `~/.cache/tmp/combat-tmp/deploy/amaia.json.bak`): `work.combat.ranged` the four
-  skeletons (all four exist in the 26.1 registry), `travel_speed` 2. `work.collect` uses the defaults.
-- **Not deployed:** the Minecraft server has been offline since 13:07 (Aternos shutdown, status ping "This server is
-  offline"); her agent process exited and a MindServer restart did not relaunch it. **Next:** once the owner starts
-  the server, `operator/mindcraft.sh stop`, then `start` as a background job (log under `runtime/logs/`); check she
-  loads the new code and profile (`live.mjs settings`); then the live trials: the blocks slice (PLAN "Ownblocks"
-  live acceptance 1–4, his obsidian at -490 71..72 1813) and combat at night (PLAN "Combat" 1–4; 5 is his), plus
-  the memory question ("do you need a diamond pickaxe for obsidian?").
+- **Live on develop, not pushed:** the blocks slice (`7e788a0`), the combat slice (`46e6cb4`) and a live-trial fix
+  (`21f63d0`: the carried pathfinder patch no longer drops every `diggingCompleted` listener; it made
+  `!collectBlocks` report a real dig as "changed"). Gate 583/583. Operator restarted 2026-11-13 17:53 (log
+  `runtime/logs/operator-start-20261113a.log`, bot log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`).
+  Private profile: `work.combat.ranged` the four skeletons, `travel_speed` 2 (backup
+  `~/.cache/tmp/combat-tmp/deploy/amaia.json.bak`).
+- **Trials by the main seat** (ISSUES "Live trials 2026-11-13 evening"): blocks acceptance 1–4 pass at his
+  obsidian (both blocks now mined, on his word in the trial); combat: a skeleton engaged at 11.7 on the aggressive
+  bit before its first arrow, about 30 fights within 0–9.5 of their anchors; a task cut by fights resumes by
+  itself. **Left for the owner:** combat while following (leash on him, the follow skip, travelling), armour trial 2.
+- **Open findings for the owner (ISSUES, same section), the travel ones first:** a fight ends a typed walk and the
+  AUTO MESSAGE wastes a model call (the ~700-block walk took 22 re-sends and 29 idle calls); a cave stuck-loop
+  (the pathfinder's step-up under a low ceiling) until `!goToSurface`; a planning timeout; the cleanup cannot drop
+  underground ("no free direction"), so a task blocks on a full bag. Each needs his ruling before a design.
+- She stands at the shore near his former obsidian (-534,63,1784), idle. The recorder hook is removed (`cmp`
+  clean); its log is kept as `runtime/diagnostics/i1-build/combat/p19-trial-log.txt`.
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
 - Open owner question: `goToPlayer`'s pause of `self_defense` (he is unsure, DECISIONS "Both designs
