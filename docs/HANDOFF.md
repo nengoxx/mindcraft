@@ -1,5 +1,17 @@
 # Handoff
 
+## 2026-11-13 (afternoon) — both slices approved and building
+
+- The owner answered both designs (DECISIONS 2026-11-13 "Both designs answered", and "Following him on the move").
+  The combat design closed at r10 (adversary r4–r8 confirms; rulings in `combat/rulings-adversary-r4-r8.md`).
+- Two builders run in worktrees: `<scratch>/mindcraft-ownblocks` (branch `ownblocks`, design
+  `ownblocks/recommended-design.md` r4 plus the owner's yes to §8) and `<scratch>/mindcraft-combat`
+  (branch `combat`, design r10). Briefs: `brief-builder.md` in each record folder; reports land as
+  `builder-report.md` there.
+- **If this session ends now:** read both builder reports, re-run the gate in each worktree, then the review round
+  (Sol + a fresh Opus adversary) per slice; nothing is merged or deployed. The server was down from 13:07 (Aternos
+  shutdown); her agent process exited and needs an operator restart once the server is up.
+
 ## 2026-11-13 — the gear slice is deployed; its trials mostly pass
 
 - **Gear slice merged and live** (`6e699b6`; design council r5 approved by the owner, DECISIONS 2026-11-12 night and
