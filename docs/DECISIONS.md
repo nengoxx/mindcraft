@@ -305,3 +305,12 @@ The owner's answers to the gear design's open questions (design r3 §8):
   goes first.
 - **The design is approved** (same day: "yes, let's go with that design"): the gear slice is built as the council's
   recommended design r5 (`runtime/diagnostics/i1-build/gear/recommended-design.md`).
+
+## 2026-11-13 — Combat starts late against skeletons (a slice after the gear slice)
+
+The owner, on ISSUES "Owner report, 2026-11-13": a small slice of its own, after the gear slice, designed by the
+council. His words: "specifically for skeletons [...] If there is a path or she can make a path easily, yes, she
+should engage and kill it. Ideally before getting hit by the arrow, just like when it aggros." Not every ranged mob:
+"blazes and stuff from the nether can be a little bit annoying [...] if a blaze is shooting her in the nether, she
+could just hide instead." Where engaging needs more than an easy path, "we should talk about that": the design brings
+that case, and hiding from such mobs, back to him.
