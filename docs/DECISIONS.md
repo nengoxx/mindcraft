@@ -343,3 +343,20 @@ her back to where the first fight of a run of fights began; the council designs 
   probably configurable area by default. Let's go a little bit further. [...] skeletons have 16 blocks of radius or
   something, just in case there's no bugs because of that." The leash is a setting with a default of 16 blocks,
   matching the skeleton's shooting range, and the walk-back applies after any fight.
+
+## 2026-11-13 — Both designs answered: his blocks, combat while following
+
+The owner's answers to the two council designs (`runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4
+§8 and `combat/recommended-design.md` r4 §10):
+- **His blocks on request** ("for the mining questions, yes"): yes to all four. A plain-words request is confirmed
+  by one yes/no question naming the exact blocks; a typed `!collectPlaced` mines at once; after his yes the result
+  goes back to the model (one call); obsidian of the world stays protected. The design is approved and is built as
+  r4.
+- **Combat while following:** "if it's following me, she should go back to following, not to the spot." The leash
+  still bounds the fight; when the fight cut a follow, she skips the walk-back and the follow resumes.
+- **A skeleton out of easy reach:** ignored for now; "let's implement hiding or shooting back later" (with the
+  blazes).
+- **The desert skeleton** ("yes, I would like to include it"): parched is in her ranged list.
+- **Walking to him** (`goToPlayer` pauses `self_defense`): open. "I'm in the fence about that because maybe the
+  self-defense isn't just self-defense but also defending the player that it's following or whatever. Not sure what
+  the best approach for that would be." Until he decides, the pause stays as upstream has it.
