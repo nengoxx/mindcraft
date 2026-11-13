@@ -1,50 +1,28 @@
 # Handoff
 
-## 2026-11-12 (night) — docs checked against the live bot; next: the gear slice
+## 2026-11-13 — the gear slice is deployed; its trials mostly pass
 
-- Consistency check done (the owner's ask): DECISIONS, SPEC REQ-OBT-11 and §16, PLAN, ISSUES and this handoff agree,
-  and the running bot's profile equals `runtime/config/profiles/amaia.json` (`modes.sleeping` false, the one-stack
-  entries). Fixed: stale "pending its live trials" rows in ISSUES (S2e F2–F5, G1), stale "wait for the S2e trials"
-  notes in SPEC, a PLAN status line naming the gear slice, and this handoff (closed blocks removed; git keeps them).
-- S2e-fu is merged (`13b7b86`), deployed and its live trials 1–5 pass (ISSUES "S2e-fu live trials"). Its record:
-  `runtime/diagnostics/i1-build/s2efu/`.
-- **Next: the gear slice**, the owner's rulings in DECISIONS 2026-11-12 (night) "The owner's gear and a one-stack
-  cap". Design first (council per the user rules), then build, review, deploy, trials. Design folder:
-  `runtime/diagnostics/i1-build/gear/` (the item dump of his gear and her tools: `item-dump-20261112.txt`). Scope:
-  1. a one-stack cap for every stackable item on no list (a config default, e.g. `work.inventory.default`, set in the
-     private profile; the public default keeps today's "unlisted is kept"); non-stackables outside the cap;
-  2. weapon choice by damage over time from the item's own attributes (`attribute_modifiers` base_attack_damage and
-     base_attack_speed, Sharpness), vanilla values as the fallback, and swing timing from the real speed: the 26.1
-     registry has no `attackDamage`, so `equipHighestAttack` (skills.js) does not sort today, and mineflayer-pvp
-     times swings from a by-name table;
-  3. armour by real armour and toughness values (components, vanilla fallback), Protection next; picked-up armour
-     never replaces his (mineflayer-armor-manager ranks by material name, leather lowest);
-  4. tools by real mining speed (the `tool` component, Efficiency), the silk-touch rule kept;
-  5. a truly unbreakable item (the `unbreakable` component) takes priority in all three;
-  6. keep only the best one of weapons and of each tool kind, drop the rest (DECISIONS, "Gear: the best one,
-     period"; the per-kind reading is to confirm with him in the design).
-  His words, for the brief: "I want the damage over time and our real armor values to be the actual decision. And
-  obviously, if there's anything that is unbreakable, like legit unbreakable, not just enchanted with unbreaking
-  [...] that should take priority"; "I just want to make sure that [...] she's using the best gear that she can use,
-  which happens to be mine"; "any item that is not in any list [...] maximum one stack [...] I don't want to clutter
-  her inventory right now."
-- **The owner's gear** (copies, ours to use): she wears his epic leather chestplate, leggings and boots (diamond-level
-  armour values, Protection V, unbreakable) and carries his epic iron axe (damage 9 + Sharpness VII, attack speed 4,
-  Looting III, unbreakable). His epic iron pickaxe (tool speed 9 on all pickaxe blocks, Efficiency V, Silk Touch,
-  unbreakable) stays in his chest at -475 71 1800 with her diamond sword (it may be thrown away). He gave her a copy
-  without Silk Touch (epic, unbreakable, Efficiency V, tool speed 9); a second copy went to the chest. Her own tools,
-  for the ranking: diamond pickaxe unbreakable, no enchantments (his earlier gift); diamond axe Sharpness V,
-  Efficiency V, Mending, Unbreaking III (not unbreakable).
-- **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false` (backup
-  `runtime/config/profiles/amaia.json.bak-pre-nosleep-20261112`). Back on only on his word.
-- **One stack for now** (until the cap is built): the private profile's `work.inventory.items` sets `gunpowder`,
-  `ender_pearl`, `iron_ingot`, `carrot`, `grass_block`, `redstone`, `sugar`, `stick` to `"stack"`. Profile changes
-  go live with `live.mjs settings` / edit / `set`.
-- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow; the owner has none
-  now); then the S3 design check. Coming back after a far respawn is not built ("come to me" needs him within sight;
-  the End needs portal coordinates): a survival and navigation topic.
+- **Gear slice merged and live** (`6e699b6`; design council r5 approved by the owner, DECISIONS 2026-11-12 night and
+  2026-11-13; probe P17; review Sol + Opus adversary, one fix wave, both confirms closed; record
+  `runtime/diagnostics/i1-build/gear/`). The private profile sets `work.inventory` to `gear: "best"`, `cap: "stack"`,
+  `surplus_slots: 2` (the interim `"stack"` entries are gone; backup `~/.cache/tmp/gear-tmp/deploy/amaia.json.bak`).
+  `mineflayer-armor-manager` is removed from `node_modules` (`npm prune`); `npm ls` is clean apart from canvas.
+- **Live trials** (ISSUES "Gear live trials"): fight, stone, surplus, `!itemList` and a finished task's goods pass;
+  nothing of his was dropped or replaced. Trial 2 (armour thrown to her) waits for the owner. Trial 4 (obsidian through
+  `!collectBlocks`) failed by protection, not gear: his blocks are protected, and collectblock silently skips them, so
+  "Completed 2 … net change: none" (a pre-existing defect, ISSUES). Mining obsidian with the copy is proven by P17.
+- **Next, for the owner to pick:** (1) how he lets her mine one of his blocks; (2) the false `!collectBlocks` count
+  (fix); (3) her memory holds a false lesson "obsidian requires a diamond pickaxe" (correct it?); (4) the G1 question
+  (an unbreakable better armour piece replacing his); (5) the combat-start slice (DECISIONS 2026-11-13: skeletons
+  engaged when they aggro, if a path is easy; nether shooters like blazes may be hidden from), a council design.
+- The gear worktree `<scratch>/mindcraft-gear` (branch `gear`, merged) can be removed with
+  `git worktree remove` once nothing more is needed from it.
+- **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`. Back on
+  only on his word.
+- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow); then the S3 design
+  check. Coming back after a far respawn is not built.
 - The operator is running (started 2026-11-12 evening as a background job of the persistent session, log
-  `runtime/logs/operator-start-20261112c.log`).
+  `runtime/logs/operator-start-20261112c.log`; bot log `runtime/logs/mindcraft-2026-11-12T18-08-07-621Z.log`).
 
 ## Waiting for the owner
 
@@ -60,6 +38,9 @@
 
 ## In the world
 
+- Gear trials: two owner obsidian blocks stand at -490 71..72 1813 (one mined in P17 at -497 71 1808; its item may lie
+  near -495.6 71 1807.6); stone dug on the shore near -517 64 1786 (her tunnel; some of her scaffold dirt left
+  underground). She stands there, idle.
 - From the S2e and S2e-fu trials and P16: a one-deep pit at -480 69 1815, a two-deep hole at -473 68..69 1814, the
   3x3 pit at x -475..-473, y 69, z 1808..1810, about 13 dug cells of dirt and grass (S2e trial report).
 - Older: about 110 dug dirt near x -480..-496, z 1740..1750; a cobblestone pit fill at -529 66..68 1743 (recorded)

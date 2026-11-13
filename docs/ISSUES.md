@@ -117,6 +117,34 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Gear live trials, 2026-11-13 night (an Opus trial lane acting as the owner)
+
+After the deploy (`6e699b6`, private `gear: "best"`, `cap: "stack"`, `surplus_slots: 2`). Report:
+`runtime/diagnostics/i1-build/gear/live-trials-report.md`. Nothing of the owner's was dropped or replaced in 599
+samples; equipping and cleanup made 0 model calls.
+- 1 fight: pass (four fights, the hand went to his axe each time; the swing spacing is not observable without a probe).
+- 2 armour thrown to her: waits for the owner.
+- 3 stone with the copy: pass (15 cobblestone, 0 stone).
+- 4 obsidian with the copy through `!collectBlocks`: fail, by protection, not gear. Mining with the copy is proven by
+  P17 (a direct dig). Through the command, the owner-placed obsidian is protected: `safeToBreak` refuses it, and
+  collectblock (`CollectBlock.js:70`) treats a target it may not break as done without digging. `skills.collectBlock`
+  then counts it: "Completed 2 obsidian block operations. Inventory net change: none." The model told the owner the
+  blocks "broke" and that she needs a diamond pickaxe, and memory stored that as a lesson (false). Open: how the owner
+  lets her mine one of his blocks (a design question for him); the false count (a defect, below).
+- 5 surplus: pass (the login pass dropped junk, both diamond placeholders, the over-cap stacks and a second bow; at 2
+  surplus slots nothing ran; the third started a pass with 8 free slots).
+- 6 `!itemList`: pass (the text matched her bag three times). Seen: when the model runs it, the owner got only "Here!",
+  "There!" or nothing (the answer reaches the model, not the owner).
+- 7 a finished task's goods: pass (80 cobblestone, later 92, kept over the cap through a pass; watched 15 minutes).
+
+**Defect (pre-existing, S2c-era): `!collectBlocks` counts protected skips as collected.** Trigger: a target that
+`safeToBreak` refuses (an owner block). Defect: `skills.collectBlock` counts `collected++` after
+`bot.collectBlock.collect(block)` returns, but collectblock returns without digging when `safeToBreak` is false
+(`CollectBlock.js:70`). Evidence: log 3811 "Completed 2 … net change: none" with both blocks still standing at 01:39
+and after. Siblings: the same count after any skip collectblock makes (a block changed or turned to air). Escaped: no
+test drives collectblock's skip path. Fix direction: check `safeToBreak` (the protector) before `collect`, report
+"protected: N" in the line, and count only real removals.
+
 ### Owner report, 2026-11-13: combat starts late against skeletons
 
 The owner: "sometimes the combat takes a bit to start, like sometimes some skeleton would fire a bunch of arrows into

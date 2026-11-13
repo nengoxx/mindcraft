@@ -51,10 +51,11 @@ banners) waits for the owner to hand her the items. Next, before S3: a gear
 slice (the owner's rulings, DECISIONS 2026-11-12 night "The owner's gear and
 a one-stack cap"); its section is written from its design.
 
-**Status (2026-11-13):** the gear slice's design r5 is approved (DECISIONS
-2026-11-13); probe P17 ran live the same day. The slice is built offline on
-the `gear` branch (§3 "Gear"), not yet reviewed or deployed. Next: its
-review, then the deploy and its live acceptance, then S3.
+**Status (2026-11-13):** the gear slice (§3 "Gear") is merged and deployed
+(`6e699b6`). Its live trials 1, 3, 5, 6 and 7 pass; trial 2 waits for the
+owner; trial 4 (obsidian through `!collectBlocks`) is blocked by protection
+(ISSUES "Gear live trials"). Next: the owner's choices on those, the
+combat-start slice (DECISIONS 2026-11-13), then S3.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
