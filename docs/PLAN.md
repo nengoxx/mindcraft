@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -50,6 +50,11 @@ pass (ISSUES "S2e-fu live trials"); trial 6 (one best slot of bottles and
 banners) waits for the owner to hand her the items. Next, before S3: a gear
 slice (the owner's rulings, DECISIONS 2026-11-12 night "The owner's gear and
 a one-stack cap"); its section is written from its design.
+
+**Status (2026-11-13):** the gear slice's design r5 is approved (DECISIONS
+2026-11-13); probe P17 ran live the same day. The slice is built offline on
+the `gear` branch (§3 "Gear"), not yet reviewed or deployed. Next: its
+review, then the deploy and its live acceptance, then S3.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -96,6 +101,10 @@ nothing the owner can see is retired.
     bow and crossbow, and one slot (the best) of banners and of ominous
     bottles (DECISIONS 2026-11-12 "After the S2e live trials", "One slot of
     the best").
+  - Gear: she uses the best gear she holds by its real values, keeps only the
+    best of each kind, caps every stackable at one stack, lets up to 2
+    surplus slots wait, keeps a finished task's goods 30 minutes and gives
+    what she has, spares first (DECISIONS 2026-11-12 night, 2026-11-13).
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -909,6 +918,71 @@ add the protected-block diff. Interventions: target 0.
 - **Not in S2e-fu.** The chest (part B, parked); adding items to the list
   from chat; any refusal of `!discard`.
 
+#### Gear — the best gear, one stack, spares go
+
+- **Goal.** She uses the best gear she holds by the item's own values (the
+  owner's copies: his unbreakable axe, the pickaxe copy without Silk Touch,
+  his leather armour): weapons and armour unbreakable first, tools by
+  capability first, the silk rule kept, picked-up armour never replacing his;
+  of each gear kind only the best stays and the spares go; every stackable
+  keeps at most one stack; up to 2 surplus slots wait and the third sends all
+  surplus; a finished task's goods stay 30 minutes; asked for an item she
+  gives the one she has, spares first. (Owner rulings: DECISIONS 2026-11-12
+  (night) "The owner's gear and a one-stack cap", 2026-11-13 "The gear
+  slice". Design: `runtime/diagnostics/i1-build/gear/recommended-design.md`
+  r5; probe P17.)
+- **SPEC.** §9.5 REQ-GEAR-1 (new); §9.4 REQ-OBT-11 (the cap, gear, the
+  surplus allowance, a finished task's goods, giving, `!itemList`); §5.2
+  (`work/gear.js`, `work/inventory.js`); §5.3 (`utils/mcdata.js`,
+  `library/skills.js`, the plugin's member replacements); §14 (four
+  `work.inventory` keys, the constants); §16.
+- **Files.** New `src/agent/work/gear.js` (readers, ranking, using, the
+  plugin `install`). `src/utils/mcdata.js` (plugin order: pathfinder, pvp,
+  tool, collectblock, autoEat, gear; no armor-manager);
+  `src/agent/library/skills.js` (weapon equip, `collectBlock`'s intent, silk
+  refusal and harvest binding, the harvest checks, `giveToPlayer`'s exact
+  slots); `work/inventory.js` (the cap, gear spares, signatures, `due`, the
+  `!itemList` lines; `busy` moves to gear); `work/config.js` (the four keys);
+  `work/index.js` (`done_at`, `neededItems`); `work/resolve.js`
+  (`ownHarvester`); `work/dig.js` (`gear.canHarvest`); `work/commands.js`
+  (the `!itemList` description). `package.json` and the lock:
+  `mineflayer-tool` a direct dependency at 1.2.0, `mineflayer-armor-manager`
+  removed.
+- **Offline tests.** New `tests/work-gear.test.mjs` (the owner's items read as
+  P17 logged them; the vanilla table and the attribute rules; tags, the
+  bridge, reach, dig ticks; `interval`; the ranking per kind; the block
+  chooser with the four silk cases and the bare-hand rule; `collectBlock`'s
+  binding and refusal; the install order and the missing-member error; the
+  swing timer; the armour controller and its guards; the signature;
+  giving). `tests/work-inventory.test.mjs` (`"best"` on her bag drops exactly
+  the diamond pickaxe, axe and sword, `"all"` nothing; needed, listed and
+  unreadable protected; the cap; config validation; the signature skip;
+  `due`, the allowance, the re-plan, the kept tell; the Upkeep signature;
+  the done-task window; `!itemList`). `tests/work-resolve.test.mjs` (the
+  resolver with the copy on obsidian and a component-granted pickaxe on iron
+  ore).
+- **Live acceptance** (design §7; bot invincible, uncoached; the private
+  profile sets `gear: "best"`, `cap: "stack"`, `surplus_slots: 2` and drops
+  its interim `"stack"` entries):
+  1. A fight: she wields his axe and swings about every 11 ticks; 0 model
+     calls.
+  2. Armour thrown to her stays in the bag (his pieces stay worn) and goes as
+     a spare.
+  3. `!collectBlocks stone` with the copy gives cobblestone.
+  4. Obsidian with the copy: she mines it and it drops.
+  5. Spares and over-cap stacks drop at the surplus setting (a third surplus
+     slot) and below 4 free slots.
+  6. `!itemList` shows the rules, the best per kind and why, the spares and
+     the surplus count.
+  7. A finished task's goods stay (two stacks of logs asked for are not cut
+     to one within 30 minutes).
+  - Pass: 0 model calls for equipping and cleanup; nothing of his replaced or
+    dropped; nothing off the list dropped.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in the gear slice** (design §9): Smite and Bane, situational picks
+  (Fire Aspect, Looting, Fortune), Protection's exact formula, elytra, bows'
+  unbreakable priority, server tags, chest storage (part B).
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
@@ -1257,6 +1331,7 @@ The bot's inventory is stale, so ask the owner for each kit before its slice:
 | P14 | Sleep through ViaProxy | S2d (first; done 2026-11-11) | With a bed the owner gave and a spot he agreed to, at night: place the bed from a stand cell (halves, facing against yaw), `bot.sleep`, the `sleep`/`wake` events, when the night skips with one sleeper, the server's sleep text, breaking the foot (drop, pickup). Results in the private diagnostics folder (`sleep-council/p14-live-20261111.md`): `bot.sleep` works through ViaProxy and the night skipped about 3 s after she lay down (she was the only player online; one sleeper skipping with others awake is the owner's statement). `bot.wake()` timing not measured yet (SPEC §16). | REQ-SLP-3, 4 |
 | P15 | Item toss through ViaProxy | S2e (before its deploy; done 2026-11-12: `runtime/diagnostics/i1-build/s2e-review/p15-live-20261112.md`) | The toss direction with and without the 2-tick wait: G1 confirmed (without it the toss flies the way she looked before); with it a level toss 3 blocks out at eye height lands 3.1–3.2 blocks ahead on flat ground (2.38 onto a one-block step, a direction the facing rule excludes); standing still she picked nothing up in 6 s; an operator Stop/Start rereads the profile (`main.js:76-78`). The design's values hold. Not probed (the S2e trials cover them): an obstacle within 3 blocks (excluded by the facing rule), the guard against `pickupNearbyItems` (offline tests), and the one-slot `bot.transfer` path with whole-stack tosses through ViaProxy (P15 tossed with `bot.toss`). | REQ-OBT-11 |
 | P16 | A throw out of a one-deep pit; her weapons' item data | S2e-fu (before its build; done 2026-11-12: `runtime/diagnostics/i1-build/s2efu/p16-live-20261112.md`) | From a pit one deep (walls at foot height on all four sides, eye cells open) the level toss 3 out at eye height, after the 2-tick wait, cleared the lip at distance 1 in all four directions and landed 1.84–3.15 blocks out on the surface; nothing picked up in 7 s. Her 5 bows and 4 crossbows read `durabilityUsed`/`maxDurability` correctly, all with `enchants=[]`; no enchanted item was available, so `enchants` on an enchanted item of this version is unprobed. | REQ-OBT-11 |
+| P17 | The owner's gear, live | Gear (before its build; done 2026-11-13: `runtime/diagnostics/i1-build/gear/p17-live-20261113.md`) | Read the components of the owner's copies (the pickaxe copy's tool rule speed 9 on `mineable/pickaxe`, Efficiency V through `item.enchants`, unbreakable, no Silk Touch; her placeholder diamond pickaxe also unbreakable); the attack attributes (his axe speed 4, a diamond axe 1); bare-hand taps 5 and 10 ticks apart (the 10-tick hurt cooldown holds); the copy on owner-placed obsidian (the 47-tick wait; it dropped). | REQ-GEAR-1 |
 
 ## 5. Design experiment protocol (DX)
 

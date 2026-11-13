@@ -4,10 +4,10 @@ import { createBot } from 'mineflayer';
 import prismarine_items from 'prismarine-item';
 import { pathfinder } from 'mineflayer-pathfinder';
 import { plugin as pvp } from 'mineflayer-pvp';
+import { plugin as tool } from 'mineflayer-tool';
 import { plugin as collectblock } from 'mineflayer-collectblock';
 import { plugin as autoEat } from 'mineflayer-auto-eat';
-import plugin from 'mineflayer-armor-manager';
-const armorManager = plugin;
+import { install as gear } from '../agent/work/gear.js';
 let mc_version = settings.minecraft_version;
 let mcdata = null;
 let Item = null;
@@ -87,9 +87,15 @@ export function initBot(username) {
 
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(pvp);
+    // Fork carry (REQ-GEAR-1): plugins inject in this order on inject_allowed,
+    // after initBot returns. mineflayer-tool is loaded here, before
+    // collectblock (whose own deferred load then skips: bot.tool exists), and
+    // the gear plugin last, so every member it replaces exists when it runs.
+    // Gear's armour controller replaces mineflayer-armor-manager.
+    bot.loadPlugin(tool);
     bot.loadPlugin(collectblock);
     bot.loadPlugin(autoEat);
-    bot.loadPlugin(armorManager); // auto equip armor
+    bot.loadPlugin(gear);
     bot.once('resourcePack', () => {
         bot.acceptResourcePack();
     });

@@ -15,7 +15,40 @@ const Vec3 = require('vec3').Vec3;
 export const registry = require('prismarine-registry')('26.1');
 const Block = require('prismarine-block')(registry);
 const { Recipe } = require('prismarine-recipe')(registry);
-export { Vec3 };
+const Item = require('prismarine-item')(registry);
+export { Vec3, Block };
+
+// A real prismarine-item as Mineflayer makes it from a 26.1 slot
+// (Item.fromNotch: components, removeComponents, the componentMap).
+export function realItem(name, components = [], { count = 1, removed = [] } = {}) {
+    return Item.fromNotch({ itemId: registry.itemsByName[name].id, itemCount: count, components, removeComponents: removed });
+}
+
+// The owner's gear as the live probes logged it (component shapes exactly as
+// logged: P16 `item-dump-20261112.txt`, P17 `p17-live-20261113.md`). The copy
+// is his pickaxe without Silk Touch (P17: the same components, Efficiency V only).
+const enchants = list => ({ type: 'enchantments', data: { enchantments: list.map(([id, level]) => ({ id, level })) } });
+const armourMods = (name, slot, armour) => ({ type: 'attribute_modifiers', data: [
+    { typeId: 0, name, value: armour, operation: 'add', slot, display: { type: 'default' } },
+    { typeId: 1, name, value: 2, operation: 'add', slot, display: { type: 'default' } }] });
+const pickaxeTool = { type: 'tool', data: { rules: [{ blocks: { name: 'minecraft:mineable/pickaxe' }, speed: 9, correctDropForBlocks: true }],
+    defaultMiningSpeed: 1, damagePerBlock: 1, canDestroyBlocksInCreative: true } };
+const EPIC = [{ type: 'unbreakable' }, { type: 'rarity', data: 'epic' }];
+export const OWNER_GEAR = Object.freeze({
+    axe: () => realItem('iron_axe', [...EPIC, { type: 'attribute_modifiers', data: [
+        { typeId: 2, name: 'minecraft:base_attack_damage', value: 8, operation: 'add', slot: 'main_hand', display: { type: 'default' } },
+        { typeId: 4, name: 'minecraft:base_attack_speed', value: 0, operation: 'add', slot: 'main_hand', display: { type: 'default' } }] },
+    enchants([[33, 7], [8, 5], [18, 3]])]),
+    silkPickaxe: () => realItem('iron_pickaxe', [...EPIC, pickaxeTool, enchants([[8, 5], [34, 1]])]),
+    copy: () => realItem('iron_pickaxe', [...EPIC, pickaxeTool, enchants([[8, 5]])]),
+    chest: () => realItem('leather_chestplate', [...EPIC, { type: 'dyed_color', data: 2697520 }, armourMods('minecraft:armor.chestplate', 'chest', 8), enchants([[28, 5]])]),
+    legs: () => realItem('leather_leggings', [...EPIC, { type: 'dyed_color', data: 2697520 }, armourMods('minecraft:armor.leggings', 'legs', 6), enchants([[28, 5], [38, 5]])]),
+    feet: () => realItem('leather_boots', [...EPIC, { type: 'dyed_color', data: 2697520 }, armourMods('minecraft:armor.boots', 'feet', 3), enchants([[9, 4], [28, 5], [7, 3], [36, 3]])]),
+    // Her placeholders (P17): the diamond pickaxe carries `unbreakable`; the
+    // diamond axe has Sharpness V, Efficiency V, Mending, Unbreaking III.
+    herPickaxe: () => realItem('diamond_pickaxe', [{ type: 'unbreakable' }]),
+    herAxe: () => realItem('diamond_axe', [enchants([[33, 5], [8, 5], [23, 1], [40, 3]])]),
+});
 
 // A child process (the SIGINT test) shares its parent's runtime folder.
 export const runtime = process.env.WORK_TEST_RUNTIME || fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'work-test-'));
@@ -71,6 +104,7 @@ export const modules = {
     tidy: await import('../src/agent/work/tidy.js'),
     sleep: await import('../src/agent/work/sleep.js'),
     inventory: await import('../src/agent/work/inventory.js'),
+    gear: await import('../src/agent/work/gear.js'),
     report: await import('../src/agent/work/report.js'),
     ask: await import('../src/agent/work/ask.js'),
     runner: await import('../src/agent/work/runner.js'),
@@ -157,7 +191,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     const stackSize = name => registry.itemsByName[name]?.stackSize ?? 64;
     bot.inventory = {
         slots,
-        items: () => slots.filter(Boolean),
+        items: () => slots.slice(9, 45).filter(Boolean),   // prismarine-windows items(): the 36 slots, not armour or offhand
         emptySlotCount: () => slots.slice(9, 45).filter(s => !s).length,
         findInventoryItem: nameOrId => slots.find(s => s && (s.name === nameOrId || s.type === nameOrId)) || null,
     };
@@ -236,7 +270,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.unequip = async () => { bot.heldItem = null; };
     bot.tool = { equipForBlock: async block => {
         bot.heldItem = bot.inventory.items().find(s => block.harvestTools?.[s.type]) || null;
-    } };
+    }, getDigTime: () => 0 };
     bot.armorManager = { equipAll() {} };
     bot.lookAt = async (pos, force) => { bot.calls.push(['lookAt', pos.clone(), force]); bot.looking = pos.clone(); };
     bot.look = async () => {};
@@ -297,7 +331,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.setControlState = () => {};
     bot.chat = msg => bot.calls.push(['chat', msg]);
     bot.whisper = (to, msg) => bot.calls.push(['whisper', to, msg]);
-    bot.pvp = { attack(entity) { delete bot.entities[entity.id]; }, stop() {} };
+    bot.pvp = { attack(entity) { delete bot.entities[entity.id]; }, stop() {}, meleeAttackRate: { getTicks: () => 12 } };
     bot.collectBlock = {
         cancelTask: async () => {},
         collect: async block => {
@@ -314,6 +348,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     };
     bot.pathfinder = {
         movements: null, goal: null,
+        bestHarvestTool: () => null,
         setMovements(m) { this.movements = m; },
         setGoal(goal) { this.goal = goal; },
         stop() { this.goal = null; },

@@ -3,6 +3,7 @@ import * as skills from '../library/skills.js';
 import { isProtectedForBot, knowFallingBlocks, protectorFor } from './protect.js';
 import { ledgerFor } from './ledger.js';
 import { harvestToolNames } from './resolve.js';
+import { canHarvest } from './gear.js';
 
 // The dig seam (REQ-CLR-6), shared by the clear step, the tidy sweep and S3's
 // builder. digCell runs, in order: approach → occupancy check → the patched
@@ -136,7 +137,8 @@ export async function digCell(bot, block, { move = true, obtain = false, hand = 
         await bot.tool.equipForBlock(check.block);
         check = ready(bot, pos, name, opts);
         if (!check.block) return check;
-        if (!check.block.canHarvest(bot.heldItem?.type ?? null) && !hand)
+        // The held item's own components decide (REQ-GEAR-1: the owner's copy harvests obsidian).
+        if (!canHarvest(bot, check.block, bot.heldItem) && !hand)
             return refuse('needs a tool', { tools: obtain ? harvestToolNames(bot, name) ?? [] : [] });
     }
     await bot.lookAt(check.block.position.offset(0.5, 0.5, 0.5), true);

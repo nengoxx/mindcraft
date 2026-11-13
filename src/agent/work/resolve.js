@@ -1,6 +1,7 @@
 import * as mc from '../../utils/mcdata.js';
 import * as world from '../library/world.js';
 import { isNaturalBlockName } from './protect.js';
+import { chooseFor } from './gear.js';
 
 // The obtain resolver (SPEC §9): count-target nodes, prerequisites first,
 // recomputed from the current inventory on every run (REQ-OBT-2/3). It reuses
@@ -99,12 +100,26 @@ export function harvestToolNames(bot, blockName) {
     return names.sort((a, b) => tier(a) - tier(b));
 }
 
+// The name of a bag item that harvests the block by its own components, the
+// one she would dig with, or null (REQ-GEAR-1: the owner's copy harvests
+// obsidian, so obsidian with the copy demands no diamond pickaxe). Only items
+// the inventory counts still hold (`inv`, the resolver's).
+export function ownHarvester(bot, blockName, inv = null) {
+    const block = bot.registry.blocksByName[blockName];
+    if (!block?.harvestTools) return null;
+    const best = chooseFor(bot, block, { requireHarvest: true, hand: false, intent: null });
+    return best && (!inv || (inv[best.item.name] || 0) > 0) ? best.item.name : null;
+}
+
 function collect(ctx, item, n, sources) {
     if (!sources.length) return `no method for ${item}`;
     const via = sources.includes(item) ? item : (sources.find(s => ctx.visible(s)) ?? sources[0]);
     let tier_req = null;
     const tools = harvestToolNames(ctx.bot, via);
-    if (tools && !tools.some(tool => (ctx.inv[tool] || 0) + (ctx.left[tool] || 0) > 0)) {
+    const own = tools ? ownHarvester(ctx.bot, via, ctx.inv) : null;
+    if (own) {
+        tier_req = own;
+    } else if (tools && !tools.some(tool => (ctx.inv[tool] || 0) + (ctx.left[tool] || 0) > 0)) {
         let error = null;
         for (const tool of tools) {
             const snap = snapshot(ctx);

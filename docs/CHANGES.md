@@ -627,3 +627,69 @@ spot, the blocked-report lines and the revised list (`work/inventory.js`,
   honours `canOpenDoors`.
 
 The work fixture's `bot.setQuickBarSlot` records a `hotbar` call.
+
+I1 gear slice (SPEC §9.5 REQ-GEAR-1, §9.4 REQ-OBT-11; DECISIONS 2026-11-12
+(night) "The owner's gear and a one-stack cap", 2026-11-13 "The gear slice";
+design `runtime/diagnostics/i1-build/gear/recommended-design.md` r5, probe
+P17). Why: upstream ranks weapons by the registry's `attackDamage` and tools
+by the material name, so the owner's unbreakable axe and his pickaxe copy
+(custom components) lost to plain diamond items, armor-manager could replace
+his armour with a picked-up piece, and nothing read the `tool` component, so
+the copy was refused on obsidian. Our own new file is `work/gear.js` (the
+readers, the ranking, `equipWeapon`, the block chooser, the armour
+controller, the plugin `install`). In our own files: the cap, gear spares,
+the component signature per operation, `due` and the `!itemList` lines
+(`work/inventory.js`; `busy` moved to `gear.js`); the four
+`work.inventory` keys (`work/config.js`); `done_at` and the done task's goods
+(`work/index.js`); `ownHarvester` (`work/resolve.js`); `gear.canHarvest`
+(`work/dig.js`); the `!itemList` description (`work/commands.js`). Upstream
+carries:
+- `utils/mcdata.js` (grown): `initBot` loads `mineflayer-tool` explicitly
+  before collectblock (collectblock's own deferred load then skips: `bot.tool`
+  exists) and the gear plugin last, so every member the plugin replaces exists
+  when it injects; `mineflayer-armor-manager` is no longer imported or
+  loaded. Reapply check: `work-gear.test.mjs` "initBot loads pathfinder, pvp,
+  tool, collectblock, autoEat, then gear …". Retire when upstream ranks gear by item components (the
+  gear plugin then goes and armor-manager may come back).
+- `agent/library/skills.js` (grown): `attackEntity` and `defendSelf` call
+  `gear.equipWeapon` (`equipHighestAttack` removed); `collectBlock` wraps its
+  collection (`collectBlocksOf`) in `gear.intend(bot, { wanted })` with
+  try/finally, its silk branch (the S2 carry above) shrinks to the refusal
+  "Only a silk-touch tool can mine …" through `gear.silkChangesDrop` (the
+  chooser already avoids silk; `hasSilkTouch` removed), and it binds the
+  target block object's `canHarvest` to the held instance
+  (`gear.bindHarvest`) before the harvest check, so collectblock's own check
+  and dig wait accept the copy on obsidian; the harvest checks in
+  `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer`
+  tosses exact slots through `tossToGive` (of a gear name the spares first,
+  the kept best last; other items by `discard` as before; nothing while an
+  item is on the cursor or a container is open, re-checked before each
+  slot, and a slot whose instance changed is skipped); `craftRecipe`
+  keeps its `bot.armorManager.equipAll()` call, now served by the gear
+  plugin. Reapply checks: `work-gear.test.mjs` (the weapon, the collectBlock
+  binding and refusal, giving) and `work-runner.test.mjs` "obtain cobblestone
+  with a silk-touch pickaxe and a plain one uses the plain one" and the two
+  silk tests after it. Retire with the `mcdata.js` carry.
+- No dependency patch: `bot.digTime`, the pathfinder's cost and collectblock
+  stay native (design r5 §0). At load the gear plugin replaces members at
+  runtime: `bot.tool.equipForBlock` and `getDigTime`,
+  `bot.pathfinder.bestHarvestTool` (the original kept as the fallback on an
+  error), `bot.pvp.meleeAttackRate` (an object with `getTicks`, which the
+  carried PVP patch leaves untouched) and `bot.armorManager`; each replaced
+  method is checked first, and a missing one is logged "[gear] STARTUP ERROR:
+  <member> is missing" and left as it was. Reapply checks: `work-gear.test.mjs`
+  "install: a missing member is a loud startup error …" and "fix wave 1, 3
+  (Sol 4) …".
+- `package.json` and `package-lock.json`: `mineflayer-tool` becomes a direct
+  dependency at the installed 1.2.0 (it was already in the tree through
+  collectblock; the lock entry is unchanged), and `mineflayer-armor-manager`
+  2.0.1 is removed (the lock regenerated with `npm install
+  --package-lock-only --ignore-scripts --offline`; only its entry and the
+  root dependency list changed). `node_modules` still holds the
+  armor-manager package until the next `npm install`/`npm prune`; nothing
+  imports it. Retire with the `mcdata.js` carry.
+
+The work fixture's `items()` uses the 36 slots 9–44 as Mineflayer does, and
+it gains `Block`, `realItem` (prismarine-item from the item's network form,
+with components and removed components) and `OWNER_GEAR` (the owner's items
+as P17 logged them), and loads `work/gear.js`.

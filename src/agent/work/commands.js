@@ -131,7 +131,8 @@ export const workCommands = [
     {
         // REQ-OBT-11 (design r7 §6): a query, rendered by code.
         name: '!itemList',
-        description: 'Show my item list: how many of each item I keep (the rest I drop by myself when my bag is nearly full; anything not listed I keep), ' +
+        description: 'Show my item list: the one-stack cap and the gear rule, the best gear I keep of each kind and why, the spares that go, ' +
+            'how many of each item I keep (the rest I drop by myself when my bag is nearly full or holds too much surplus), ' +
             'what I hold of them, my free slots, whether that cleanup is on, and the last time I dropped things. The list is edited in my profile.',
         perform: agent => agent.work ? agent.work.items.render() : 'The task layer is not ready yet.',
     },

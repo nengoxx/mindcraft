@@ -6,6 +6,7 @@ import settings from "../../../settings.js";
 import { format } from 'node:util';
 import { isGuardedJunk } from "../work/inventory.js";
 import { isProtectedForBot } from "../work/protect.js";
+import * as gear from "../work/gear.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -22,18 +23,6 @@ async function autoLight(bot) {
         } catch (err) {return false;}
     }
     return false;
-}
-
-async function equipHighestAttack(bot) {
-    let weapons = bot.inventory.items().filter(item => item.name.includes('sword') || (item.name.includes('axe') && !item.name.includes('pickaxe')));
-    if (weapons.length === 0)
-        weapons = bot.inventory.items().filter(item => item.name.includes('pickaxe') || item.name.includes('shovel'));
-    if (weapons.length === 0)
-        return;
-    weapons.sort((a, b) => b.attackDamage - a.attackDamage);
-    let weapon = weapons[0];
-    if (weapon)
-        await bot.equip(weapon, 'hand');
 }
 
 export async function craftRecipe(bot, itemName, num=1) {
@@ -125,8 +114,9 @@ export async function craftRecipe(bot, itemName, num=1) {
     }
 
     //Equip any armor the bot may have crafted.
-    //There is probablly a more efficient method than checking the entire inventory but this is all mineflayer-armor-manager provides. :P
-    bot.armorManager.equipAll(); 
+    // Fork carry (REQ-GEAR-1): the gear plugin's armour controller (work/gear.js
+    // equipAll) puts on what ranks strictly higher than what she wears; it never rejects.
+    bot.armorManager.equipAll();
 
     return true;
 }
@@ -359,7 +349,8 @@ export async function attackEntity(bot, entity, kill=true) {
      **/
 
     let pos = entity.position;
-    await equipHighestAttack(bot)
+    // Fork carry (REQ-GEAR-1): the best weapon by the item's own values (work/gear.js).
+    await gear.equipWeapon(bot);
 
     if (!kill) {
         if (bot.entity.position.distanceTo(pos) > 5) {
@@ -398,7 +389,7 @@ export async function defendSelf(bot, range=9) {
     let attacked = false;
     let enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
     while (enemy) {
-        await equipHighestAttack(bot);
+        await gear.equipWeapon(bot);
         if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
             try {
                 bot.pathfinder.setMovements(new pf.Movements(bot));
@@ -431,14 +422,6 @@ export async function defendSelf(bot, range=9) {
 
 
 
-function hasSilkTouch(bot, item) {
-    try {
-        return (item?.enchants ?? []).some(e => (e.name ?? bot.registry.enchantments?.[e.id]?.name) === 'silk_touch');
-    } catch {
-        return false;
-    }
-}
-
 export async function collectBlock(bot, blockType, num=1, exclude=null) {
     /**
      * Collect one of the given block type.
@@ -450,6 +433,18 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
      * @example
      * await skills.collectBlock(bot, "oak_log");
      **/
+    // Fork carry (REQ-GEAR-1): the intent of this collection, so the tool
+    // choice (work/gear.js), also collectblock's nested re-equip, honours the
+    // silk rule: no silk touch where it changes the drop, unless the block itself is wanted.
+    const restoreIntent = gear.intend(bot, { wanted: blockType });
+    try {
+        return await collectBlocksOf(bot, blockType, num, exclude);
+    } finally {
+        restoreIntent();
+    }
+}
+
+async function collectBlocksOf(bot, blockType, num, exclude) {
     if (num < 1) {
         log(bot, `Invalid number of blocks to collect: ${num}.`);
         return false;
@@ -508,19 +503,12 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         const block = blocks[0];
         await bot.tool.equipForBlock(block);
         if (bot.interrupt_code) break;
-        // Carry (I1 S2): a silk-touch tool drops the block itself (stone for cobblestone, grass for dirt), not
-        // the item asked for. Blocks that drop nothing without silk touch (ice, glass, leaves) keep it.
-        const self = bot.registry.itemsByName[block.name]?.id;
-        const drops = bot.registry.blocksByName[block.name]?.drops ?? [];
-        if (block.name !== blockType && drops.length && !drops.includes(self) && hasSilkTouch(bot, bot.heldItem)) {
-            const kind = bot.heldItem.name.split('_').pop();
-            const plain = bot.inventory.items().find(i => i.name.endsWith('_' + kind) && !hasSilkTouch(bot, i) && block.canHarvest(i.type));
-            if (plain) await bot.equip(plain, 'hand');
-            else if (block.canHarvest(null)) await bot.unequip('hand');
-            else {
-                log(bot, `Only a silk-touch tool can mine ${block.name}: it would drop ${block.name}, not ${blockType}.`);
-                return false;
-            }
+        // Carry (I1 S2; REQ-GEAR-1): a silk-touch tool drops the block itself (stone for cobblestone, grass for
+        // dirt), not the item asked for; blocks that drop nothing without silk touch (ice, glass, leaves) keep
+        // it. The tool choice already avoids silk here when anything else will do (work/gear.js chooseFor).
+        if (gear.silkChangesDrop(bot, block, bot.heldItem, blockType)) {
+            log(bot, `Only a silk-touch tool can mine ${block.name}: it would drop ${block.name}, not ${blockType}.`);
+            return false;
         }
         if (isLiquid) {
             const bucket = bot.inventory.findInventoryItem('bucket');
@@ -530,6 +518,10 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             }
             await bot.equip(bucket, 'hand');
         }
+        // Fork carry (REQ-GEAR-1): this check, collectblock's own and the dig wait
+        // ask this block object, so it answers for the held item from its components
+        // (the owner's copy harvests obsidian; the registry says only diamond).
+        gear.bindHarvest(bot, block);
         const itemId = bot.heldItem ? bot.heldItem.type : null
         if (!block.canHarvest(itemId)) {
             log(bot, `Don't have right tools to harvest ${blockType}.`);
@@ -647,8 +639,8 @@ export async function breakBlockAt(bot, x, y, z) {
         }
         if (bot.game.gameMode !== 'creative') {
             await bot.tool.equipForBlock(block);
-            const itemId = bot.heldItem ? bot.heldItem.type : null
-            if (!block.canHarvest(itemId)) {
+            // Fork carry (REQ-GEAR-1): the held item's own components decide (work/gear.js).
+            if (!gear.canHarvest(bot, block, bot.heldItem)) {
                 log(bot, `Don't have right tools to break ${block.name}.`);
                 return false;
             }
@@ -1057,6 +1049,44 @@ export async function consume(bot, itemName="") {
 }
 
 
+// Fork carry (REQ-GEAR-1; DECISIONS 2026-11-13, giving: "she would just give me
+// the one she has"): of a gear name the exact instances go, her spares first
+// and her kept best last (work/gear.js giveOrder, by gearRank: an axe by its
+// tool key), each a toss of its own
+// slot; any other item by type, as discard does.
+// Nothing while an item is on the cursor (a transfer of that type tosses the
+// cursor item, whatever the source slot) or a container is open (the slot
+// numbers would address its window): gear rulings r1, 1 (Sol 1).
+async function tossToGive(bot, itemType, num) {
+    const unavailable = () => {
+        const why = gear.busy(bot);
+        if (why) log(bot, `I can't give ${itemType} right now: ${why}.`);
+        return Boolean(why);
+    };
+    if (unavailable()) return false;
+    const order = gear.giveOrder(bot, itemType);
+    if (!order) return discard(bot, itemType, num);
+    // The very instances ordered: a slot that changed meanwhile is skipped.
+    const sigs = new Map(order.map(slot => [slot, gear.signature(bot.inventory.slots[slot])]));
+    let given = 0;
+    for (const slot of order) {
+        if (given >= num) break;
+        if (unavailable()) break;
+        const item = bot.inventory.slots[slot];
+        if (!item || item.name !== itemType || gear.signature(item) !== sigs.get(slot)) continue;
+        const count = Math.min(item.count, num - given);
+        await bot.transfer({ window: bot.inventory, itemType: item.type, metadata: null, count,
+            sourceStart: slot, sourceEnd: slot + 1, destStart: -999 });
+        given += count;
+    }
+    if (!given) {
+        log(bot, `You do not have any ${itemType} to discard.`);
+        return false;
+    }
+    log(bot, `Discarded ${given} ${itemType}.`);
+    return true;
+}
+
 export async function giveToPlayer(bot, itemType, username, num=1) {
     /**
      * Give one of the specified item to the specified player
@@ -1105,7 +1135,7 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     }
 
     await bot.lookAt(player.position);
-    if (await discard(bot, itemType, num)) {
+    if (await tossToGive(bot, itemType, num)) {
         let given = false;
         bot.once('playerCollect', (collector, collected) => {
             console.log(collected.name);
@@ -1274,8 +1304,8 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
     const checkDigProgress = () => {
         if (bot.targetDigBlock) {
             const targetBlock = bot.targetDigBlock;
-            const itemId = bot.heldItem ? bot.heldItem.type : null;
-            if (!targetBlock.canHarvest(itemId)) {
+            // Fork carry (REQ-GEAR-1): the held item's own components decide (work/gear.js).
+            if (!gear.canHarvest(bot, targetBlock, bot.heldItem)) {
                 log(bot, `Pathfinding stopped: Cannot break ${targetBlock.name} with current tools.`);
                 bot.pathfinder.stop();
                 bot.stopDigging();

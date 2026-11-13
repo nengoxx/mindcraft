@@ -830,10 +830,13 @@ const quarry = () => {
     return world;
 };
 const silk = (bot, name) => { bot.inventory.items().find(i => i.name === name).enchants = [{ name: 'silk_touch', lvl: 1 }]; };
+// The gear plugin's tool choice in place of the fixture's (REQ-GEAR-1: the silk rule lives there now).
+const gearTools = bot => { bot.tool.equipForBlock = (block, options) => F.modules.gear.equipForBlock(bot, block, options); };
 
 test('obtain cobblestone with a silk-touch pickaxe and a plain one uses the plain one', async () => {
     const agent = setup({ world: quarry(), inventory: { diamond_pickaxe: 1, iron_pickaxe: 1 } });
     silk(agent.bot, 'diamond_pickaxe');
+    gearTools(agent.bot);
     agent.work.startTask('cobble', 'obtain item=cobblestone count=3');
     await done(agent);
     assert.equal(agent.bot.count('cobblestone'), 3);
@@ -865,7 +868,8 @@ test('obtain dirt with only a silk-touch shovel digs grass by hand and gets dirt
     for (let i = 0; i < 10; i++) world.set(2 + i, 64, 0, 'grass_block');
     const agent = setup({ world, inventory: { diamond_shovel: 1 } });
     silk(agent.bot, 'diamond_shovel');
-    agent.bot.tool.equipForBlock = async () => { agent.bot.heldItem = agent.bot.inventory.items()[0]; }; // the fastest tool, as mineflayer-tool picks
+    agent.bot.heldItem = agent.bot.inventory.items()[0];   // held, as the fastest tool for grass
+    gearTools(agent.bot);
     agent.work.startTask('dirt', 'obtain item=dirt count=2');
     await done(agent);
     assert.equal(agent.bot.count('dirt'), 2);
