@@ -338,3 +338,8 @@ The owner, during the combat-start council: "I would like her to not wander arou
 Maybe go back to the place where combat started, or rather the first combat started or something, because I think
 she wanders too much when chasing mobs and stuff." The combat-start slice bounds how far a fight takes her and brings
 her back to where the first fight of a run of fights began; the council designs it.
+- **His answer on the leash** (same day, to the main seat's suggestion: a leash around where the first fight began,
+  then a walk back, one rule for every fight): "Yes. Let's go with your suggestion. Yes, let's have an area,
+  probably configurable area by default. Let's go a little bit further. [...] skeletons have 16 blocks of radius or
+  something, just in case there's no bugs because of that." The leash is a setting with a default of 16 blocks,
+  matching the skeleton's shooting range, and the walk-back applies after any fight.
