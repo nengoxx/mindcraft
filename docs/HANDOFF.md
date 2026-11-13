@@ -19,9 +19,10 @@
     (proposals: main seat, Sol, Opus; adversary r1–r3 and a Sol review closed; nothing above LOW open). A new
     `!collectPlaced(type, num)`: typed by him it mines at once; run by the model in his turn, code asks him a yes/no
     question listing the exact blocks. Four owner questions in its §8 (recommendations: yes to all).
-  - *Combat start + leash:* `runtime/diagnostics/i1-build/combat/recommended-design.md` r3 (proposals: main seat
-    plus addendum, Sol, Opus; adversary r1–r2 and a Sol review closed; adversary r3 confirm was sent at the end of
-    the session: read `adversary-r3.md` there if it exists, else re-run that confirm). Skeleton family engaged on the
+  - *Combat start + leash:* `runtime/diagnostics/i1-build/combat/recommended-design.md` r4 (proposals: main seat
+    plus addendum, Sol, Opus; adversary r1–r3 and a Sol review; r4 applies adversary r3's last HIGH, the admission
+    bound; **first step next session: a confirm of r4** by a fresh Opus adversary given `adversary-r3.md` and r4).
+    Skeleton family engaged on the
     aggressive bit (P18: about 1 s before the first arrow) or a hit, within 16, with an easy path (walk, at most 3
     natural digs, no placing, no doors); leash 16 on her position around the first fight's spot, walk back inside
     the fight action; `isClearPath` fixed (it replaced her walking path, and placed blocks). Five owner questions in
