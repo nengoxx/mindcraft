@@ -793,10 +793,27 @@ Two upstream carries:
   places nothing …" and "… leaves the path she is walking alone …" (both
   fail on the old code). Retire when upstream's `isClearPath` does both.
 
-The pathfinder removes every `diggingCompleted` listener on a path reset
-(`detectDiggingStopped` calls `removeAllListeners`, index.js:126-130) and
-Mineflayer on death, so the fight counts her digs by wrapping `bot.dig` for
-its life instead; a later slice that needs dig events should do the same.
+The pathfinder removed every `diggingCompleted` listener on a path reset
+during a dig (`detectDiggingStopped` called `removeAllListeners(event, fn)`,
+whose second argument Node ignores; fixed below) and Mineflayer still does on
+death, so the fight counts her digs by wrapping `bot.dig` for its life instead.
+
+Collect count follow-up (live trial 2026-11-13, REQ-SAFE-12):
+`!collectBlocks("copper_ore", 1)` dug the ore (+4 raw_copper) after three dirt
+on its path, yet reported "Collected 0 of 1 copper_ore. 1 could not be dug:
+changed": a path reset during one of the pathfinder's own digs ran
+`detectDiggingStopped`, which removed the attempt's `diggingCompleted`
+listener too. Upstream carry:
+- `patches/mineflayer-pathfinder+2.4.5.patch` (grown carry): in `index.js`
+  `detectDiggingStopped` calls `removeListener` for its own two listeners
+  instead of `removeAllListeners` (two lines; the intent of the upstream code).
+  Every dig on a path triggered it (the block update resets the path while
+  `digging` is still true), so any listener was gone after the first path dig
+  until a respawn; this also keeps the task runner's progress `bump` listener
+  (`work/runner.js`) alive.
+  Reapply check: `work-collect.test.mjs` "the pathfinder carry:
+  detectDiggingStopped removes only its own dig listeners". Retire when
+  upstream mineflayer-pathfinder removes only its own listener there.
 The work fixture gains `pvp.forceStop`, `pathfinder.getPathFromTo` (a
 generator, as installed) and `pathfinder.isMining` and loads `work/combat.js`; the runner's two resume
 check tests turn `self_defense` on, since the check now asks only while it

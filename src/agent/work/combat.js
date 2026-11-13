@@ -419,8 +419,8 @@ export class Combat {
         bot.modes.pause('cowardice');
         const pvpMovements = bot.pvp.movements;
         bot.pvp.movements = fightMovements(bot);
-        // Her digs during a chase, counted when each completes (a
-        // diggingCompleted listener is removed by every path reset); the
+        // Her digs during a chase, counted when each completes (Mineflayer
+        // drops every diggingCompleted listener on death); the
         // count lives on this fight, so a late callback never counts into a later one.
         const dig = bot.dig;
         const counted = function (block, ...rest) {

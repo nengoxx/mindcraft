@@ -734,3 +734,19 @@ test('C2: a bucket picked up while the use was refused is not a fill', async () 
     await skills.collectBlock(bot, 'water', 1);
     assert.match(bot.output, /^Collected 0 of 1 water\. 1 could not be dug: look failed\./m, 'thrown');
 });
+
+// Live trial 2026-11-13: `!collectBlocks("copper_ore", 1)` dug the ore (+4
+// raw_copper) after 3 dirt on the path, yet reported "Collected 0 of 1 …
+// changed". The pathfinder's detectDiggingStopped called
+// removeAllListeners('diggingCompleted', fn): Node ignores the second argument,
+// so every listener went, the attempt's included. The carried patch makes it
+// remove only its own (patches/mineflayer-pathfinder+2.4.5.patch).
+test('the pathfinder carry: detectDiggingStopped removes only its own dig listeners', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../node_modules/mineflayer-pathfinder/index.js', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('function detectDiggingStopped'), src.indexOf('function resetPath'));
+    assert.ok(body.includes('detectDiggingStopped'), 'found');
+    assert.doesNotMatch(body, /removeAllListeners/);
+    assert.match(body, /removeListener\('diggingCompleted', detectDiggingStopped\)/);
+    assert.match(body, /removeListener\('diggingAborted', detectDiggingStopped\)/);
+});
