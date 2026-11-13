@@ -284,10 +284,11 @@ test('S2e-fu §2: in a task in a pit two deep she walks to the nearest drop spot
     assert.equal(bot.count('gravel'), 0);
 });
 
-test('S2e-fu §2, §3: in a task with no drop spot within reach the step blocks with the drop\'s reason', async () => {
+test('S2e-fu §2, §3 (amended by REQ-TRV-6): in a task with no drop spot within reach and a climb out that fails the step blocks with the drop\'s reason', async () => {
     const bot = F.makeBot({ world: pitWorld(6), position: [0.5, 64, 0.5] });
     bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
     F.player(bot, F.OWNER, [20, 64, 0]);
+    bot.hooks.goto = () => 'moved';   // the climb gets nowhere
     const agent = F.makeAgent({ bot, name: 'pitstuck', replies: [''] });
     F.clearRecord(agent);
     F.startWork(agent);
@@ -295,11 +296,181 @@ test('S2e-fu §2, §3: in a task with no drop spot within reach the step blocks 
     agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
     await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
     assert.equal(agent.work.record.status, 'blocked');
-    const reason = 'inventory full: 3 free slots, 4 needed (no free direction nearby); largest: dirt 640, cobblestone 512, gravel 192, andesite 128, oak_sapling 16';
+    const reason = 'inventory full: 3 free slots, 4 needed (no free direction nearby; could not climb out); largest: dirt 640, cobblestone 512, gravel 192, andesite 128, oak_sapling 16';
     assert.equal(agent.work.record.reason, reason);
     await F.until(() => blockedTurn(agent));
     assert.ok(blockedTurn(agent).includes(`${reason}. ${NO_DISCARD} `), 'junk left, only the place failed: no "tell the owner"');
-    assert.equal(bot.calls.some(c => c[0] === 'toss' || c[0] === 'goto'), false);
+    assert.equal(bot.calls.some(c => c[0] === 'toss'), false);
+    assert.equal(bot.calls.filter(c => c[0] === 'goto').length, 1, 'one climb per drop, then the step blocks (two re-runs need a refill)');
+});
+
+// REQ-TRV-6 (design travel r4 §5; DECISIONS 2026-11-13 (evening): "with no
+// drop spot near, the cleanup climbs to the surface (or back up her shaft),
+// drops there, then goes back and the task finishes"). The real pathfinder
+// cannot move a fixture bot, so the climb's goto stages the tower the way the
+// pathfinder places (the predicted stone, then the real block: work-ledger).
+function towerBot(world) {
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+    bot.placeBlock = async (reference, face) => {
+        const dest = reference.position.plus(face);
+        bot.emit('blockPlaced', bot.blockAt(dest), world.block(dest));
+    };
+    bot.tower = async (x, z, fromY, toY) => {
+        for (let y = fromY; y < toY; y++) {
+            bot.heldItem = bot.inventory.findInventoryItem('cobblestone');
+            bot.setBlock(x, y, z, 'stone');   // the pathfinder's predicted block
+            await bot.placeBlock(bot.blockAt(new F.Vec3(x, y - 1, z)), new F.Vec3(0, 1, 0));
+            bot.setBlock(x, y, z, 'cobblestone');   // the server's real block
+            bot.entity.position = new F.Vec3(x + 0.5, y + 1, z + 0.5);
+        }
+    };
+    return bot;
+}
+const climbGoal = goal => goal.constructor.name === 'GoalNear' && goal.y === 71;   // the rim of pitWorld(7)
+
+test('REQ-TRV-6: a full bag in a 1-wide shaft: she towers to one below the rim (where the real GoalNear 1 ends; scaffold of action:task), drops over the lip, goes back to work and the task finishes, with no model call', async () => {
+    const bot = towerBot(pitWorld(7));
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'climber' });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    let first = true;
+    bot.hooks.collect = async () => {
+        if (!first) return;
+        first = false;
+        bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);   // the bag fills at the bottom
+        agent.requestInterrupt();
+        F.until(() => !agent.actions.executing).then(() => agent.actions.resumeAction());   // as the idle resume after a cut
+    };
+    const gotos = [];
+    let scaffold = null;
+    bot.hooks.goto = async goal => {
+        gotos.push([goal.constructor.name, goal.x, goal.y, goal.z]);
+        if (!climbGoal(goal)) return undefined;
+        await bot.tower(0, 0, 64, 70);   // build r1 M6: GoalNear(rim, 1) ends at rim − 1
+        return 'moved';
+    };
+    bot.hooks.toss = () => { scaffold ??= agent.work.ledger.list().filter(e => e.kind === 'scaffold').map(e => [e.pos.y, e.by]); };
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    assert.deepEqual(scaffold, [64, 65, 66, 67, 68, 69].map(y => [y, 'action:task']), 'the pillar is scaffold of the task (the task-end tidy takes it back)');
+    const firstToss = bot.calls.findIndex(c => c[0] === 'toss');
+    const [, look] = bot.calls.slice(0, firstToss).reverse().find(c => c[0] === 'lookAt');
+    assert.equal(look.y, 70 + 1.62, 'thrown over the one-block lip from one below the rim');
+    assert.deepEqual(gotos, [['GoalNear', 0, 71, 0], ['GoalNear', 0, 64, 0]], 'the climb, then back to work_pos');
+    assert.equal(bot.count('gravel'), 0);
+    assert.equal(agent.work.record.plan[0].progress.junk_drops, 1);
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('REQ-TRV-6 (adversary O5): a climb a fight cuts gives its drop attempt back; the next run climbs again', async () => {
+    const bot = towerBot(pitWorld(7));
+    bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'climbcut' });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    let climbs = 0;
+    let written = null;
+    let givenBack = null;
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => {
+        if (/the attempt is given back/.test(message)) givenBack = F.readRecord(agent).plan[0].progress.junk_drops;
+        log(message);
+    };
+    bot.hooks.goto = async goal => {
+        if (!climbGoal(goal)) return undefined;
+        if (++climbs === 1) {
+            void agent.actions.runAction('mode:self_defense', async () => {});   // a fight cuts the task mid-climb
+            await F.until(() => bot.interrupt_code);
+            return undefined;
+        }
+        written = F.readRecord(agent).plan[0].progress.junk_drops;
+        await bot.tower(0, 0, 64, 71);
+        return 'moved';
+    };
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    assert.equal(climbs, 2);
+    assert.equal(givenBack, 0, 'the give-back is written at once');
+    assert.equal(written, 1, 'given back before the second attempt was counted');
+    assert.equal(agent.work.record.plan[0].progress.junk_drops, 1);
+});
+
+test('REQ-TRV-6 (build r1 F3, PROBE-A): a climb that is always cut gives its attempt back at most maxReruns times; then the step blocks with the inventory-full reason', async () => {
+    const bot = towerBot(pitWorld(7));
+    bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'climbthrash', replies: [''] });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    let climbs = 0;
+    bot.hooks.goto = async goal => {
+        if (!climbGoal(goal)) return undefined;
+        climbs++;
+        void agent.actions.runAction('mode:unstuck', async () => {});   // the pathfinder thrash: unstuck cuts every climb
+        await F.until(() => bot.interrupt_code);
+        return undefined;
+    };
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 30000 });
+    assert.equal(agent.work.record.status, 'blocked');
+    assert.match(agent.work.record.reason, /^inventory full: 3 free slots, 4 needed; largest: /);
+    const { maxReruns } = F.modules.inventory.INVENTORY;
+    assert.equal(climbs, maxReruns + maxReruns + 1, 'the given-back attempts, then the counted ones');
+    assert.equal(agent.work.record.plan[0].progress.junk_givebacks, maxReruns);
+    assert.equal(F.readRecord(agent).plan[0].progress.junk_givebacks, maxReruns, 'persisted');
+});
+
+test('REQ-TRV-6 (build r1 M4b): a drop cut after something left the bag keeps its attempt (no give-back)', async () => {
+    const bot = towerBot(pitWorld(7));
+    bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+    F.player(bot, F.OWNER, [20, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'tosscut' });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    const lines = [];
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => { lines.push(message); log(message); };
+    bot.hooks.goto = async goal => {
+        if (!climbGoal(goal)) return undefined;
+        await bot.tower(0, 0, 64, 70);
+        return 'moved';
+    };
+    let tosses = 0;
+    bot.hooks.toss = () => {
+        if (++tosses !== 1) return;
+        agent.requestInterrupt();   // cut right after the first toss
+        F.until(() => !agent.actions.executing).then(() => agent.actions.resumeAction());   // as the idle resume after a cut
+    };
+    agent.work.startTask('2 oak logs', 'obtain item=oak_log count=2');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    assert.equal(tosses, 1, 'the drop was cut after its first toss (which freed the fourth slot)');
+    assert.equal(lines.some(l => /given back/.test(l)), false, lines.join('\n'));
+    assert.equal(agent.work.record.plan[0].progress.junk_drops, 1, 'the cut drop keeps its attempt');
+});
+
+test('REQ-TRV-6: only a step that needs free slots climbs: obtain and give do, the drop-only clear step does not', async () => {
+    for (const [skill, climbs] of [['obtain', true], ['give', true], ['clear', false]]) {
+        const bot = F.makeBot({ world: pitWorld(7), position: [0.5, 64, 0.5] });
+        bot.inventory.slots.splice(0, 46, ...fullBot().inventory.slots);
+        const agent = F.makeAgent({ bot, name: `climbs-${skill}` });
+        F.clearRecord(agent);
+        F.startWork(agent);
+        agents.push(agent);
+        agent.work.record = F.modules.record.newRecord({ objective: skill, steps: [], anchor: null });
+        bot.hooks.goto = () => 'moved';   // the climb gets nowhere
+        const result = await agent.work.runner.ensureFreeSlots({ skill, progress: {} });
+        assert.equal(bot.calls.filter(c => c[0] === 'goto').length, climbs ? 1 : 0, skill);
+        assert.match(result.blocked, climbs ? /\(no free direction nearby; could not climb out\)/ : /\(no free direction nearby\)/, skill);
+    }
 });
 
 test('S2e-fu r1 (Sol 3): a bad item list blocks with the list error under the ordinary prefix, never as "things I keep"', async () => {

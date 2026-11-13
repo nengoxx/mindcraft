@@ -818,3 +818,67 @@ The work fixture gains `pvp.forceStop`, `pathfinder.getPathFromTo` (a
 generator, as installed) and `pathfinder.isMining` and loads `work/combat.js`; the runner's two resume
 check tests turn `self_defense` on, since the check now asks only while it
 is on.
+
+I1 travel slice (SPEC §7.11 REQ-TRV-1 … 6, §9.4 REQ-OBT-11; DECISIONS
+2026-11-13 (evening) "Travel after the live trials"; design
+`runtime/diagnostics/i1-build/travel/recommended-design.md` r4).
+Why: a fight or `unstuck` that cut a walk sent the AUTO MESSAGE, so the
+model spent a call to re-send the walk (or did not), and a re-send from
+`moveAway`'s spot walked back into the same cave trap; a planning timeout
+ended a long walk; a task that dug down with a full bag could not drop.
+Our own new files are `work/travel.js` (`Travel`, the walk keeper: the
+in-call restart loop, the cutter, the drops, the cap, the stuck rule, the
+alert; the constants `WALK_LABELS`, `RESTART_AFTER`, `TRAVEL`) and
+`work/climb.js` (`climbTarget`, `climbOut`, `CLIMB`; `passable` and
+`LIQUIDS` moved here from `work/inventory.js`). In our own files:
+`work.travel.resume_max` in `work/config.js`; `Travel` built in `Work.init`,
+the `guardActions` wrap's `start` (records `work.lastRun`) and the hand-off
+of a kept walk, `isUpkeep`, `isQuietAction` reading `travel.holds`, the
+`!endGoal` drop and the fixed "OK, I'll leave them." reply in
+`work/index.js`; the climb to drop in `dropItems` (`CLIMBS.task`,
+`INVENTORY.climbMs`) in `work/inventory.js`; `climb` for `needsFreeSlots`
+steps and the `junk_drops` give-back (at most `INVENTORY.maxReruns` per step,
+`junk_givebacks`) in `work/runner.js`; the give step's
+fast failure on a `false` result in `work/steps/give.js`.
+Two upstream carries:
+- `agent/library/skills.js` (grown carry):
+  - `goToGoal(bot, goal, configure = null, { retry = true } = {})` retries a
+    pathfinder `Timeout` once when `retry` is set and `bot.interrupt_code` is
+    not, logging `[travel] path planning ran out of think time; one retry`;
+    a second Timeout or any other error is thrown as before; the door
+    interval is cleared in a `finally`. Why: the owner's "one automatic
+    retry" (a long walk's plan ran out of think time in P19). Reapply check:
+    `work-travel.test.mjs` "REQ-TRV-4: goToGoal retries a planning Timeout
+    once …". Retire when upstream retries a planning timeout.
+  - `moveAway` calls `goToGoal(…, null, { retry: false })`. Why: a retry
+    could push `unstuck`'s `moveAway` past its 10 s kill watchdog. Same
+    check; retire with the retry.
+  - `goToPlayer` wraps its `goToGoal` in try/catch: on error it logs
+    "Pathfinding stopped: …" and returns false (as `goToPosition` does), on
+    success it returns true. Why: a cut `goToPlayer` threw `GoalChanged`
+    into the ActionManager's catch, which cancelled a pending task's or
+    follow's resume slot. Reapply check: `work-travel.test.mjs` "§3: a cut
+    !goToPlayer no longer cancels a pending resume slot …". Retire when upstream's `goToPlayer`
+    returns on a pathfinder error.
+  - `giveToPlayer` checks both `goToPlayer` results and, on `false`, logs
+    "Failed to give … could not reach them." and returns false before any
+    toss. Why: with the catch above an unreachable player would get the items
+    tossed where she stands. Reapply check: `work-travel.test.mjs` "§3 (S2):
+    giveToPlayer with an unreachable player tosses nothing …". Retire with the
+    `goToPlayer` catch.
+- `agent/modes.js` (grown carry):
+  - `unstuck` clears its 10 s `cleanKill` timer in a `finally` around
+    `moveAway`. Why: an interrupted `moveAway` throws, the timer stayed set
+    and killed the process 10 s later. Reapply check: `work-travel.test.mjs`
+    "§3 (REQ-TRV-3, G1): an interrupted moveAway in unstuck clears its 10 s
+    kill timer". Retire when upstream clears the timer on every exit.
+  - `execute()` wraps the mode's function: an error is swallowed only while
+    `bot.interrupt_code` is set, otherwise thrown as before. Why: an
+    interrupted mode action threw into the ActionManager's catch and
+    cancelled the pending resume (a follow after `unstuck` or
+    `self_preservation`). Reapply check: `work-travel.test.mjs` "§3
+    (REQ-TRV-1, S4): an interrupted mode action keeps a pending follow …" and
+    "§3 (S4): a mode action's own error … is still thrown". Retire when
+    upstream's interrupted mode actions return normally.
+The kept walk's quiet check needs no change in `modes.js`: `should_reprompt`
+already asks `agent.work?.isQuietAction`.

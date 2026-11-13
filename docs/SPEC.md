@@ -307,6 +307,8 @@ Why (details in RESEARCH.md):
 | `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where; the best of a limited item stays), the dropper `dropItems` (facing over a one-block lip, the walk to a drop spot `findDropSpot`, the look fix, the hand off a held slot, per-slot tosses) and its re-pickup guard `isGuardedJunk`, `largestItems` (the kept note and the blocked report), and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. From the gear slice: the one-stack cap in `keepOf`, gear spares in the plan, the surplus allowance (`due`), the signature check before each toss. | I1 (S2e, gear) |
 | `agent/work/gear.js` | Gear (§9.5, REQ-GEAR-1): reading an item's own values (attack, mining rules, armour, unbreakable, enchantments) with the vanilla table as fallback; the ranking per kind and the spares (`assess`, `spares`, `giveOrder`); using the best: `equipWeapon`, the block chooser `chooseFor`/`equipForBlock` with the silk rule, the armour controller `equipAll`, the dig-time and harvest checks; `install(bot)`, which takes over the plugins' tool, armour and swing-timer members. | I1 (gear) |
 | `agent/work/combat.js` | Combat (§7.10, REQ-CMB-1 … 9): `Combat` with `pick()` (the melee rule, the ranged rule for the mobs of `work.combat.ranged` once they aggro, the easy path `easyPath`, the verdict cache), `fight(first)` (the `mode:self_defense` routine: the chase, give-up, the dig count, the leash, the walk back), the anchor, the travelling sampler, `threat()` for the resume check; `fightMovements`, `followPending`, `cutsFollow`; its constants `COMBAT`. The follow target lookup it shares with the item cleanup is `Work.followTarget()` (`index.js`). | I1 (combat) |
+| `agent/work/travel.js` | The walk keeper (§7.11, REQ-TRV-1 … 3): `Travel` with `run` (the in-call restart loop the `guardActions` wrap hands a kept walk), `onActionStart` (the cutter, newer starts), `holds` (the quiet check), `drop` (`!endGoal`), `settle`, the stuck rule and its climb-then-walk body, the alert; its constants `WALK_LABELS`, `RESTART_AFTER`, `TRAVEL`. | I1 (travel) |
+| `agent/work/climb.js` | The climb out (REQ-TRV-5): `climbTarget` (roof or the shaft's rim), `climbOut`; its constants `CLIMB`; `passable` and `LIQUIDS`, shared with `inventory.js`. | I1 (travel) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -339,7 +341,7 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
 | `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). I1 (S2c-fu): the "did not use command … Stopping auto-prompting" line is an `alert` (:141; REQ-CHAT-1). | upstream before S2b; fork carry since | I1 |
-| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). I1 (combat): `self_defense.update`, with `agent.work.combat`, reads `stop_epoch` and whether the fight cuts the follow (`combat.following()`), asks `combat.pick()` and executes `combat.fight(target, {epoch, cut, following})`; without it, upstream's code (REQ-CMB-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself; the `self_defense` branch when upstream engages ranged mobs on aggro and bounds a fight's wandering. | upstream | I1 |
+| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). I1 (combat): `self_defense.update`, with `agent.work.combat`, reads `stop_epoch` and whether the fight cuts the follow (`combat.following()`), asks `combat.pick()` and executes `combat.fight(target, {epoch, cut, following})`; without it, upstream's code (REQ-CMB-1). I1 (travel): `unstuck` clears its 10 s kill timer in a `finally` (REQ-TRV-3); `execute()` wraps the mode's function and swallows its error only while `interrupt_code` is set, so an interrupted mode action never cancels a pending resume (REQ-TRV-1); a kept walk's quiet check needs no change here (`isQuietAction`). Retire the `finally` and the catch when upstream's `unstuck` clears its timer on every exit and an interrupted mode action returns normally. Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself; the `self_defense` branch when upstream engages ranged mobs on aggro and bounds a fight's wandering. | upstream | I1 |
 | `agent/library/world.js` | I1 (combat): `isClearPath` searches with `bot.pathfinder.getPathFromTo(…, {timeout: 40, tickTimeout: 40})` instead of `getPathTo` (which replaced the search of the path she was walking), and really turns placing off (`scafoldingBlocks = []`, `allow1by1towers = false`; `canPlaceOn` is not a Movements field), as its comment and REQ-RES-8 always said (REQ-CMB-2). Retire when upstream's `isClearPath` does both. | existing fork carry (biome IDs) | I1 |
 | `agent/action_manager.js` | I1 (S2d): `_executeResume` stores the timeout of a new resumable action beside `resume_func` (`resume_timeout`) and uses it on every resume (two lines), so a resumed follow keeps "no timeout" (§4.2; junk design r7 §5, amendment 2). Retire when upstream passes the original timeout on resume. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
@@ -347,7 +349,7 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
 | `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). I1 (gear): `initBot` loads `mineflayer-tool` itself, before collectblock, and the gear plugin (`work/gear.js` `install`) last; `mineflayer-armor-manager` is no longer loaded or a dependency (REQ-GEAR-1). | fork carry | I1 |
-| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I1 (gear, REQ-GEAR-1): `attackEntity` and `defendSelf` equip through `gear.equipWeapon` (`equipHighestAttack` and `hasSilkTouch` removed); `collectBlock` sets the gear intent (`wanted`) around its collection (try/finally), refuses when only a silk tool would change the drop (from the ownblocks slice a reason in its summary), and binds the harvest check of the target block object to the held instance (`gear.bindHarvest`); the harvest checks in `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer` tosses exact slots (`tossToGive`: of a gear name the spares first, the kept best last); `craftRecipe` keeps its `bot.armorManager.equipAll()` call, now the gear plugin's. I1 (ownblocks, REQ-SAFE-12, 13): `collectBlocksOf` counts only her own completed dig of a cell that no longer holds the block (or holds a block that fell in; a bucket by its fill, awaited), re-checks a hand-dug cell right before `bot.dig`, keeps a `tried` set, names each failure's reason (the silk, bucket and tool exits become reasons), guards the palette pass and lets protection win over the obsidian allowance, and always ends with the `Collected R of N` summary with the protected (G) and kept (K) counts; `collectGrantedCells` digs a frozen list for the owner's grant (no doc comment, so generated code is not offered it; without the grant the cells stay protected). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I1 (gear, REQ-GEAR-1): `attackEntity` and `defendSelf` equip through `gear.equipWeapon` (`equipHighestAttack` and `hasSilkTouch` removed); `collectBlock` sets the gear intent (`wanted`) around its collection (try/finally), refuses when only a silk tool would change the drop (from the ownblocks slice a reason in its summary), and binds the harvest check of the target block object to the held instance (`gear.bindHarvest`); the harvest checks in `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer` tosses exact slots (`tossToGive`: of a gear name the spares first, the kept best last); `craftRecipe` keeps its `bot.armorManager.equipAll()` call, now the gear plugin's. I1 (ownblocks, REQ-SAFE-12, 13): `collectBlocksOf` counts only her own completed dig of a cell that no longer holds the block (or holds a block that fell in; a bucket by its fill, awaited), re-checks a hand-dug cell right before `bot.dig`, keeps a `tried` set, names each failure's reason (the silk, bucket and tool exits become reasons), guards the palette pass and lets protection win over the obsidian allowance, and always ends with the `Collected R of N` summary with the protected (G) and kept (K) counts; `collectGrantedCells` digs a frozen list for the owner's grant (no doc comment, so generated code is not offered it; without the grant the cells stay protected). I1 (travel): `goToGoal` takes `{ retry = true }` and retries a planning `Timeout` once when not interrupted, its door interval cleared in a `finally` (REQ-TRV-4); `moveAway` passes `retry: false`; `goToPlayer` catches the pathfinder error, logs "Pathfinding stopped: …" and returns false, true on success (REQ-TRV-1); `giveToPlayer` stops before any toss when either approach returns false (§7.11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -760,7 +762,9 @@ no sleep happens (no bed, or the night is done).
 
 0 for combat, creepers, unstuck, timeouts, crash restarts, night, a night's
 sleep and the bed pickup (S2d; a goal cut by either restarts its loop with the
-next turn it would make anyway), pending owner
+next turn it would make anyway), a walk cut by a fight or `unstuck` that the
+keeper restarts and a walk it gives up (the cap, the stuck alert; REQ-TRV-1 …
+3), pending owner
 questions (I1 for the clear step) and the bot's own tidy sweeps (no decision
 calls: a tidy line enters history and can contribute to a
 memory-summary call, which the live trials count separately). While the model
@@ -1197,7 +1201,8 @@ passes the mobs while he travels). Design
   (REQ-RES-8). The fight itself makes no model call; as before, a fight that
   cuts a non-resumable, non-quiet action gets the one AUTO MESSAGE after she is
   back, and an active goal restarts with a call after its cooldown (counted in
-  the trials). `goToPlayer` and `stay` keep pausing `self_defense`
+  the trials); from the travel slice a cut walk the keeper restarts gets no
+  AUTO MESSAGE (REQ-TRV-1). `goToPlayer` and `stay` keep pausing `self_defense`
   (upstream; the owner's question is open).
 - **REQ-CMB-9 Following him on the move.** [I1] Under the follow rules
   (REQ-CMB-5) and with his entity loaded, `pick()` (the mode's update and every fight tick)
@@ -1212,6 +1217,117 @@ passes the mobs while he travels). Design
   ranged target beyond 3 dropped so is ignored 10 s (a melee mob never). Logged once
   per change: `[combat] owner travelling (N b/s): passing mobs`, `… stopped:
   normal rules`. The rule ends at once when the follow rules no longer hold.
+
+### 7.11 Travel `[I1]` (the travel slice)
+
+The owner's rulings (DECISIONS 2026-11-13 (evening), "Travel after the live
+trials"): "A fight cuts a walk: the code itself restarts the cut walk
+(goToCoordinates, goToPlayer, searchForBlock) after the fight, with no model
+call"; "Stuck in a low cave: [...] she tries one fallback, climbing out as
+goToSurface does, then walks on to the goal; if that fails she tells him in
+chat instead of asking the model"; "one automatic retry" of a planning
+timeout; a task that digs down with a full bag climbs out to drop; "no" to a
+mining question gets a fixed reply. Design
+`runtime/diagnostics/i1-build/travel/recommended-design.md` r4.
+
+- **REQ-TRV-1 The walk keeper.** [I1] `work/travel.js` (`Travel`, built in
+  `Work.init` after combat) keeps the walk commands `WALK_LABELS`
+  (`action:goToCoordinates`, `action:goToPlayer`, `action:searchForBlock`)
+  across the cuts `RESTART_AFTER` (`mode:self_defense`, `mode:unstuck`); both
+  are constants (one line each to add `!goToRememberedPlace`,
+  `self_preservation` or `sleeping`, the owner's open questions). The
+  `Work.guardActions` runAction wrap hands a walk label that is not a resume,
+  with `work.travel.resume_max` above 0, to `Travel.run`: a loop around the
+  real `runAction`, inside the command's own call, so its result goes where an
+  uncut walk's goes (his typed command: a reply; the model's: its loop; a
+  goal's: its loop) and the resume slot is never touched (an active task stays
+  ours; a pending follow stays pending). The first start after the walk's own
+  is its cutter; a cutter outside `RESTART_AFTER` lets the walk go at once and
+  the AUTO MESSAGE comes as before. While a walk is held, `Work.isQuietAction`
+  is true for its label and for every mode (a fight cut by another mode), so
+  `execute()` sends no AUTO MESSAGE. After a kept cut the keeper waits for the
+  cutter and every mode or upkeep action chained after it (`settle`, through
+  `work.lastRun`; a drop reason is checked before each wait, so a newer
+  indefinite action never holds the old command open), flushes the behaviour
+  log to the console (also when it then stops at the cap or the stuck rule,
+  or after a failed climb), then runs the walk again from where she stands. A walk that ends (not interrupted, or timed
+  out) after N restarts returns its result with one line appended, "Resumed
+  after N interruption(s).". Two carries in the blast radius: `goToPlayer`
+  catches the pathfinder error, logs "Pathfinding stopped: …" and returns
+  false (a cut no longer throws into the ActionManager's catch, which cancelled
+  the resume slot), and `modes.js execute()` swallows a mode function's error
+  only while `interrupt_code` is set (an interrupted mode action returns
+  normally; its own errors are thrown as before).
+- **REQ-TRV-2 Drops, bound and the alert.** [I1] No restart when something
+  newer came (a start that is neither a mode nor upkeep, a new walk command:
+  the held one then returns at once, or `!endGoal`, which stops the fight but
+  changes no stop epoch), after `!stop` (the stop epoch), a death, another
+  dimension, `Work` disposed, or while an action the keeper did not start
+  runs; the interrupted result returns as before (logged `[travel] … not
+  restarted (why)`). At `resume_max` restarts the walk stops with one `alert`
+  line, "I stopped walking at x,y,z: interrupted N times on the way." (N the
+  number of cuts), into history as `system`, no model call, no reply. Each
+  walk tells him at most once.
+- **REQ-TRV-3 The stuck fallback.** [I1] The first `unstuck` cut of a kept
+  walk at a spot (the cut spot, before unstuck's `moveAway`) climbs out
+  (`climbOut`, default movements: dig and tower under protection, as
+  `goToSurface`, bounded by `CLIMB.walkMs` 90 s) and then walks on; with
+  nothing to climb (open ground) the restart is plain. A later `unstuck` cut
+  within `TRAVEL.stuckRadius` (8) of a stored spot, also while climbing, ends
+  the walk with one `alert`, "I'm stuck near x,y,z and couldn't get out, so I
+  stopped walking."; a spot farther than 8 gets its own climb (inside the
+  cap). A failed climb (not interrupted) sends the same line (her position)
+  and gives the walk up: the interrupted result, no walk, no model call,
+  typed or model-run. A fight that cuts the climb climbs again (no new stuck
+  spot); the climbing phase ends only when `climbOut` returns uninterrupted.
+  `unstuck`'s 10 s kill timer is cleared in a `finally` (an interrupted
+  `moveAway` throws; before, the process was killed 10 s later).
+- **REQ-TRV-4 The planning retry.** [I1] `skills.goToGoal(bot, goal,
+  configure = null, { retry = true } = {})`: a pathfinder `Timeout` (path
+  planning ran out of think time), with `retry` and no `interrupt_code`, is
+  retried once from where she stands with the same movements (logged
+  `[travel] path planning ran out of think time; one retry`); a second
+  Timeout or any other error is thrown as before. Once per call; the door
+  interval is cleared in a `finally`. `moveAway` passes `retry: false`
+  (moving away needs no second plan, and unstuck's 10 s watchdog stays
+  ahead of it).
+- **REQ-TRV-5 The climb helper.** [I1] `work/climb.js`: `climbTarget(bot)`
+  scans her column from 2 above her feet to the world's top (as
+  `goToSurface`); the highest non-air block (`air`, `cave_air`, `void_air`
+  are air; leaves are skipped, so a tree over open ground is no roof) is a
+  roof and, within `CLIMB.maxRise` (64) of her feet, the target is its top + 1
+  (`GoalBlock`: dig up through it); a roof higher than that (a deep cave) is
+  nothing to climb; open above, the target is the rim of her own shaft
+  (per cardinal the lowest y at or above her feet whose feet and head cells
+  are passable, the minimum of the four, above her and within the rise;
+  `GoalNear(…, 1)` so she may step off onto it); else nothing. An unloaded
+  cell stops the scan (no target from unknown data). `climbOut(bot,
+  {configure, ms})` walks there through `goToGoal`, bounded by `ms` (a timer
+  that clears the goal), clears its own goal at the end, never throws, and
+  returns `up` (feet at target.y − 1 or above, no error), `failed` or
+  `nothing`, with one `skills.log` line.
+- **REQ-TRV-6 The task's climb to drop.** [I1] Amends REQ-OBT-11:
+  `dropItems(…, { walk: 'task', climb: true })` with no facing and no drop
+  spot climbs out once (`CLIMBS.task`: may dig, opens no door; bounded by
+  `INVENTORY.climbMs` 90 s), then plans, faces and looks for a spot again; an
+  interrupted climb returns `interrupted` with `climbed`; a climb that does not
+  reach the top returns `unavailable` "no free direction nearby; could not
+  climb out". The runner passes `climb` only for steps with `needsFreeSlots
+  === true` (obtain, give; the drop-only clear step never blocks on a full
+  bag, so it never digs out of his box). A climb a fight cut before anything
+  was dropped gives its `junk_drops` attempt back (written at once), at most
+  `INVENTORY.maxReruns` times per step (`junk_givebacks`, persisted and reset
+  with `junk_drops` on `!taskResume`), so a climb that `unstuck` always cuts
+  still blocks with the inventory-full reason. The tower
+  is `action:task` scaffold for the task-end tidy; the runner's return to
+  `work_pos` brings her back. The idle and follow cleanups are unchanged.
+- **The mining question.** [I1] His "no" to the leftover-blocks question
+  (`answerBlockAsk`) gets the fixed reply "OK, I'll leave them." (`reply`,
+  not recorded), with no model call.
+- **The give step.** [I1] `giveToPlayer` checks both `goToPlayer` results
+  and returns false before any toss when she cannot reach him (`Failed to give
+  … could not reach them.`); the give step then fails at once instead of
+  waiting out its confirm window.
 
 ## 8. Plan mode and validation
 
@@ -1504,7 +1620,11 @@ passes the mobs while he travels). Design
     (`replan`, the caller's planner: the walk may have used her blocks as
     scaffold; Sol 1); and the facing is chosen again. No direction (with no
     spot, off the spot after the walk, or without `walk`): no drop
-    (`unavailable`, "no free direction nearby").
+    (`unavailable`, "no free direction nearby"). From the travel slice
+    (REQ-TRV-6) a task step that needs free slots (`climb`) first climbs out
+    once when there is no facing and no spot, then plans, faces and looks for
+    a spot again; a climb that does not reach the top reports "no free
+    direction nearby; could not climb out".
     She looks level (pitch 0) at a point 3 blocks out at her
     eye height, waits 2 ticks and re-checks before the first toss (the look
     fix: a forced `bot.lookAt` sends no packet of its own, so a toss could fly
@@ -3199,6 +3319,7 @@ About 13 tools in all.
 | `work.combat.give_up_s` | 15 | A target whose health has not dropped this long is given up, ignored 60 s (REQ-CMB-7); under `unstuck`'s 20 s. Combat slice. | combat design r10 §7 |
 | `work.combat.leash` | 16 | How far a fight may take her from its anchor, or from the player she follows (REQ-CMB-6); the owner: "an area [...] by default", the skeleton's range. Combat slice. | owner (2026-11-13) |
 | `work.combat.travel_speed` | 0 | Blocks/s at which the player she follows counts as travelling and she passes the mobs (REQ-CMB-9); 0 off (upstream fights while following). The owner's profile: 2. Combat slice. | owner (2026-11-13, "Following him on the move"); combat design r10 §7 |
+| `work.travel.resume_max` | 20 | Restarts a kept walk may make after fights and `unstuck` cuts before she stops and tells him (REQ-TRV-1, 2); 0 turns the keeper off (the AUTO MESSAGE as before); a bad value keeps the default. The stuck radius, the climb's rise and bounds are constants (`TRAVEL`, `CLIMB`, `INVENTORY.climbMs`). Travel slice. | owner (2026-11-13 evening); travel design r4 §7 |
 
 The four model keys are flat keys of the profile's `work` section, so the
 one-level merge never drops one of them; S2b adds them to the defaults in
@@ -3349,9 +3470,9 @@ agent log, and every dropped line is logged).
 
 | Category | Quiet | Lines |
 |---|---|---|
-| `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10); the summary of a granted collect after his yes (REQ-SAFE-13) |
+| `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10); the summary of a granted collect after his yes (REQ-SAFE-13); "OK, I'll leave them." after his no to the leftover-blocks question (travel slice, not recorded) |
 | `question` | shown | the work layer's owner questions (REQ-REC-12); the mining question of `!collectPlaced` (REQ-SAFE-13) |
-| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11) |
+| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11); (travel) once per walk, "I stopped walking at x,y,z: interrupted N times on the way." and "I'm stuck near x,y,z and couldn't get out, so I stopped walking." (REQ-TRV-2, 3) |
 | `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
 | `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror; (S2d) the unconfirmed wake (REQ-SLP-8) |
 
@@ -3952,6 +4073,51 @@ Recorded, not built:
   - left out: hiding, bows, nether shooters (blazes and others), shields,
     pillagers; `goToPlayer` keeps pausing `self_defense` (the owner's open
     question).
+- Travel (§7.11, REQ-TRV-1 … 6; travel design r4 §6), recorded, not built:
+  - while a goal's walk is kept across cuts, `self_prompter.interrupt` stays
+    true, so a `system` turn in that window breaks without a model call and
+    the goal's next turn waits its cooldown (R1);
+  - the task climb does not check that she is underground; under a protected
+    roof it fails within its bound and the step blocks as before; scaffold
+    placed meanwhile waits for the task-end tidy (R2);
+  - scaffold placed by `unstuck`'s or `self_preservation`'s `moveAway` is not
+    tidied when a restart follows (outside a task there is no tidy trigger)
+    (R3);
+  - the walk fallback leaves a 1-wide dug hole and an untidied pillar outside
+    a task, as `goToSurface` does (R5);
+  - a walk is not resumed after an agent-only restart (the keeper is in
+    memory only) (R6);
+  - a task's own walks keep the runner's no-progress deadlines, with no stuck
+    fallback (R7);
+  - the idle "no free direction" underground after a task stays (out of
+    scope by the ruling) (R8);
+  - the pathfinder's `goto` resolves on an empty path update whatever its
+    status, so a boxed-in `goToPlayer` reads as reached and `giveToPlayer` may
+    toss where she stands (pre-existing) (R9);
+  - a roof more than 64 above her is no target: in a tall or a deep cave
+    there is nothing to climb, so the walk restarts plainly and the drop
+    reports unavailable;
+  - a kept walk dropped for another dimension, `Work` disposed or an action
+    the keeper did not start, noticed only after the fight has ended, ends
+    with no AUTO MESSAGE and no alert (before, one model call); a drop noticed
+    during the fight releases the walk first, so the AUTO MESSAGE comes as
+    before (R10);
+  - the climb's 90 s bound can race the planning retry's goal re-set in a
+    few-ms window, so that climb runs unbounded (R11);
+  - the drop for an action the keeper did not start is a guard, untested
+    (the idle resume needs 1 s, the restart follows within microtasks);
+  - natural logs, vines and trunks above her count as a roof, so the stuck
+    fallback may climb into or above a tree (a few blocks; a failed ascent
+    gives the walk up with the alert) (R12);
+  - once a step's give-backs are used up, its blocked report reads plain
+    "inventory full …" without "(no free direction nearby; could not climb
+    out)" (R13);
+  - the column scan runs to the world's top, so any block more than 64 above
+    her (a sky build, a tall overhang) makes even a low roof no target: the
+    walk restarts plainly instead of climbing (R14);
+  - left out, the owner's open questions: no restart after
+    `self_preservation` or sleeping, `!goToRememberedPlace` not kept, and
+    `goToPlayer` keeps pausing `self_defense`.
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.

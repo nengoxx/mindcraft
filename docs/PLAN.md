@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → Travel → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -62,6 +62,11 @@ combat-start slice (DECISIONS 2026-11-13), then S3.
 "Ownblocks": the truthful collect count and his blocks on request) is built
 offline and goes to review; then its live trials, the combat-start slice, then
 S3.
+
+**Status (2026-11-13, evening):** after the live trials of the ownblocks and
+combat slices the owner ruled on travel (DECISIONS 2026-11-13 (evening)
+"Travel after the live trials"). The travel slice (§3 "Travel") is built
+offline and goes to review; then its live trials, then S3.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -1093,6 +1098,61 @@ add the protected-block diff. Interventions: target 0.
 - **Not in the combat slice** (design §11): hiding, bows, blazes and other
   nether shooters, shields, pillagers; `goToPlayer`'s pause (the owner's
   open question).
+
+#### Travel — walks that survive fights and caves
+
+- **Goal.** A walk (`!goToCoordinates`, `!goToPlayer`, `!searchForBlock`)
+  cut by a fight or `unstuck` is restarted by the code with no model call
+  and no AUTO MESSAGE; stuck in a low cave she climbs out once and walks on,
+  else tells him and stops; a planning timeout is retried once; a task that
+  digs down with a full bag climbs out to drop; his "no" to a mining
+  question gets a fixed reply. (Owner rulings: DECISIONS 2026-11-13
+  (evening) "Travel after the live trials". Design:
+  `runtime/diagnostics/i1-build/travel/recommended-design.md` r4.)
+- **SPEC.** §7.11 REQ-TRV-1 … 6 (new); §7.7; §7.10 REQ-CMB-8 (the AUTO
+  MESSAGE note); §9.4 REQ-OBT-11 (amended by REQ-TRV-6); §5.2
+  (`work/travel.js`, `work/climb.js`); §5.3 (`modes.js`, `skills.js`); §14
+  (`work.travel.resume_max`); §15.1; §16.
+- **Files.** New `src/agent/work/travel.js`, `src/agent/work/climb.js`.
+  `src/agent/library/skills.js` (`goToGoal` retry, `moveAway`, `goToPlayer`,
+  `giveToPlayer`); `src/agent/modes.js` (the unstuck `finally`, the
+  `execute()` catch); `work/index.js` (`Travel` built in `init`, the wrap's
+  start and `lastRun`, `isUpkeep`, the `!endGoal` drop, the fixed reply);
+  `work/inventory.js` (the climb in `dropItems`; `passable`/`LIQUIDS` moved
+  to `climb.js`); `work/runner.js` (`climb` for `needsFreeSlots` steps, the
+  give-back); `work/steps/give.js` (the fast failure); `work/config.js`
+  (`work.travel`).
+- **Offline tests.** New `tests/work-travel.test.mjs` (the keeper on real
+  modes: typed, model-run and goal walks; the drops; chained cuts;
+  cowardice; `resume_max` 0 and the cap; an active task and a pending follow;
+  `!endGoal`; the stuck rule, the climb and its cuts; the planning retry;
+  `climbTarget`; the config; the reproductions, each seen failing on the old
+  code: the AUTO MESSAGE call, the cut `goToPlayer` losing the resume slot,
+  unstuck and self_preservation losing a pending follow, the live kill
+  timer, `giveToPlayer` throwing, the give step waiting out its window).
+  `tests/work-resolve.test.mjs` (the full bag in a shaft: tower, drop,
+  return; the give-back; which steps climb), `tests/work-inventory.test.mjs`
+  (the climb in `dropItems`), `tests/work-collect.test.mjs` (the fixed
+  reply), `tests/work-combat.test.mjs` (the walk back still runs before the
+  kept walk restarts).
+- **Live acceptance** (design §10; the main seat as the owner, the bot
+  invincible):
+  1. A typed night `!goToCoordinates` of 300+ blocks: every fight followed
+     by a restart, 0 AUTO MESSAGE calls, one arrival reply with the count.
+  2. The same in words: 1 call to start, 0 per fight, 1 after arrival.
+  3. The recorded cave (from about (-352,71,1675) toward (-488,72,1811)) if
+     the trap still stands: one unstuck cut, a climb, the walk goes on; else
+     recorded as untested.
+  4. `!stop` during a fight on a kept walk: she stays.
+  5. A sand or dirt task that digs down with a nearly full bag of junk:
+     climb, drop, return, the task done with 0 calls.
+  6. A mining question answered "no": the fixed reply.
+  - Not testable by the main seat: `goToPlayer` while he moves.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in the travel slice** (design §6, §11): residuals R1–R9 (SPEC §16);
+  restarts after `self_preservation` or sleeping and `!goToRememberedPlace`
+  (the owner's open questions, today's behaviour until he answers);
+  `goToPlayer`'s pause of `self_defense`; the idle cleanup underground.
 
 #### S3 — Terrain-fitting shelter
 

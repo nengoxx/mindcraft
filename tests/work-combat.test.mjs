@@ -605,6 +605,33 @@ test('§5 in a task: the fight walks back before idle, then the task resumes', a
     assert.equal(agent.modelCalls, 0);
 });
 
+test('§5 with the walk keeper (design travel r4 §0: "the walk-back applies after any fight"): a fight that cuts a typed walk walks back first, then the walk restarts', async () => {
+    COMBAT.tickMs = 20;
+    const { agent, bot, trace } = setup({ fake: false });
+    let release = false;
+    let walks = 0;
+    bot.hooks.goto = async goal => {
+        if (goal.x !== 20) return;
+        walks++;
+        trace.push(['goto']);
+        await F.until(() => release || bot.interrupt_code, { timeout: 60000 });
+    };
+    const typed = F.ownerSays(agent, '!goToCoordinates(20, 64, 0, 1)');
+    await F.until(() => walks === 1);
+    stops.push(F.drive(agent));
+    const z = mob(bot, 'zombie', [3, 0, 0]);
+    onTick = () => {
+        if (bot.entities[z.id]) { bot.entity.position = at(7.5, 64, 0.5); delete bot.entities[z.id]; return; }
+        if (bot.pathfinder.goal?.constructor.name === 'GoalNear') bot.entity.position = at(1, 64, 0.5);
+    };
+    await F.until(() => walks === 2, { timeout: 4000 });
+    const order = trace.map(t => (t[0] === 'goal' ? `goal:${t[1]}` : t[0])).filter(k => k === 'goto' || k === 'goal:GoalNear');
+    assert.deepEqual(order, ['goto', 'goal:GoalNear', 'goto']);
+    release = true;
+    await typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
 test('§5 following: the fight skips the walk back, clears the anchor and the follow resumes', async () => {
     COMBAT.tickMs = 20;
     const { agent, bot, c, trace } = setup({ fake: false });

@@ -71,16 +71,21 @@ export default {
         };
         const credit = () => Math.min(picked, Math.max(0, start - inventory(ctx, item)));
         let error = null;
+        let ok;
         bot.on('playerCollect', onCollect);
         try {
             try {
-                await ctx.call(`give ${item}`, () => skills.giveToPlayer(bot, item, player, remaining));
+                ok = await ctx.call(`give ${item}`, () => skills.giveToPlayer(bot, item, player, remaining));
             } catch (err) {
                 error = err;
             }
             const deadline = Date.now() + this.confirmMs;
-            // Also after an error once items have left the inventory: their pickup must still count.
-            const waiting = () => !error || inventory(ctx, item) < start;
+            // Also after an error or a false once items have left the
+            // inventory: their pickup must still count. A false with nothing
+            // tossed (he could not be reached) fails at once, as an error does
+            // (design travel r4 §0c N2: a 30 s wait standing still let unstuck
+            // cut the task, and the attempt was never counted).
+            const waiting = () => (!error && ok !== false) || inventory(ctx, item) < start;
             while (waiting() && credit() < remaining && Date.now() < deadline && !bot.interrupt_code) await sleep(100);
         } finally {
             bot.removeListener('playerCollect', onCollect);

@@ -7,6 +7,7 @@ import { itemLine } from './report.js';
 import { NO_DIG } from './sleep.js';
 import { fullCube } from './tidy.js';
 import * as gear from './gear.js';
+import { climbOut, passable, LIQUIDS } from './climb.js';
 
 // Inventory upkeep (SPEC §9.4, REQ-OBT-11; design junk-council/recommended-
 // design.md r7 §2–§6, part A). One item policy (work.inventory, merged in
@@ -46,11 +47,11 @@ export const INVENTORY = {
     capWindowMs: 600000,  // ... within this window hold the idle cleanup ...
     capHoldMs: 600000,    // ... for this long, told once
     keptShown: 5,         // the kept items the "full of things I keep" note names
+    climbMs: 90000,       // a task's climb to drop is bounded by this (REQ-TRV-6; seen: a 24-block climb took 28 s)
 };
 
 export const ITEMS_LABEL = 'action:items';
 export const FOLLOW_LABEL = 'action:followPlayer';
-const LIQUIDS = ['water', 'lava', 'bubble_column'];
 // The four cardinals, in the order used when nothing is preferred.
 const CARDINALS = Object.freeze([[0, 1], [-1, 0], [0, -1], [1, 0]]);
 // The dropper's reason, and the idle hold's, when no direction is free (F5).
@@ -277,8 +278,7 @@ export function chooseFacing(bot, awayFrom = null, { avoid = null, never = null,
 }
 
 // Where she can stand: a full cube below, the feet and head cells passable
-// and not a liquid.
-const passable = block => Boolean(block) && block.boundingBox === 'empty' && !LIQUIDS.includes(block.name);
+// and not a liquid (climb.js passable).
 const standable = (bot, pos) => fullCube(bot.blockAt(pos.offset(0, -1, 0))) && passable(bot.blockAt(pos)) && passable(bot.blockAt(pos.offset(0, 1, 0)));
 // The cardinal an offset is closest to, as its index in CARDINALS (the first on a tie).
 const cardinalOf = (dx, dz) => CARDINALS.reduce((best, [cx, cz], i) => (cx * dx + cz * dz > CARDINALS[best][0] * dx + CARDINALS[best][1] * dz ? i : best), 0);
@@ -320,6 +320,14 @@ const NO_DOORS = m => { m.canOpenDoors = false; };
 const WALKS = Object.freeze({
     task: m => { m.canDig = false; NO_DOORS(m); },
     idle: m => { NO_DIG(m); NO_DOORS(m); },
+});
+// The task's climb to drop (REQ-TRV-6, DECISIONS 2026-11-13 (evening): "the
+// cleanup climbs to the surface (or back up her shaft)"): it digs, since the
+// recorded pocket was roofed and goToSurface dug through it (design travel r4
+// §0); protection applies (the safeToBreak patch); no doors. Its placements
+// are scaffold of action:task, which the task-end tidy takes back.
+const CLIMBS = Object.freeze({
+    task: m => { m.canDig = true; NO_DOORS(m); },
 });
 
 // The walk to a drop spot, with the caller's movements (WALKS), bounded by
@@ -383,22 +391,41 @@ function handOff(bot, plan) {
 // its own, so a toss could otherwise fly the way she was looking: G1), switches
 // her hand off a planned slot, records the drop point, then one slot operation
 // per toss, re-checked before each one. `current` is the caller's currency,
-// checked after the walk, after the wait and between tosses. Non-throwing:
-// {outcome: done | interrupted | unavailable | failed, removed: {name: count}, reason}.
-export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, walk = false, replan = null, current = () => true, now = Date.now } = {}) {
+// checked after the walk, after the wait and between tosses. `climb` (a task
+// step that needs free slots, REQ-TRV-6): with no free direction and no drop
+// spot she climbs out once (climb.js, CLIMBS.task, within INVENTORY.climbMs),
+// plans again and faces or walks from up there. Non-throwing:
+// {outcome: done | interrupted | unavailable | failed, removed: {name: count}, reason};
+// `climbed: true` once the climb ran.
+export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, walk = false, climb = false, replan = null, current = () => true, now = Date.now } = {}) {
     const removed = {};
+    let climbed = false;
     const halted = () => Boolean(bot.interrupt_code) || !current();
     const end = (outcome, reason = null) => {
         if (total(removed) && bot.modes) bot.modes.behavior_log += 'Dropped junk.\n';
-        return { outcome, removed, reason };
+        return climbed ? { outcome, removed, reason, climbed } : { outcome, removed, reason };
     };
     if (!plan.length) return end('done');
     // The armour controller clicks nothing while this runs, and catches up after (gear design r5 §4).
     const release = gear.holdSlots(bot);
     try {
         let facing = chooseFacing(bot, awayFrom, { avoid, never });
+        let spot = !facing && walk ? findDropSpot(bot, { awayFrom, avoid, never }) : null;
+        if (!facing && !spot && walk === 'task' && climb) {
+            // DECISIONS 2026-11-13 (evening), a full bag underground: "with no
+            // drop spot near, the cleanup climbs to the surface (or back up her
+            // shaft), drops there"; one climb per call.
+            climbed = true;
+            const up = await climbOut(bot, { configure: CLIMBS.task, ms: INVENTORY.climbMs });
+            if (halted()) return end('interrupted');
+            if (up.outcome !== 'up') return end('unavailable', `${NO_DIRECTION}; could not climb out`);
+            // The tower used her blocks (as after the walk below).
+            if (replan) plan = replan();
+            if (!plan.length) return end('done');
+            facing = chooseFacing(bot, awayFrom, { avoid, never });
+            if (!facing) spot = findDropSpot(bot, { awayFrom, avoid, never });
+        }
         if (!facing && walk) {
-            const spot = findDropSpot(bot, { awayFrom, avoid, never });
             if (!spot) return end('unavailable', NO_DIRECTION);
             await walkTo(bot, spot, walk);
             if (halted()) return end('interrupted');

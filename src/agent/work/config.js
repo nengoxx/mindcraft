@@ -119,21 +119,29 @@ export const WORK_DEFAULTS = Object.freeze({
         leash: 16,
         travel_speed: 0,
     }),
+    // Travel (REQ-TRV-1, 2; DECISIONS 2026-11-13 (evening)). `resume_max`:
+    // how often the code restarts one walk command (!goToCoordinates,
+    // !goToPlayer, !searchForBlock) that a fight or unstuck cut, before it
+    // stops and tells the owner; 0 turns the restart off (the model gets the
+    // interruption, as upstream).
+    travel: Object.freeze({
+        resume_max: 20,
+    }),
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one
 // sub-key keeps the other defaults.
-const MERGED = new Set(['clear', 'tidy', 'sleep', 'collect', 'combat']);
+const MERGED = new Set(['clear', 'tidy', 'sleep', 'collect', 'combat', 'travel']);
 // Sub-keys checked before the merge; a bad value keeps the default (logged).
 const positive = value => Number.isSafeInteger(value) && value > 0;
+const count = value => Number.isSafeInteger(value) && value >= 0;
 const SUB_CHECKS = Object.freeze({
     collect: Object.freeze({ placed_radius: positive, question_s: positive }),
+    travel: Object.freeze({ resume_max: count }),
 });
 
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
 export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
-
-const count = value => Number.isSafeInteger(value) && value >= 0;
 // work.inventory's keys besides `items`, each with its check (the gear slice
 // adds all but `idle`: design gear/recommended-design.md r5 §6).
 const INVENTORY_KEYS = Object.freeze({
