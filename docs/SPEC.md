@@ -195,7 +195,7 @@ Status: **works** = usable as is; **partly** = usable with stated gaps; **missin
 
 | Area | Command → skill (file:line) | Status | Facts and gaps | Design use |
 |---|---|---|---|---|
-| Gather blocks | `!collectBlocks` (commands/actions.js:292-301) → `collectBlock` (agent/library/skills.js:432-554) | partly | Searches only 64 blocks (:489). Collects N **more**, not "up to N" (:471). Aliases ores, dirt→grass_block, cobblestone→stone (:447-455). Tool check (:509-513). Reports net inventory change (:548-553, fork C09). 10-minute timeout. Its target filter uses its own `Movements` (:461, :488), and it sets `dontMineUnderFallingBlock=false` (:462). | Inner loop of `obtain`'s `collect`/`mine` nodes, called in bounded chunks; protected targets are excluded by the `safeToBreak` patch (REQ-OBT-9, REQ-SAFE-3). Not offered as a tool. |
+| Gather blocks | `!collectBlocks` (commands/actions.js:292-301) → `collectBlock` (agent/library/skills.js:432-554) | partly | Searches only 64 blocks (:489). Collects N **more**, not "up to N" (:471). Aliases ores, dirt→grass_block, cobblestone→stone (:447-455). Tool check (:509-513). Reports net inventory change (:548-553, fork C09). 10-minute timeout. Its target filter uses its own `Movements` (:461, :488), and it sets `dontMineUnderFallingBlock=false` (:462). Upstream counted every attempt, also a block collectblock skipped silently (CollectBlock.js:70). | Inner loop of `obtain`'s `collect`/`mine` nodes, called in bounded chunks; protected targets are excluded by the `safeToBreak` patch (REQ-OBT-9, REQ-SAFE-3). From the ownblocks slice it counts only real removals and says which protected blocks stand near (REQ-SAFE-12); the owner's own blocks go through the new `!collectPlaced` (actions.js, REQ-SAFE-13). Not offered as a tool. |
 | Pick up items | `pickupNearbyItems` (skills.js:580) | works | Walks to every item entity within 8 blocks; called after manual digging and by the `item_collecting` mode (modes.js:189-211). | After digging; a small carry skips the names the bot dropped at a recorded drop point (REQ-OBT-11). |
 | Use tool on block/entity | `!useOn` (actions.js:528-537) → `useToolOn` (skills.js:2007) | partly | Generic right-click. | Not used in v1 (buckets, shears deferred). |
 | Farming | `tillAndSow` (skills.js:1600) | partly | Skill only, no command. | Deferred method. |
@@ -340,10 +340,11 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself. | upstream | I1 |
 | `agent/action_manager.js` | I1 (S2d): `_executeResume` stores the timeout of a new resumable action beside `resume_func` (`resume_timeout`) and uses it on every resume (two lines), so a resumed follow keeps "no timeout" (§4.2; junk design r7 §5, amendment 2). Retire when upstream passes the original timeout on resume. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
+| `agent/commands/actions.js` | I1 (ownblocks, REQ-SAFE-13): the new `!collectPlaced(type, num)` beside `!collectBlocks`; its perform hands over to `Work.collectPlaced` (the typed path runs its own `runAction`, since `runAsAction` finds its label by perform identity). | existing fork carry | I1 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
 | `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). I1 (gear): `initBot` loads `mineflayer-tool` itself, before collectblock, and the gear plugin (`work/gear.js` `install`) last; `mineflayer-armor-manager` is no longer loaded or a dependency (REQ-GEAR-1). | fork carry | I1 |
-| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I1 (gear, REQ-GEAR-1): `attackEntity` and `defendSelf` equip through `gear.equipWeapon` (`equipHighestAttack` and `hasSilkTouch` removed); `collectBlock` sets the gear intent (`wanted`) around its collection (try/finally), refuses with "Only a silk-touch tool can mine …" when only a silk tool would change the drop, and binds the harvest check of the target block object to the held instance (`gear.bindHarvest`); the harvest checks in `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer` tosses exact slots (`tossToGive`: of a gear name the spares first, the kept best last); `craftRecipe` keeps its `bot.armorManager.equipAll()` call, now the gear plugin's. I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I1 (gear, REQ-GEAR-1): `attackEntity` and `defendSelf` equip through `gear.equipWeapon` (`equipHighestAttack` and `hasSilkTouch` removed); `collectBlock` sets the gear intent (`wanted`) around its collection (try/finally), refuses when only a silk tool would change the drop (from the ownblocks slice a reason in its summary), and binds the harvest check of the target block object to the held instance (`gear.bindHarvest`); the harvest checks in `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer` tosses exact slots (`tossToGive`: of a gear name the spares first, the kept best last); `craftRecipe` keeps its `bot.armorManager.equipAll()` call, now the gear plugin's. I1 (ownblocks, REQ-SAFE-12, 13): `collectBlocksOf` counts only her own completed dig of a cell that no longer holds the block (or holds a block that fell in; a bucket by its fill, awaited), re-checks a hand-dug cell right before `bot.dig`, keeps a `tried` set, names each failure's reason (the silk, bucket and tool exits become reasons), guards the palette pass and lets protection win over the obsidian allowance, and always ends with the `Collected R of N` summary with the protected (G) and kept (K) counts; `collectGrantedCells` digs a frozen list for the owner's grant (no doc comment, so generated code is not offered it; without the grant the cells stay protected). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -1623,8 +1624,9 @@ owner lines are `alert`s).
     when the hold ends); it never rejects. His unbreakable pieces cannot be
     outranked by a breakable one.
   - **The silk rule** (moved from `skills.js`): `collectBlock` sets the
-    intent and refuses "Only a silk-touch tool can mine …" when only a silk
-    tool would change the drop. Harvest checks in `collectBlock`,
+    intent and refuses when only a silk tool would change the drop (the
+    summary's reason "only a silk-touch tool, which drops …", REQ-SAFE-12).
+    Harvest checks in `collectBlock`,
     `breakBlockAt`, `goToPosition` and `dig.js` read the held item's
     components; `collectBlock` binds the target block object's `canHarvest`
     to the held instance, so collectblock's own check and dig wait accept the
@@ -2661,9 +2663,11 @@ layer does not change between them.
   which `!build` covers (S2 ships first, so construction keeps `!buildStructure`
   until then). Overriding the setting replaces the whole list, so the existing
   entries must be carried over.
-  `!collectBlocks` and `!craftRecipe` stay available for one-off requests; the
-  profile's examples show `!taskStart` and `!build`. Whether to block more is
-  OQ-20.
+  `!collectBlocks` and `!craftRecipe` stay available for one-off requests, also
+  during a live task, and from the ownblocks slice `!collectPlaced(type, num)`
+  beside them (the owner's protected blocks on his word, REQ-SAFE-13; registered
+  in `commands/actions.js`); the profile's examples show `!taskStart` and
+  `!build`. Whether to block more is OQ-20.
 - **REQ-TRN-14 Step DSL.** [I1] One string; the grammar:
 
 ```
@@ -2887,6 +2891,102 @@ About 13 tools in all.
   it could not trigger (§7.3); auto-eat itself works today.
 - **REQ-SAFE-11** [I1] Owner `!stop` is final for the task. Mindcraft's protective modes
   may still move, dig or place after a stop (existing behaviour, ISSUES.md).
+- **REQ-SAFE-12 The truthful collect count.** [I1] (ownblocks slice; DECISIONS
+  2026-11-13 "His blocks on request [...]", "fix the collect bug"; design
+  `runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4 §2.)
+  `collectBlock` (`skills.js` `collectBlocksOf`) counts a block only when her
+  own dig of that exact cell completed during the attempt (a `diggingCompleted`
+  listener per attempt) and the loaded cell no longer holds the block, or
+  holds a falling block (sand, gravel and their kin) that dropped into it (the
+  top of the falling column above the cell, read before the attempt, no
+  longer holds its block; a dig the server refused and put back leaves it); an
+  unloaded cell is `unverified`. No revert window. A bucket counts by the
+  bucket alone (an infinite source refills its cell): only a use that was
+  sent, with no error, and an empty bucket spent together with a filled one
+  gained (a filled bucket picked up on the way is no fill), waiting up to
+  1 s for the server's slot update (`activateItem` only sends `use_item`);
+  no fill in time is `the bucket did not fill`. A block dug by hand
+  (`mustCollectManually`) is re-read right before the dig packet, after the
+  walk and the look: a changed name or dimension is `changed`, a protected
+  cell `protected`, as the dig seam's final check (`work/dig.js`). A
+  block that was not dug goes into a local `tried` set (never searched again)
+  with its reason: `protected`, `cannot harvest with <held>`, `next to water or
+  lava`, `still there`, `changed`, `unverified` or the caught error (a rejected
+  equip included); an
+  interrupt counts only what the check saw removed (the plugin swallows
+  PathStopped). The target filter answers findBlocks' palette pass (a block
+  with `position === null`) by name, and the obsidian allowance never admits a
+  protected block. One summary line always ends the call (the silk, bucket,
+  equip and tool exits included): `Collected R of N <type>[ before interruption].`, then,
+  when present, `G <type> within 8 are protected (not natural); I mine those
+  only if the owner asks me to (!collectPlaced).`, `K <type> within 8 are kept
+  (my own builds, containers or a kept area); I do not mine those.`, `F could
+  not be dug: <reason>[; <reason>].` (at most 3 distinct reasons) and `Inventory
+  net change: ….`. G and K come from one complete search (`findAllBlocks`)
+  within `work.collect.placed_radius` of where the call started, when it ended
+  short and not interrupted: G the cells the owner may grant (REQ-SAFE-13), K
+  the rest that protection keeps; an ore protected only by a run's harvest
+  policy is in neither. When nothing was admitted, nothing failed and G = K =
+  0, one unfiltered search by name (count 1, the same 64-block range) decides
+  the line before the summary: none there gives "No <type> nearby to
+  collect."; one there gives `The <type> nearby are ones I may not mine
+  (protected or next to water or lava).` (beside liquid, protected beyond 8,
+  or an ore a run's policy keeps). No other path searches again. `obtain`
+  reads the summary: either of those lines blocks it (`none reachable: …`);
+  with R = 0 and F = 0 and G or K present it blocks with `… (G protected, K
+  kept within 8)`; otherwise the summary's failure reasons (up to 3 distinct
+  ones, as the summary lists them) are its why. The return value stays "the
+  inventory gained an item"; `collectGrantedCells` also returns the complete
+  summary line.
+- **REQ-SAFE-13 The owner's grant.** [I1] (ownblocks slice; DECISIONS
+  2026-11-13, "if I ask, obviously she can mine a block that I placed, but only
+  if I ask", and "Both designs answered"; design r4 §3.) `!collectPlaced(type,
+  num)` mines protected blocks of one type only on his word; `!collectBlocks`
+  never asks. Candidates: from the complete search within
+  `work.collect.placed_radius` of where she stands at the call (position and
+  dimension captured before any await), the cells `Protector.grantable` admits
+  (protected by the default predicate only: no clear scope cell, no record of
+  hers, no container, bed or spawner by name, no ore), nearest first, at most
+  `num`, frozen; the dig iterates that list only (no search, no natural
+  substitute; a changed cell is `changed`). Who ran it:
+  - *typed by him* (the `guardTurns` marker `turn.raw`, read once by
+    `Work.rawOwnerCommand` for that turn's own command): it mines at once in
+    `action:collectPlaced`, 0 model calls;
+  - *run by the model in a turn whose voice is `owner`*, with no task question
+    open: code asks him one yes/no question naming the cells (`May I mine 2
+    protected obsidian at x,y,z and x,y,z? 1 more is nearby. Answer yes or
+    no.`; more than 4 as "the N nearest, from A to B"), digs nothing and
+    returns nothing, so the model's loop ends;
+  - *in any other turn* (her own, system, a blocked report, the hand-back):
+    `Only the owner can ask me to mine protected blocks.`
+  No candidate: `No protected <type> within 8 that I may mine.`; a task
+  question open: `A task question is waiting; ask me again after it.` The
+  question is one in-memory slot (`Work.blockAsk`), apart from the task's
+  `pending_question`, armed after its delivery and read at the agent.js
+  pre-model point with the task question's parser: yes → each cell re-checked
+  (still that block, this dimension, still grantable), the list dug with no
+  model call, its summary told to him (`reply`), then handed to the model once
+  after the action ended, as the blocked report is (an `alert` turn), dropped
+  after a `!stop` or a newer action; no → history only. A non-answer owner
+  message (raw commands included) or other bot chat disarms it, and it is
+  posted again once after that turn; after that any disarm clears it. It also
+  clears after `work.collect.question_s`, when a task question is asked, on
+  `!stop`, on a newer ask (his typed `!collectPlaced` included; `The mining
+  question lapsed.` in history) and with the process (in memory only). The
+  grant itself, checked in `Protector.isProtected` right after the
+  recorded-entry branch (so a kept clear layer, her records and a box's
+  containers stay protected), lifts protection only for the cell of the
+  current attempt (`Protector.focusGrant`, exact cell, block and dimension),
+  so the pathfinder never digs another granted cell on the way; a target
+  reachable only through one fails with its path reason and that cell is
+  tried in its turn. It is set only inside the granted action's own function
+  and cleared in its `finally` and on `!stop`; the stop epoch and the open
+  question are captured before `runAction` queues that function, so a `!stop`
+  (or a newer ask) while an older action is still stopping grants nothing.
+  The answer and the hand-back use the collect's complete summary line, not
+  the action output, which may be shortened. Granted obsidian beside lava follows the allowance outside
+  task runs; other granted blocks beside liquid are refused `next to water or
+  lava`. A task never gets a grant.
 
 ## 14. Configuration
 
@@ -2945,6 +3045,8 @@ About 13 tools in all.
 | `work.tidy.enabled` | true | Automatic tidy triggers on or off; `!tidy` always works (REQ-OWN-8). S2c. | clear council |
 | `work.chat` | quiet | `quiet` (every chat category but `detail`) or `debug` (today's full output); an unknown value is logged once and means quiet (REQ-CHAT-1). Read through `prompter.work_config`, so it exists before `Work`. S2c-fu. | owner (2026-11-11, 2026-11-12); quiet council |
 | `work.sleep.when` | always | `always` (she sleeps every night, also mid-task, mid-goal and while following), `idle` (only with nothing to do) or `off` (no new sleeps; the bed pickup still runs); an unknown value is logged once and means always (REQ-SLP-1, 2). There is no `announce` key: the owner lines are `alert`s under `work.chat`. S2d. | owner (2026-11-11); sleep council r3; main-seat ruling (no announce) |
+| `work.collect.placed_radius` | 8 | Radius of the complete search around where a collect started: the protected count of `!collectBlocks` (REQ-SAFE-12) and the candidates of `!collectPlaced` (REQ-SAFE-13); the search reads the whole cube, about 4.9 k block lookups at 8 (64 would cost about 2.1 M). A positive integer, else the default (logged). Ownblocks slice. | owner (2026-11-13); ownblocks design r4 |
+| `work.collect.question_s` | 120 | How long the mining question waits for his yes or no (REQ-SAFE-13). A positive integer, else the default (logged). Ownblocks slice. | ownblocks design r4 |
 | `work.sleep.max_mode_cuts` | 6 | protective-mode cuts (fights) a night allows before it is done; they are not among the 3 failed tries (REQ-SLP-7); anything but a positive integer means 6. S2d fix wave 1. | main-seat rulings r1 (#3 changed; P14: phantoms every night) |
 
 The four model keys are flat keys of the profile's `work` section, so the
@@ -2953,7 +3055,8 @@ one-level merge never drops one of them; S2b adds them to the defaults in
 `loadWorkConfig(profile.work)` itself and hands the timeout and retry count to
 the provider it builds (main-seat ruling, OQ-21).
 From S2c, `loadWorkConfig` merges object defaults one level deep (`work.clear`,
-`work.tidy`, from S2d `work.sleep`), so a profile that sets one sub-key keeps the
+`work.tidy`, from S2d `work.sleep`, from the ownblocks slice `work.collect`,
+whose two values are checked before the merge), so a profile that sets one sub-key keeps the
 other defaults; other values still replace the default whole. From S2e,
 `work.inventory` merges `items` by item name (`mergeInventory`) and keeps the
 validation result as `inventory.error`. `work.junk_items` and `work.junk_keep`
@@ -2991,7 +3094,9 @@ candidates, the 16-block reuse and pickup radius, the 3 s wake bound, the 10 s
 bound on every walk, the 500 ms poll in bed, the 5-block drop radius and 1 s
 drop wait, the 5-minute receipt (an item's life), the 2 free slots the
 `Work.tick` pickup or collection launch needs and the 1 the pickup itself
-needs, and the 2 s watch for a bed after a timed-out placement.
+needs, and the 2 s watch for a bed after a timed-out placement. From the
+ownblocks slice: the 4 positions the mining question lists one by one and the
+3 distinct reasons a collect summary names (REQ-SAFE-12, 13).
 
 **Keys of later iterations** (added to `config.js` when their iteration is built)
 
@@ -3092,8 +3197,8 @@ agent log, and every dropped line is logged).
 
 | Category | Quiet | Lines |
 |---|---|---|
-| `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10) |
-| `question` | shown | the work layer's owner questions (REQ-REC-12) |
+| `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10); the summary of a granted collect after his yes (REQ-SAFE-13) |
+| `question` | shown | the work layer's owner questions (REQ-REC-12); the mining question of `!collectPlaced` (REQ-SAFE-13) |
 | `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11) |
 | `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
 | `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror; (S2d) the unconfirmed wake (REQ-SLP-8) |
@@ -3617,6 +3722,50 @@ Recorded, not built:
     and wooden and golden hoes score below the bare hand, so with only such a
     hoe she fights worse than barehanded; the fallback is never reached while
     she holds a melee weapon.
+- The ownblocks slice (REQ-SAFE-12, 13; ownblocks design r4 §9), recorded,
+  not built:
+  - a model that runs `!collectPlaced` without his request costs him a
+    question, never a block; in his turn it may follow a protected report with
+    `!collectPlaced`, so code asks though he named no blocks (a question is
+    not mining; the live trial records how often);
+  - while a goal runs, his plain-words request may get its `!collectPlaced`
+    in the next self-prompted turn, which is refused (not owner-voiced); he
+    asks again. Naming `!collectPlaced` in the protected sentence can cost one
+    wasted call when the model runs it outside his turn;
+  - a server correction after her dig completed is not seen (on this LAN the
+    update is applied at once);
+  - `Protector.grantable` names containers, beds and spawners by a short list
+    (the clear's container list, `never_remove`, `*_bed`); a modded block of
+    that kind is not known;
+  - one key covers the question's life; the grant has no time key, since it
+    ends with its action;
+  - the question lives in memory: a restart drops it without the lapsed line,
+    while the question itself stays in her history (a crash restart reloads
+    it). A "yes" after a restart reaches the model, which may run
+    `!collectPlaced` again; code then asks again, so nothing is mined without
+    a fresh yes;
+  - another player who breaks her current target while she digs it makes
+    Mineflayer fire `diggingCompleted` for that cell (digging.js resolves the
+    dig on any air update of the cell), so the block is counted as hers. Only
+    the owner plays here, he would be breaking a block she mines for him, the
+    item drops beside her and no wrong tool lesson follows;
+  - on the plugin path (`bot.collectBlock.collect`) no final re-check runs
+    before the dig, unlike the hand-dug path: a block replaced between the
+    plugin's own type and protection check (CollectBlock.js:70) and its dig
+    (:86), its equip and one smooth look (a few ticks), is dug. Only the owner could
+    replace the exact cell inside that window, and the grant covers only the
+    current cell. Wrapping `bot.dig` for a collect is rejected, since the
+    combat slice wraps it during fights (rulings r2 C3);
+  - a grant dropped by a newer ask while an older action was stopping still
+    hands its empty output back to the model (one wasted call);
+  - `The <type> nearby are ones I may not mine (protected or next to water or
+    lava).` names the wrong reason for blocks refused otherwise: sand under
+    sand in a task run, a buried ore a run keeps, flowing water and a cell in
+    the caller's exclude list (obtain blocks on it either way);
+  - a real bucket fill is not counted when an empty bucket is picked up on the
+    way or the filled one drops from a full bag (adversary code r3, LOW);
+  - learnability (does Qwen pick `!collectPlaced` first) and the model-call
+    counts are expectations to measure in the live trial, not claims.
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.
@@ -3652,7 +3801,7 @@ Recorded, not built:
 | OQ-17 | Which entity types `mc.isHostile` (utils/mcdata.js:113-116) classifies as hostile on the deployed version; the resume check and `self_defense` rely on it. P11 ran: `allay` and `copper_golem` were classified hostile and are now excluded (§5.3); `hoglin`, which the function misses, is Nether-only and left as is. | S0-lite, probe P11 |
 | OQ-18 | Is a request gate between summaries and decisions needed on the single backend? | I2 (S4 measurement) |
 | OQ-19 | Is `descend_to` ever needed as a plan step, or only inside `obtain`? | Survival iteration |
-| OQ-20 | Which raw commands to block through `blocked_actions` beyond the I1 default (`!buildStructure`, from S3); `!collectBlocks` and `!craftRecipe` stay available for one-off requests (REQ-TRN-13). Blocking also removes them from the owner's typed commands. Also an open owner question: whether to block `!newAction` outright in I1 rather than guard it during tasks (REQ-RES-9). | S2/S3 trials: decide if Qwen bypasses `!taskStart` or `!build` |
+| OQ-20 | Which raw commands to block through `blocked_actions` beyond the I1 default (`!buildStructure`, from S3); `!collectBlocks`, `!collectPlaced` and `!craftRecipe` stay available for one-off requests (REQ-TRN-13). Blocking also removes them from the owner's typed commands. Also an open owner question: whether to block `!newAction` outright in I1 rather than guard it during tasks (REQ-RES-9). | S2/S3 trials: decide if Qwen bypasses `!taskStart` or `!build` |
 | OQ-21 | (closed by main-seat ruling, 2026-11-11: the four model keys live in the profile's `work` section, REQ-RES-17/18 and §14; the "foreground window" is `promptConvo`'s outage wait of up to `work.model_outage_wait_s`, after which the self-prompter pauses with the `outage` flag and the recovery probe starts.) | — |
 | OQ-22 | (closed by main-seat rulings, 2026-11-11: the `box=` start question and a no that cancels with nothing dug, REQ-CLR-4; the marker-count error, REQ-CLR-3; `!blockPositions` range 1–64, REQ-TRN-16; a `!buildStructure` placement counts as built when that action returns, REQ-OWN-2; `crafting_table` stays off `never_remove`, so a placed table in a box goes to the leftovers question and the bot's own `station` table is taken back; `max_distance` is measured from the frozen anchor to the nearest cell of the box, REQ-CLR-3; ores in a box count as natural and are dug.) | — |
 

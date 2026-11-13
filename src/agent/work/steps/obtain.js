@@ -85,9 +85,22 @@ export default {
         if (ok && (world.getInventoryCounts(bot)[node.have] || 0) > held) return {};
         if (ok) return { failed: `collected ${target} but got no ${node.have}` };
         const output = bot.output.slice(before);
-        if (/No (more )?\S+ nearby to collect/.test(output))
+        // Also the blocks of the type that she may not mine (rulings r1 S7): not reachable either.
+        if (/No (more )?\S+ nearby to collect|^The \S+ nearby are ones I may not mine/m.test(output))
             return { blocked: `none reachable: no ${node.via} within 64 blocks that is safe to break` };
-        const why = output.trim().split('\n').filter(l => l && !/^Completed /.test(l)).pop(); // the cause, not the summary
+        // REQ-SAFE-12 (DECISIONS 2026-11-13): the collect summary (skills.js collectBlocksOf).
+        // Nothing dug and nothing failed: only protected or kept blocks of the
+        // type stand near, so the step blocks with their count; otherwise the
+        // real failure reason wins.
+        const lines = output.trim().split('\n');
+        const summary = lines.find(l => /^Collected \d+ of /.test(l)) ?? '';
+        const dug = Number(summary.match(/^Collected (\d+) of /)?.[1] ?? 0);
+        const failures = summary.match(/ (\d+) could not be dug: (.*?)\. Inventory net change:/);
+        const standing = [[/ (\d+) \S+ within (\d+) are protected /, 'protected'], [/ (\d+) \S+ within (\d+) are kept /, 'kept']]
+            .map(([re, label]) => [summary.match(re), label]).filter(([m]) => m);
+        if (dug === 0 && !failures && standing.length)
+            return { blocked: `none reachable: no ${node.via} within 64 blocks that is safe to break (${standing.map(([m, label]) => `${m[1]} ${label}`).join(', ')} within ${standing[0][0][2]})` };
+        const why = failures?.[2] ?? lines.filter(l => l && !/^Collected \d+ of /.test(l)).pop(); // the cause, not the summary
         return { failed: `could not collect ${node.via}${why ? ` (${why.slice(0, 160)})` : ''}` };
     },
 };

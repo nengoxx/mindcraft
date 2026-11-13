@@ -280,13 +280,13 @@ test('collectBlock: the silk rule shrinks to the refusal; with the copy the obsi
     bot.heldItem = bot.inventory.slots[36];
     bot.output = '';
     assert.equal(await skills.collectBlock(bot, 'obsidian', 1), false);
-    assert.match(bot.output, /Don't have right tools to harvest obsidian/);
+    assert.match(bot.output, /^Collected 0 of 1 obsidian\. 1 could not be dug: cannot harvest with iron_pickaxe\. /m);
     // Only a silk pickaxe for cobblestone: the refusal.
     bot.inventory.slots[36] = silky('diamond_pickaxe');
     bot.heldItem = bot.inventory.slots[36];
     bot.output = '';
     assert.equal(await skills.collectBlock(bot, 'cobblestone', 1), false);
-    assert.match(bot.output, /Only a silk-touch tool can mine stone: it would drop stone, not cobblestone\./);
+    assert.match(bot.output, /^Collected 0 of 1 cobblestone\. 1 could not be dug: only a silk-touch tool, which drops stone, not cobblestone\. /m);
     assert.equal(bot.calls.filter(c => c[0] === 'collect').length, 1, 'nothing more dug');
 });
 

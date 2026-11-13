@@ -693,3 +693,58 @@ The work fixture's `items()` uses the 36 slots 9–44 as Mineflayer does, and
 it gains `Block`, `realItem` (prismarine-item from the item's network form,
 with components and removed components) and `OWNER_GEAR` (the owner's items
 as P17 logged them), and loads `work/gear.js`.
+
+I1 ownblocks slice (SPEC §13 REQ-SAFE-12, 13; DECISIONS 2026-11-13 "His
+blocks on request [...]", "Both designs answered"; design
+`runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4). Why:
+collectblock skips a block the patched `safeToBreak` refuses without a word
+(CollectBlock.js:70), and `collectBlock` counted every attempt, so protected
+obsidian was reported as "Completed 2 obsidian block operations" with nothing
+dug, picked again each time, and taught her a false tool lesson; and the
+owner's blocks could not be mined even when he asked. In our own files: the
+grant and `grantable` in `work/protect.js` (the Protector also takes the work
+config); `work.collect` (`placed_radius`, `question_s`, merged one level and
+checked) in `work/config.js`; in `work/index.js` the raw marker on the turn
+(`guardTurns`), `rawOwnerCommand`, `collectPlaced`, the mining question
+(`blockAsk`: post, arm, disarm, one re-post, lapse), its answer at the
+existing pre-model point (`answerQuestion`), the grant run and its one
+hand-back, `stopBlocks` in the `!stop` wrap, `deliver`'s `record` option; the
+summary reading in `work/steps/obtain.js` (the `/^Completed /` filter is
+gone). Upstream carries:
+- `agent/library/skills.js` (grown): `collectBlocksOf` answers findBlocks'
+  palette pass (`position === null`, blocks.js:128-130) by name; protection
+  wins over the obsidian allowance; one attempt (`attemptBlock`) counts only
+  when her own dig of that cell completed (a `diggingCompleted` listener per
+  attempt) and the loaded cell no longer holds the block or holds a block
+  that fell into it, or the bucket filled (waiting up to 1 s for the slot
+  update); a block dug by hand is re-read and re-checked right before
+  `bot.dig`; a failed cell goes into `tried` with its reason (`failReason`);
+  a rejected equip becomes a reason; when nothing was admitted one unfiltered
+  search tells "No … nearby" from "ones I may not mine"; the
+  silk, bucket and tool exits become reasons (the "Only a silk-touch tool can
+  mine …", "Don't have bucket …" and "Don't have right tools …" lines are
+  gone); a short, uninterrupted run counts the protected cells near its start
+  with `findAllBlocks` (`protectedCount`: G grantable, K kept); the summary
+  `Collected R of N <type>. … Inventory net change: ….` replaces "Completed N
+  … block operations", and "No more … nearby" is gone; `autoLight` errors are
+  logged instead of failing the attempt. New `collectGrantedCells` digs a
+  frozen list through the same attempt, naming the cell it digs now to the
+  grant (`focusGrant`), and returns the complete summary line (no doc
+  comment, so the coder's docs do not list it). Reapply checks: `work-collect.test.mjs` (all) and
+  `work-gear.test.mjs` "collectBlock: the silk rule shrinks to the refusal
+  …". Retire when upstream's collect counts only real removals and reports
+  skipped blocks (the grant part stays ours).
+- `agent/commands/actions.js` (grown): the new `!collectPlaced(type, num)`,
+  whose perform hands over to `Work.collectPlaced` (the typed path's
+  `runAction('action:collectPlaced', …)` is its own: `runAsAction` finds its
+  label by perform identity, actions.js:11-13). Reapply check:
+  `work-collect.test.mjs` "both command forms run through executeCommand …".
+  Retire never: the owner's grant is fork behaviour.
+
+The work fixture's `findBlocks` calls the matcher on each palette name with a
+null position first (blocks.js:122-131) and searches only the names it
+admits; its `collectBlock.collect` uses the plugin's own Movements (both
+hazard flags false), skips a changed cell, a block the patched `safeToBreak`
+refuses or a held item that cannot harvest it (CollectBlock.js:70-78), and
+returns on an interrupt as the plugin swallows PathStopped (:212); both dig
+paths emit `diggingCompleted` with the new (air) block, as digging.js:208.

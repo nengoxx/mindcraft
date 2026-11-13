@@ -300,6 +300,22 @@ export const actionsList = [
         }, false, 10) // 10 minute timeout
     },
     {
+        // Fork carry (REQ-SAFE-13, DECISIONS 2026-11-13): his blocks only on his
+        // word. The work layer decides: his typed command mines at once (its own
+        // runAction, not runAsAction, which finds its label by perform identity),
+        // the model's in his turn asks him, any other turn is refused.
+        name: '!collectPlaced',
+        description: 'Mine protected blocks (placed or not natural) only when the owner asked you to. He may be asked to confirm.',
+        params: {
+            'type': { type: 'BlockName', description: 'The block type to mine.' },
+            'num': { type: 'int', description: 'The number of blocks to mine.', domain: [1, Number.MAX_SAFE_INTEGER] }
+        },
+        perform: async function (agent, type, num) {
+            if (!agent.work) return 'The task layer is not ready yet.';
+            return agent.work.collectPlaced(type, num);
+        }
+    },
+    {
         name: '!craftRecipe',
         description: 'Craft the given recipe a given number of times.',
         params: {

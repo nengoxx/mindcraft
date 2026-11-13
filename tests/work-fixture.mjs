@@ -189,12 +189,13 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
 
     const slots = new Array(46).fill(null);
     const stackSize = name => registry.itemsByName[name]?.stackSize ?? 64;
-    bot.inventory = {
+    // prismarine-windows: the inventory window is an EventEmitter (`updateSlot`).
+    bot.inventory = Object.assign(new EventEmitter(), {
         slots,
         items: () => slots.slice(9, 45).filter(Boolean),   // prismarine-windows items(): the 36 slots, not armour or offhand
         emptySlotCount: () => slots.slice(9, 45).filter(s => !s).length,
         findInventoryItem: nameOrId => slots.find(s => s && (s.name === nameOrId || s.type === nameOrId)) || null,
-    };
+    });
     bot.give = (name, count) => {
         for (const s of slots) if (s && s.name === name && s.count < stackSize(name) && count > 0) {
             const add = Math.min(count, stackSize(name) - s.count); s.count += add; count -= add;
@@ -236,12 +237,20 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
             for (let x = -maxDistance; x <= maxDistance; x++) for (let y = -maxDistance; y <= maxDistance; y++) for (let z = -maxDistance; z <= maxDistance; z++)
                 keys.add(world.key(o.x + x, o.y + y, o.z + z));
         }
+        // mineflayer blocks.js:122-131: the palette pass first calls the matcher
+        // on each palette entry, a block with `position === null`; a section whose
+        // palette matches nothing is skipped, so only those names are searched.
+        const palette = new Map();
+        const listed = name => {
+            if (!palette.has(name)) palette.set(name, Boolean(test(Block.fromStateId(registry.blocksByName[name].defaultState, 0))));
+            return palette.get(name);
+        };
         for (const key of keys) {
             const [x, y, z] = key.split(',').map(Number);
             const pos = new Vec3(x, y, z);
             if (pos.distanceTo(origin) > maxDistance) continue;
             const b = world.block(pos);
-            if (test(b)) found.push(pos);
+            if (listed(b.name) && test(b)) found.push(pos);
         }
         found.sort((a, b) => a.distanceTo(origin) - b.distanceTo(origin));
         return found.slice(0, count);
@@ -324,26 +333,58 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
         if (bot.hooks.dig) await bot.hooks.dig(block);
         if (bot.interrupt_code || bot.digStopped) throw new Error('Digging aborted');
         bot.setBlock(block.position.x, block.position.y, block.position.z, 'air');
-        bot.emit('diggingCompleted', block);
+        bot.emit('diggingCompleted', world.block(block.position));   // digging.js:208: the new (air) block
     };
     bot.stopDigging = () => { bot.digStopped = true; };
+    bot.blockAtCursor = () => null;   // nothing in the way of a look
+    // mineflayer inventory.js:120-140: activateItem only sends use_item. A held
+    // bucket aimed at a liquid source fills when the server answers, later:
+    // `bot.hooks.fill` (default 20 ms; null: never), then the slot update.
+    bot.activateItem = async () => {
+        bot.calls.push(['activateItem', bot.heldItem?.name ?? null]);
+        const cell = bot.looking?.floored();
+        const liquid = cell && world.block(cell).name;
+        if (bot.heldItem?.name !== 'bucket' || !['water', 'lava'].includes(liquid)) return;
+        const delay = 'fill' in bot.hooks ? bot.hooks.fill : 20;
+        if (delay == null) return;
+        setTimeout(() => {
+            bot.take('bucket', 1);
+            bot.give(`${liquid}_bucket`, 1);
+            if (!bot.hooks.infinite) world.set(cell.x, cell.y, cell.z, 'air');   // an infinite source refills
+            bot.inventory.emit('updateSlot', 36, null, null);
+        }, delay);
+    };
     bot.clearControlStates = () => {};
     bot.setControlState = () => {};
     bot.chat = msg => bot.calls.push(['chat', msg]);
     bot.whisper = (to, msg) => bot.calls.push(['whisper', to, msg]);
     bot.pvp = { attack(entity) { delete bot.entities[entity.id]; }, stop() {}, meleeAttackRate: { getTicks: () => 12 } };
     bot.collectBlock = {
+        movements: null,
         cancelTask: async () => {},
         collect: async block => {
             bot.calls.push(['collect', block.name, block.position.toString()]);
+            // CollectBlock.js:186-190: the plugin's own Movements, both hazard
+            // flags false, set on the pathfinder for the collect.
+            const m = bot.collectBlock.movements ??= new modules.pf.Movements(bot);
+            m.dontMineUnderFallingBlock = false;
+            m.dontCreateFlow = false;
+            bot.pathfinder.setMovements(m);
             if (bot.hooks.collect) await bot.hooks.collect(block);
-            if (bot.interrupt_code) { const err = new Error('stopped'); err.name = 'PathStopped'; throw err; }
+            // CollectBlock.js:212: the plugin swallows PathStopped (an interrupted goto), so the collect returns.
+            if (bot.interrupt_code) return;
+            // CollectBlock.js:70-78 (mineBlock): a changed cell, a block the
+            // (patched) safeToBreak refuses, or a held item that cannot harvest
+            // it is skipped silently, with no dig.
+            const now = world.block(block.position);
+            if (now.type !== block.type || now.type === 0 || !bot.pathfinder.movements.safeToBreak(block)) return;
+            if (bot.heldItem && !block.canHarvest(bot.heldItem.type)) return;
             const silk = (bot.heldItem?.enchants ?? []).some(e => e.name === 'silk_touch');
             const drop = silk ? registry.itemsByName[block.name].id : registry.blocksByName[block.name].drops[0];
             world.set(block.position.x, block.position.y, block.position.z, 'air');
             bot.entity.position = block.position.offset(0.5, 0, 0.5);
             if (drop != null) bot.give(registry.items[drop].name, 1);
-            bot.emit('diggingCompleted', block);
+            bot.emit('diggingCompleted', world.block(block.position));   // digging.js:208: the new (air) block
         },
     };
     bot.pathfinder = {

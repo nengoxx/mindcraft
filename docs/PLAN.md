@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat-start → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -56,6 +56,12 @@ a one-stack cap"); its section is written from its design.
 owner; trial 4 (obsidian through `!collectBlocks`) is blocked by protection
 (ISSUES "Gear live trials"). Next: the owner's choices on those, the
 combat-start slice (DECISIONS 2026-11-13), then S3.
+
+**Status (2026-11-13, later):** the owner answered both council designs
+(DECISIONS 2026-11-13 "Both designs answered"). The ownblocks slice (§3
+"Ownblocks": the truthful collect count and his blocks on request) is built
+offline and goes to review; then its live trials, the combat-start slice, then
+S3.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
@@ -106,6 +112,12 @@ nothing the owner can see is retired.
     best of each kind, caps every stackable at one stack, lets up to 2
     surplus slots wait, keeps a finished task's goods 30 minutes and gives
     what she has, spares first (DECISIONS 2026-11-12 night, 2026-11-13).
+  - Ownblocks: `!collectBlocks` reports only what it really removed and which
+    protected blocks stand near; the owner's blocks are mined only on his word,
+    through `!collectPlaced` (DECISIONS 2026-11-13 "His blocks on request
+    [...]", "Both designs answered").
+  - Combat-start: earlier engagement against skeletons and a leash around
+    where the first fight began (DECISIONS 2026-11-13).
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -983,6 +995,49 @@ add the protected-block diff. Interventions: target 0.
 - **Not in the gear slice** (design §9): Smite and Bane, situational picks
   (Fire Aspect, Looting, Fortune), Protection's exact formula, elytra, bows'
   unbreakable priority, server tags, chest storage (part B).
+
+#### Ownblocks — a truthful collect count, his blocks on request
+
+- **Goal.** `!collectBlocks` counts only blocks that are really gone, never
+  retries a block that failed, always ends with one summary line and says when
+  protected blocks of the type stand near; his blocks are mined only on his
+  word, through `!collectPlaced(type, num)`: typed by him it mines at once; run
+  by the model in his turn, code asks him one yes/no question naming the exact
+  cells, and after his yes the result goes back to the model once. (Owner
+  rulings: DECISIONS 2026-11-13 "His blocks on request [...]" and "Both designs
+  answered": yes to all four questions. Design:
+  `runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4.)
+- **SPEC.** §13 REQ-SAFE-12, REQ-SAFE-13 (new); §4.1 (the gather row); §5.3
+  (`library/skills.js`, `commands/actions.js`); §12.0 REQ-TRN-13 and OQ-20 (the
+  command list); §15.1 (the categories); §14 (`work.collect.placed_radius`,
+  `work.collect.question_s`, the constants); §16.
+- **Files.** `src/agent/library/skills.js` (`collectBlocksOf`: the filter, the
+  attempt and its count, the reasons, the protected count, the summary;
+  `collectGrantedCells`); `src/agent/commands/actions.js` (`!collectPlaced`);
+  `work/protect.js` (`grantable`, the grant, `withGrant`, the config getter);
+  `work/index.js` (the raw marker, `rawOwnerCommand`, `collectPlaced`, the
+  mining question, its answer and lapse, the grant run and its hand-back, the
+  `!stop` wrap); `work/config.js` (`work.collect`, its checks);
+  `work/steps/obtain.js` (the summary reading).
+- **Offline tests.** New `tests/work-collect.test.mjs` (the defect reproduced;
+  the palette pass; tried cells; reasons; interrupts; early exits; the G/K
+  split; the radius key; both command forms; obtain's block and why; the typed
+  grant; the question, yes and its one hand-back, no, lapses, disarms, a
+  non-owner and a model yes; refusals outside his voice; the hand-back's drop;
+  the grant's authority). The work fixture's findBlocks makes the palette pass
+  and its collect skips what the plugin skips. `tests/work-gear.test.mjs` (the
+  refusals as summary reasons).
+- **Live acceptance** (design §6; his obsidian blocks):
+  1. Typed `!collectPlaced("obsidian", 1)`: 1 dug, 0 model calls.
+  2. "Mine two of the obsidian I placed": 1 model call, the question; "yes":
+     2 dug, then 1 model call for the result.
+  3. The same answered "no": nothing dug.
+  4. "Get me 2 obsidian" without naming his blocks: the protected report; no
+     block dug without his yes; at most one question (the model may follow the
+     report with `!collectPlaced` in his turn, design §9).
+  - Pass: nothing of his dug without his word; she never blames the tool.
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in the ownblocks slice** (design §9): the residuals in SPEC §16.
 
 #### S3 — Terrain-fitting shelter
 
