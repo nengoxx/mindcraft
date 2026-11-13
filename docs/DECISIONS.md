@@ -360,3 +360,8 @@ The owner's answers to the two council designs (`runtime/diagnostics/i1-build/ow
 - **Walking to him** (`goToPlayer` pauses `self_defense`): open. "I'm in the fence about that because maybe the
   self-defense isn't just self-defense but also defending the player that it's following or whatever. Not sure what
   the best approach for that would be." Until he decides, the pause stays as upstream has it.
+- **Following him on the move** (same day): "ideally, if the player is walking like fast and, or I guess fast
+  enough, it doesn't need to stop to fight because basically the player is fleeing or rather just flowing through
+  instead of stopping and engaging with every mob that it encounters, which is usually what happens when going for
+  long distances anyway." While she follows him and he is travelling, she does not stop to engage the mobs they
+  pass; the combat design specifies when he counts as travelling.
