@@ -330,9 +330,25 @@ export class Runner {
             this.work.write();
             this.work.log(`junk drop ${p.junk_drops}: ${ops.map(op => `${op.count} ${op.name}`).join(', ')}`);
             // Away from the work first, then not toward the owner within 16 (R1-10).
+            // REQ-TRV-6: only a step that needs free slots climbs out to drop;
+            // a drop-only (clear) step never blocks on a full bag, so it never digs out of his box.
             const result = await dropItems(bot, ops, { awayFrom: step.work_pos ?? this.work.record.anchor ?? null,
-                avoid: ownerNear(bot, this.work.owner()), walk: 'task', replan: plan });
-            if (result.outcome === 'interrupted') return {};
+                avoid: ownerNear(bot, this.work.owner()), walk: 'task', climb: STEPS[step.skill].needsFreeSlots === true, replan: plan });
+            if (result.outcome === 'interrupted') {
+                // Design travel r4 §0 (adversary O5): a climb a fight cut before
+                // anything was dropped gives its attempt back, or night fights
+                // during a ~28 s climb used up the step's drops; at most
+                // maxReruns times per step, so a climb that unstuck always cuts
+                // still blocks with the inventory-full reason (build r1 F3).
+                p.junk_givebacks = p.junk_givebacks || 0;
+                if (result.climbed && !Object.keys(result.removed).length && p.junk_givebacks < INVENTORY.maxReruns) {
+                    p.junk_drops--;
+                    p.junk_givebacks++;
+                    this.work.write();
+                    this.work.log(`junk drop ${p.junk_drops + 1}: the climb was interrupted; the attempt is given back`);
+                }
+                return {};
+            }
             if (result.outcome !== 'done') {
                 why = result.reason;
                 this.work.log(`junk drop ${p.junk_drops} ${result.outcome}: ${result.reason}`);

@@ -1072,6 +1072,30 @@ test('S2e-fu §2: with `walk` and no free direction she walks to the drop spot (
     assert.deepEqual([n.outcome, n.reason, goals(none).length], ['unavailable', 'no free direction nearby', 0]);
 });
 
+test('REQ-TRV-6: the climb to drop is a task walk\'s only: with `climb` she climbs a deep shaft (digging, no doors) and drops from the rim; idle never climbs', async () => {
+    const shaft = new F.World();
+    pit(shaft, 6);
+    const make = () => F.makeBot({ world: shaft, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    const task = make();
+    const seen = [];
+    task.hooks.goto = goal => { const m = task.pathfinder.movements; seen.push({ goal: [goal.x, goal.y, goal.z, goal.constructor.name], canDig: m.canDig, doors: m.canOpenDoors }); };
+    const climbed = await I.dropItems(task, I.planRemoval(task, policyOf()), { walk: 'task', climb: true, replan: () => I.planRemoval(task, policyOf()) });
+    assert.deepEqual([climbed.outcome, climbed.climbed, tosses(task).length], ['done', true, 1]);
+    assert.deepEqual(seen, [{ goal: [0, 70, 0, 'GoalNear'], canDig: true, doors: false }], 'to the rim: may dig, opens no door');
+    const [, look] = task.calls.find(c => c[0] === 'lookAt');
+    assert.equal(look.y, 70 + 1.62);
+    for (const opts of [{ walk: 'idle', climb: true }, { walk: false, climb: true }, { walk: 'task' }]) {
+        const bot = make();
+        const result = await I.dropItems(bot, I.planRemoval(bot, policyOf()), opts);
+        assert.deepEqual([result.outcome, result.reason, result.climbed, goals(bot).length], ['unavailable', 'no free direction nearby', undefined, 0], JSON.stringify(opts));
+    }
+    // An interrupted climb: interrupted, with `climbed`, nothing tossed.
+    const cut = make();
+    cut.hooks.goto = () => { cut.interrupt_code = true; };
+    const c = await I.dropItems(cut, I.planRemoval(cut, policyOf()), { walk: 'task', climb: true });
+    assert.deepEqual([c.outcome, c.climbed, tosses(cut).length], ['interrupted', true, 0]);
+});
+
 test('S2e-fu §2: the walk is bounded: at INVENTORY.walkMs the pathfinder is stopped and she faces again from where she stands', async () => {
     INV.walkMs = 150;
     const world = new F.World();

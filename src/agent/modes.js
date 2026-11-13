@@ -124,8 +124,13 @@ const modes_list = [
                 this.stuck_time = 0;
                 execute(this, agent, async () => {
                     const crashTimeout = setTimeout(() => { agent.cleanKill("Got stuck and couldn't get unstuck") }, 10000);
-                    await skills.moveAway(bot, 5);
-                    clearTimeout(crashTimeout);
+                    // Fork carry (REQ-TRV-3): an interrupted moveAway throws;
+                    // the timer is cleared on that way out too, or it killed the process.
+                    try {
+                        await skills.moveAway(bot, 5);
+                    } finally {
+                        clearTimeout(crashTimeout);
+                    }
                     say(agent, 'I\'m free.');
                 });
             }
@@ -339,7 +344,15 @@ async function execute(mode, agent, func, timeout=-1) {
     let interrupted_action = agent.actions.currentActionLabel;
     mode.active = true;
     let code_return = await agent.actions.runAction(`mode:${mode.name}`, async () => {
-        await func();
+        // Fork carry (REQ-TRV-1, design travel r4 §0b S4): a mode action cut
+        // by another action returns normally, so the ActionManager's catch
+        // never cancels a pending resume (a task's or a follow's); any other
+        // error is thrown as before.
+        try {
+            await func();
+        } catch (err) {
+            if (!agent.bot.interrupt_code) throw err;
+        }
     }, { timeout });
     mode.active = false;
     console.log(`Mode ${mode.name} finished executing, code_return: ${code_return.message}`);

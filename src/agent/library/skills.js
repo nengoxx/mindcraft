@@ -1302,11 +1302,18 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
         log(bot, `Could not find ${username}.`);
         return false;
     }
-    await goToPlayer(bot, username, 3);
+    // Fork carry (REQ-TRV-1, design travel r4 §0b S2): goToPlayer returns
+    // false on a failed approach instead of throwing, so nothing is tossed
+    // where she stands.
+    const unreachable = () => {
+        log(bot, `Failed to give ${itemType} to ${username}: could not reach them.`);
+        return false;
+    };
+    if (!(await goToPlayer(bot, username, 3))) return unreachable();
     // if we are 2 below the player
     log(bot, bot.entity.position.y, player.position.y);
     if (bot.entity.position.y < player.position.y - 1) {
-        await goToPlayer(bot, username, 1);
+        if (!(await goToPlayer(bot, username, 1))) return unreachable();
     }
     // if we are too close, make some distance
     if (bot.entity.position.distanceTo(player.position) < 2) {
@@ -1354,12 +1361,13 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     return false;
 }
 
-export async function goToGoal(bot, goal, configure = null) {
+export async function goToGoal(bot, goal, configure = null, { retry = true } = {}) {
     /**
      * Navigate to the given goal. Use doors and attempt minimally destructive movements.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {pf.goals.Goal} goal, the goal to navigate to.
      * @param {function} configure, optional, called with each pathfinder Movements before use, e.g. m => { m.allow1by1towers = false; }.
+     * @param {object} options, optional: retry (default true) plans once more when path planning runs out of think time.
      **/
 
     const nonDestructiveMovements = new pf.Movements(bot);
@@ -1396,13 +1404,22 @@ export async function goToGoal(bot, goal, configure = null) {
 
     bot.pathfinder.setMovements(final_movements);
     try {
-        await bot.pathfinder.goto(goal);
-        clearInterval(doorCheckInterval);
+        try {
+            await bot.pathfinder.goto(goal);
+        } catch (err) {
+            // Fork carry (REQ-TRV-4; DECISIONS 2026-11-13 (evening): "one
+            // automatic retry"): a planning Timeout ("Took to long to decide
+            // path to goal!", goto.js) is planned once more from where she
+            // stands, with the same movements; a second Timeout, any other
+            // error or an interrupt is thrown as before.
+            if (err?.name !== 'Timeout' || !retry || bot.interrupt_code) throw err;
+            console.log('[travel] path planning ran out of think time; one retry');
+            await bot.pathfinder.goto(goal);
+        }
         return true;
-    } catch (err) {
+    } finally {
+        // the door check interval is cleaned up on every way out
         clearInterval(doorCheckInterval);
-        // we need to catch so we can clean up the door check interval, then rethrow the error
-        throw err;
     }
 }
 
@@ -1617,9 +1634,18 @@ export async function goToPlayer(bot, username, distance=3) {
     distance = Math.max(distance, 0.5);
     const goal = new pf.goals.GoalFollow(player, distance);
 
-    await goToGoal(bot, goal);
+    // Fork carry (REQ-TRV-1, design travel r4 §0 G2): a failed or cut walk
+    // returns false, as goToPosition does; a throw reached the ActionManager's
+    // catch, which cancels the pending resume (a task's or a follow's).
+    try {
+        await goToGoal(bot, goal);
+    } catch (err) {
+        log(bot, `Pathfinding stopped: ${err.message}.`);
+        return false;
+    }
 
     log(bot, `You have reached ${username}.`);
+    return true;
 }
 
 
@@ -1716,7 +1742,9 @@ export async function moveAway(bot, distance) {
         }
     }
 
-    await goToGoal(bot, inverted_goal);
+    // Fork carry (REQ-TRV-4, design travel r4 §0b S1): no planning retry, so
+    // unstuck's moveAway stays inside its 10 s kill timer.
+    await goToGoal(bot, inverted_goal, null, { retry: false });
     let new_pos = bot.entity.position;
     log(bot, `Moved away from ${pos.floored()} to ${new_pos.floored()}.`);
     return true;

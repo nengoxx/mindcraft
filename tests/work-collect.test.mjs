@@ -320,6 +320,20 @@ test('no grants nothing; a non-owner yes and a model "yes" grant nothing', async
     assert.deepEqual(dug(agent.bot), []);
 });
 
+test('his no: the fixed reply "OK, I\'ll leave them." (DECISIONS 2026-11-13 (evening)), shown, no model call, nothing dug', async () => {
+    const world = new F.World();
+    obsidian(world, [2, 3, 4]);
+    const agent = setup({ world, replies: ['!collectPlaced("obsidian", 2)', 'never asked'], work: { chat: 'quiet' } });
+    await F.ownerSays(agent, 'mine my obsidian');
+    assert.equal(agent.work.blockAsk.armed, true);
+    await F.ownerSays(agent, 'no');
+    await F.until(() => agent.chats.includes(W.PLACED_LEFT));
+    assert.equal(W.PLACED_LEFT, 'OK, I\'ll leave them.');
+    assert.equal(agent.modelCalls, 1);
+    assert.deepEqual(dug(agent.bot), []);
+    assert.equal(agent.turns.filter(t => t.content === W.PLACED_LEFT).length, 0, 'the answer is in history already; the reply is not added');
+});
+
 test('bot chat disarms the question: a yes before its one re-post grants nothing; a second disarm lapses it', async () => {
     const world = new F.World();
     obsidian(world, [2, 3, 4]);

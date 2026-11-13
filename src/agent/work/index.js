@@ -18,6 +18,7 @@ import { Tidy } from './tidy.js';
 import { Sleeper, SLEEP_LABELS } from './sleep.js';
 import { Upkeep, ITEMS_LABEL, FOLLOW_LABEL } from './inventory.js';
 import { Combat } from './combat.js';
+import { Travel } from './travel.js';
 import { newQuestion, parseAnswer } from './ask.js';
 import { renderView } from './view.js';
 import { stepResult, doneReport, doneLine, blockedReport, blockedAgainLine, deathLine, failedReport, goalStopped, chatLines } from './report.js';
@@ -52,6 +53,8 @@ export const PLACED_LABEL = 'action:collectPlaced';
 export const PLACED_NOT_OWNER = 'Only the owner can ask me to mine protected blocks.';
 export const PLACED_TASK_QUESTION = 'A task question is waiting; ask me again after it.';
 export const PLACED_LAPSED = 'The mining question lapsed.';
+// DECISIONS 2026-11-13 (evening): after his "no", "a fixed short reply [...], no model call".
+export const PLACED_LEFT = 'OK, I\'ll leave them.';
 const PLACED_LISTED = 4;   // positions the question lists one by one
 const cellText = c => `${c.x},${c.y},${c.z}`;
 const andList = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
@@ -84,8 +87,10 @@ export class Work {
         this.sleeper = null;     // sleeping through the night (sleep.js, REQ-SLP-1 … 10)
         this.items = null;       // the idle inventory cleanup (inventory.js, REQ-OBT-11)
         this.combat = null;      // whom to fight, the leash and the walk back (combat.js, REQ-CMB-1 … 9)
+        this.travel = null;      // the walk keeper (travel.js, REQ-TRV-1 … 3)
         this.follow = null;      // {fn, name}: the pending follow's target, seen while it ran (followTarget)
         this.lastStart = null;   // {label, voice, goal}: the last action started (the runAction wrap)
+        this.lastRun = null;     // {label, promise}: the newest action started through the wrap (the keeper's settle)
         this.liveTurns = new Set();  // every handleMessage call in flight (guardTurns; the cleanup's turn count)
         this.ownerGeneration = 0;    // bumped by every owner message (the cleanup's currency)
         this.stallHeld = false;  // the stall clock's hold while she sleeps (REQ-RES-16)
@@ -164,6 +169,8 @@ export class Work {
         this.combat = new Combat(this);
         this.disposers.push(() => this.combat.dispose());
         this.combat.check();
+        // REQ-TRV-1: the walk keeper (its listener goes with the disposers).
+        this.travel = new Travel(this);
         // REQ-OBT-11: the item names against the registry; a bad list is told once.
         this.items = new Upkeep(this);
         this.items.check();
@@ -258,6 +265,9 @@ export class Work {
             const perform = endGoal.perform;
             const ending = async function (agent, ...args) {
                 agent.work?.clearGoal();
+                // REQ-TRV-2 (design travel r4 §0b S3): it stops the fight but
+                // changes no stop epoch, so the held walk is dropped here.
+                agent.work?.travel?.drop('!endGoal');
                 return perform.call(this, agent, ...args);
             };
             ending.workGuarded = true;
@@ -290,14 +300,23 @@ export class Work {
     // (modes, commands, the runner) starts actions through runAction.
     // REQ-SLP-2, 7: the sleeper learns the same, and the turn and goal state
     // each action started in (a goal's own action may be cut by sleep).
+    // REQ-TRV-1: a walk command runs through the keeper (travel.js), which
+    // starts it, and restarts it after a cut, through `start`; every start is
+    // the newest run (`lastRun`, the keeper's settle).
     guardActions() {
         const actions = this.agent.actions;
         if (typeof actions?.runAction !== 'function') return;
         const runAction = actions.runAction;
         const work = this;
-        const wrapped = function (label, ...rest) {
-            work.onActionStart(label, rest[0], rest[1]);
-            return runAction.call(this, label, ...rest);
+        const wrapped = function (label, fn, opts) {
+            const start = (l, f, o) => {
+                work.onActionStart(l, f, o);
+                const promise = runAction.call(this, l, f, o);
+                work.lastRun = { label: l, promise };
+                return promise;
+            };
+            if (work.travel?.keeps(label, opts)) return work.travel.run(label, fn, opts, start);
+            return start(label, fn, opts);
         };
         actions.runAction = wrapped;
         this.disposers.push(() => { if (actions.runAction === wrapped) actions.runAction = runAction; });
@@ -695,6 +714,7 @@ export class Work {
         const store = turns.getStore();
         if (store && store !== QUESTION && !store.done) store.action = { label, fn };
         this.tidy?.onActionStart(label);
+        this.travel?.onActionStart(label);
         try {
             this.sleeper?.onActionStart(label, fn, opts);
         } catch (err) {
@@ -702,11 +722,16 @@ export class Work {
         }
     }
 
-    // The actions a mode may cut without a model call (the modes carry,
-    // REQ-OWN-8, REQ-SLP-9, REQ-OBT-11): the tidy sweep, the sleep routine,
-    // the bed pickup, the item cleanup.
-    isQuietAction(label) {
+    // Her own upkeep (REQ-OWN-8, REQ-SLP-9, REQ-OBT-11): the tidy sweep, the
+    // sleep routine, the bed pickup, the item cleanup.
+    isUpkeep(label) {
         return label === 'action:tidy' || SLEEP_LABELS.has(label) || label === ITEMS_LABEL;
+    }
+
+    // The actions a mode may cut without a model call (the modes carry):
+    // upkeep, and a walk the keeper holds (REQ-TRV-1).
+    isQuietAction(label) {
+        return this.isUpkeep(label) || Boolean(this.travel?.holds(label));
     }
 
     // REQ-CHAT-2: her death is one code `alert` line; the model's turn for it
@@ -1105,6 +1130,7 @@ export class Work {
         this.agent.history.add('system', `Asked the owner: "${ask.text}" The owner answered: ${answer}.`).then(() => this.agent.history.save())
             .catch(err => console.error('[work] could not save the answered question:', err?.message ?? err));
         if (answer === 'yes') this.grantAsked(ask).catch(err => console.error('[work] the granted collect failed:', err?.message ?? err));
+        else this.deliver(PLACED_LEFT, { category: 'reply', record: false }).catch(err => console.error('[work] could not answer the no:', err?.message ?? err));
         return true;
     }
 
@@ -1370,7 +1396,7 @@ export class Work {
         if (step) {
             step.status = 'pending';
             step.attempts = 0;
-            if (step.progress) { step.progress.stalled_s = 0; step.progress.junk_drops = 0; }
+            if (step.progress) { step.progress.stalled_s = 0; step.progress.junk_drops = 0; step.progress.junk_givebacks = 0; }
             // A resumed give starts a new baseline: it re-gives only the
             // outstanding count from what is in the inventory now.
             if (step.skill === 'give' && step.progress) step.progress.inv_start = null;
