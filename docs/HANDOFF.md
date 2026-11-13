@@ -18,8 +18,8 @@
   the memory question ("do you need a diamond pickaxe for obsidian?").
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
-- Open owner question: `goToPlayer`'s pause of `self_defense` (he is unsure; recommendation in DECISIONS "Both
-  designs answered": keep it; a later "defend the owner" slice).
+- Open owner question: `goToPlayer`'s pause of `self_defense` (he is unsure, DECISIONS "Both designs
+  answered"; the main seat recommended keeping it, with a later "defend the owner" slice).
 
 ## 2026-11-13 — the gear slice is deployed; its trials mostly pass
 
