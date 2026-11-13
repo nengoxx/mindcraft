@@ -49,7 +49,7 @@ export const INVENTORY = {
 };
 
 export const ITEMS_LABEL = 'action:items';
-const FOLLOW_LABEL = 'action:followPlayer';
+export const FOLLOW_LABEL = 'action:followPlayer';
 const LIQUIDS = ['water', 'lava', 'bubble_column'];
 // The four cardinals, in the order used when nothing is preferred.
 const CARDINALS = Object.freeze([[0, 1], [-1, 0], [0, -1], [1, 0]]);
@@ -466,8 +466,7 @@ export class Upkeep {
         this.idleHold = null;        // {inv, pos, dim, at, why}: after a pass that removed nothing, or no direction
         this.lastHostileAt = -Infinity;
         this.lastIdleAt = -Infinity; // the last normal action end (the resume gap)
-        this.follow = null;          // {fn, name}: the pending follow's target, seen while it ran
-        this.last = null;            // {removed, at}: the last pass that removed something (!itemList)
+        this.last = null;           // {removed, at}: the last pass that removed something (!itemList)
         this.emptyKey = null;        // the inventory and task state whose plan was empty
         this.told = new Set();       // the owner lines said this session
         work.listen(this.bot, 'idle', () => { this.lastIdleAt = Date.now(); });
@@ -502,17 +501,6 @@ export class Upkeep {
         if (!this.latch) return;
         this.stopUntil = Date.now() + INVENTORY.stopHoldMs;
         this.log(`held for ${Math.round(INVENTORY.stopHoldMs / 60000)} min: the owner's !stop during a pass`);
-    }
-
-    // The follow's target while it runs (its GoalFollow entity), kept for the
-    // pending follow it belongs to; else the owner.
-    followTarget() {
-        const actions = this.agent.actions;
-        const goal = this.bot.pathfinder?.goal;
-        if (actions.currentActionLabel === FOLLOW_LABEL && actions.currentActionFn === actions.resume_func && goal?.entity?.username)
-            this.follow = { fn: actions.resume_func, name: goal.entity.username };
-        const name = this.follow?.fn === actions.resume_func ? this.follow.name : this.work.owner();
-        return name ? this.bot.players?.[name]?.entity ?? null : null;
     }
 
     // The cheap check: removal is enabled, and her free slots are low or a
@@ -590,7 +578,7 @@ export class Upkeep {
         if (!this.wanted() || this.held(now) || !this.workFree() || actions.stopPromise) return null;
         if (now - this.lastHostileAt < INVENTORY.hostileQuietMs) return null;
         const turns = this.work.liveTurns;
-        const target = this.followTarget();
+        const target = this.work.followTarget();
         let follow = false;
         if (actions.executing) {
             // Only the pending follow, its target visible; the turn that started it stays open while it runs (C-F1).
@@ -713,7 +701,7 @@ export class Upkeep {
         const plan = duePlan();
         if (!plan.length) return;
         let awayFrom = admitted.awayFrom;
-        if (admitted.follow) awayFrom = this.followTarget()?.position ?? awayFrom;   // always away from the follow target (C-F3)
+        if (admitted.follow) awayFrom = this.work.followTarget()?.position ?? awayFrom;  // always away from the follow target (C-F3)
         // While following no walk (the follow moves her anyway); idle she may walk to a drop spot, placing nothing.
         const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, walk: admitted.follow ? false : 'idle', replan: duePlan, current });
         const now = Date.now();

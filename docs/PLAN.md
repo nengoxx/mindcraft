@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat-start → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -116,8 +116,10 @@ nothing the owner can see is retired.
     protected blocks stand near; the owner's blocks are mined only on his word,
     through `!collectPlaced` (DECISIONS 2026-11-13 "His blocks on request
     [...]", "Both designs answered").
-  - Combat-start: earlier engagement against skeletons and a leash around
-    where the first fight began (DECISIONS 2026-11-13).
+  - Combat: she engages a skeleton once it aggros if the path is easy, every
+    fight stays within 16 of where it started (or of the player she follows)
+    and walks back, a cut follow resumes instead, and she passes the mobs
+    while he travels (DECISIONS 2026-11-13).
   - S3: the shelter macro (`minimal` or `basic`; `embed` `allow` or `require`),
     the fit search, the builder carry, the Room verifier, material and tool
     insertion, P8 (door yaw).
@@ -1038,6 +1040,59 @@ add the protected-block diff. Interventions: target 0.
   - Pass: nothing of his dug without his word; she never blames the tool.
 - **Exit.** All trials pass; CHANGES.md is current.
 - **Not in the ownblocks slice** (design §9): the residuals in SPEC §16.
+
+#### Combat — engage on aggro, stay near where it started
+
+- **Goal.** A skeleton (stray, bogged, parched) that aggroes within 16 is
+  engaged before or at its first arrow if there is a path or she can make one
+  easily (no placing, at most 3 digs, no long detour); every fight stays on a
+  16-block leash around where the first fight began and walks back there
+  before the task or idle resumes; when the fight cut a follow, the leash is
+  centred on him and the follow resumes instead of the walk back; while he
+  travels she passes the mobs. (Owner rulings: DECISIONS 2026-11-13 "Combat
+  starts late against skeletons", "Combat stays near where it started", "Both
+  designs answered", "Following him on the move". Design:
+  `runtime/diagnostics/i1-build/combat/recommended-design.md` r10; probe P18.)
+- **SPEC.** §7.10 REQ-CMB-1 … 9 (new); §7.3 REQ-RES-8 (amended: the check is
+  the mode's own pick); §5.2 (`work/combat.js`); §5.3 (`modes.js`,
+  `library/world.js`); §14 (six `work.combat` keys); §16.
+- **Files.** New `src/agent/work/combat.js`. `src/agent/modes.js` (the
+  `self_defense` carry); `src/agent/library/world.js` (`isClearPath`);
+  `work/index.js` (`Combat` built in `init`, `followTarget` moved here from
+  the item cleanup); `work/inventory.js`
+  (`FOLLOW_LABEL` exported; the lookup calls `Work.followTarget`);
+  `work/runner.js` (the resume check through `threat()`, `HOSTILE_RADIUS`
+  gone); `work/config.js` (`work.combat`, merged one level).
+- **Offline tests.** New `tests/work-combat.test.mjs` (P18's metadata and
+  damage shapes: the registry index, the bit, the hit memory; melee first; one
+  search per update and the cache; the easy path on the real pathfinder; the
+  `isClearPath` carry, both reproductions failing on the old code; the fight
+  on the real pvp plugin: forceStop, the pending attack, `!stop`, give-up,
+  the dig count, the chase; the leash and its centre; the anchor's clears; the
+  walk back and its bounds, in a task; following and the follow skip; the
+  `stop_epoch` race; travelling: the window, unknown speeds, the two
+  thresholds, flip-flop, `travel_speed` 0). `tests/work-runner.test.mjs`
+  (the resume check through `threat()` and `isOn`). The work fixture gains
+  `pvp.forceStop`, `pathfinder.getPathFromTo` and `pathfinder.isMining`.
+- **Live acceptance** (design §9; night, invincible, where the owner put her;
+  the private profile sets `work.combat.ranged` to the four skeletons and
+  `travel_speed` 2):
+  1. Skeletons aggro at 10–16: `engage` within about 0.4 s of the bit when
+     idle; about 1 s, at or before the first arrow, when the fight cuts an
+     action (the stop wait); at most 1 hit from one skeleton before engaging.
+  2. She stays within 16 of the anchor and walks back.
+  3. A skeleton on a ledge she cannot reach easily: one `no easy path` line
+     and no loop.
+  4. In a task, the task resumes after the walk back.
+  5. Following the owner on a night walk (his trial): she passes the mobs
+     while he moves and fights near him once he stops; never more than 16
+     from him after a fight.
+  - Pass: combat-caused model calls counted (0 expected when idle or in a
+    task).
+- **Exit.** All trials pass; CHANGES.md is current.
+- **Not in the combat slice** (design §11): hiding, bows, blazes and other
+  nether shooters, shields, pillagers; `goToPlayer`'s pause (the owner's
+  open question).
 
 #### S3 — Terrain-fitting shelter
 

@@ -161,8 +161,15 @@ test('a run ends itself at the run bound, checked only between actuator calls', 
     assert.equal(bot.count('oak_planks'), 8);
 });
 
+// REQ-RES-8 as amended by REQ-CMB-8: the check is combat.threat(), so it asks
+// only while self_defense is on (the modes stay undriven: nothing fights).
+// The modes module drives the agent made last (modes.js `_agent`), so no
+// earlier test's driver may run the mode here.
+const stopDrivers = () => stops.splice(0).forEach(stop => stop());
 test('resume check: refuses while a hostile within 8 has a clear path, passes once it is gone, never blocks by itself', async () => {
-    const agent = setup();
+    stopDrivers();
+    const modes = { self_defense: true };
+    const agent = setup({ modes, drive: false });
     const { bot } = agent;
     const zombie = F.hostile(bot, 'zombie', [5, 0, 0]);
     agent.work.startTask('stay', 'go_to target=0,64,0');
@@ -170,19 +177,23 @@ test('resume check: refuses while a hostile within 8 has a clear path, passes on
     const record = agent.work.record;
     assert.equal(record.status, 'active');
     assert.notEqual(record.plan[0].status, 'done');
-    assert.match(record.plan[0].progress.last_cause, /zombie within 8 blocks/);
+    assert.match(record.plan[0].progress.last_cause, /zombie 5 blocks away/);
     delete bot.entities[zombie.id];
     await done(agent);
 
-    const walled = setup();
+    const walled = setup({ modes, drive: false });
     walled.bot.hooks.noPath = true; // no clear path: the check passes
     F.hostile(walled.bot, 'zombie', [5, 0, 0]);
     walled.work.startTask('stay', 'go_to target=0,64,0');
     await done(walled);
-    const far = setup();
+    const far = setup({ modes, drive: false });
     F.hostile(far.bot, 'zombie', [9, 0, 0]);
     far.work.startTask('stay', 'go_to target=0,64,0');
     await done(far);
+    const off = setup({ drive: false });   // self_defense off: no fight would start, the check passes (REQ-CMB-8)
+    F.hostile(off.bot, 'zombie', [5, 0, 0]);
+    off.work.startTask('stay', 'go_to target=0,64,0');
+    await done(off);
 });
 
 test('allays and golems are not hostile; zombies and creepers are (owner ruling, P11)', () => {
@@ -479,9 +490,10 @@ test('the runner counts dig events again after a death and respawn (R5)', () => 
 });
 
 test('the self-heal timer catches a replacing resumable action while no run executes', async () => {
+    stopDrivers();
     const bot = F.makeBot();
     F.player(bot, F.OWNER, [0, 64, 0]);
-    const agent = F.makeAgent({ bot, name: 'watcher', idleDelay: 2000 });
+    const agent = F.makeAgent({ bot, name: 'watcher', idleDelay: 2000, modes: { self_defense: true } });   // undriven: the check refuses, nothing fights
     F.clearRecord(agent);
     F.startWork(agent);
     agents.push(agent);

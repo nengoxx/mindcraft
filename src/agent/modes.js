@@ -160,6 +160,24 @@ const modes_list = [
         on: true,
         active: false,
         update: async function (agent) {
+            // Fork carry (REQ-CMB-1): with the task layer, whom to fight (the
+            // melee rule, ranged mobs once they aggro, the leash) and the fight
+            // itself (the walk back) live in work/combat.js. stop_epoch is read
+            // before pick's searches, so a !stop landing while the fight
+            // starts ends it (REQ-CMB-7); whether it cuts the follow is read
+            // before runAction (REQ-CMB-9). Without the task layer, upstream's code.
+            const combat = agent.work?.combat;
+            if (combat) {
+                const epoch = agent.stop_epoch;
+                const cut = agent.actions.currentActionLabel;
+                const following = combat.following();
+                const target = await combat.pick();
+                if (target) {
+                    say(agent, `Fighting ${target.name}!`);
+                    execute(this, agent, () => combat.fight(target, { epoch, cut, following }));
+                }
+                return;
+            }
             const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity), 8);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);

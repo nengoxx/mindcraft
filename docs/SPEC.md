@@ -141,7 +141,8 @@ through ViaProxy. These limits are facts of the platform, not design choices:
 | **Work position** (`work_pos`) | Where the current step is being done. The runner returns here before continuing. |
 | **Anchor** | Where the owner asked for the task to happen: `here` (the owner's position if the owner's entity is tracked, else the bot's), `owner` (the owner's position), or explicit coordinates. Code resolves it to `{x,y,z,dim}` and freezes it at validation (REQ-PLAN-8). |
 | **Interruption** | A Mindcraft mode (self_defense, self_preservation, cowardice, unstuck) stopping the current run. |
-| **Resume check** | The check every run does first: no protective mode active and no hostile with a clear path within 8 blocks (§7.3). The health and food gate joins it in the survival iteration. |
+| **Resume check** | The check every run does first: no protective mode active and no hostile `self_defense` would fight now (§7.3; from the combat slice the mode's own pick, REQ-CMB-8). The health and food gate joins it in the survival iteration. |
+| **Combat anchor** | Where the first fight of a run of fights began; every fight stays within `work.combat.leash` of it (or of the player she follows) and walks back to it (REQ-CMB-5, 6). |
 | **Iteration** | A group of PLAN slices that ships together (`[I1]` … `[Surv]`, see the table above). |
 | **Step stall** | A step whose progress metric has not improved for `work.step_stall_s` of wall time, summed across restarts; it blocks (REQ-RES-16). |
 | **Text DSL** | The compact step language inside the I1 text commands (`!taskStart`, `!build`), §12.0. |
@@ -305,6 +306,7 @@ Why (details in RESEARCH.md):
 | `agent/work/sleep.js` | Sleeping through the night (§7.9): `Sleeper` with `next()` (when she sleeps, what sleep may cut), the `mode:sleeping` routine (spot, placement, sleep, the guarded wake), the bed pickup in the routine and as `action:bed` from `Work.tick`, the in-memory night record and collection receipt, the owner lines. | I1 (S2d) |
 | `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where; the best of a limited item stays), the dropper `dropItems` (facing over a one-block lip, the walk to a drop spot `findDropSpot`, the look fix, the hand off a held slot, per-slot tosses) and its re-pickup guard `isGuardedJunk`, `largestItems` (the kept note and the blocked report), and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. From the gear slice: the one-stack cap in `keepOf`, gear spares in the plan, the surplus allowance (`due`), the signature check before each toss. | I1 (S2e, gear) |
 | `agent/work/gear.js` | Gear (§9.5, REQ-GEAR-1): reading an item's own values (attack, mining rules, armour, unbreakable, enchantments) with the vanilla table as fallback; the ranking per kind and the spares (`assess`, `spares`, `giveOrder`); using the best: `equipWeapon`, the block chooser `chooseFor`/`equipForBlock` with the silk rule, the armour controller `equipAll`, the dig-time and harvest checks; `install(bot)`, which takes over the plugins' tool, armour and swing-timer members. | I1 (gear) |
+| `agent/work/combat.js` | Combat (§7.10, REQ-CMB-1 … 9): `Combat` with `pick()` (the melee rule, the ranged rule for the mobs of `work.combat.ranged` once they aggro, the easy path `easyPath`, the verdict cache), `fight(first)` (the `mode:self_defense` routine: the chase, give-up, the dig count, the leash, the walk back), the anchor, the travelling sampler, `threat()` for the resume check; `fightMovements`, `followPending`, `cutsFollow`; its constants `COMBAT`. The follow target lookup it shares with the item cleanup is `Work.followTarget()` (`index.js`). | I1 (combat) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -337,7 +339,8 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `models/prompter.js` | I1: request kind passed to the provider; task view into `$SELF_PROMPT`. I1 (S2b): the model keys read through `loadWorkConfig(profile.work)` (the prompter is built before `Work`); `requestOptions` adds an `outcome` object; `promptConvo` waits through an outage with back-off without spending its tries; `promptCoding` reports an outage to the coder (REQ-RES-17). I2: envelope accepted on the tool path (string checks use `.content`; stale-response check kept); tools only on decision requests. | fork carry | I1, I2 |
 | `agent/coder.js` | I1 (S2b): an unreachable model ends generation with the outage message and does not count as a "no code block" failure (REQ-RES-17). | fork carry | I1 |
 | `agent/self_prompter.js` | I1 (S2b): the outage pause: `PAUSED` with an `outage` flag, the recovery probe, resume of the same goal epoch; `start()`, `!stop`, a new goal and a manual pause clear the flag (REQ-RES-18). I1 (S2c-fu): the "did not use command … Stopping auto-prompting" line is an `alert` (:141; REQ-CHAT-1). | upstream before S2b; fork carry since | I1 |
-| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself. | upstream | I1 |
+| `agent/modes.js` | I1 (S2c): in `execute`, `should_reprompt` excludes the quiet actions, and one callback line at its end, `agent.work?.onModeEnd(mode.name, code_return)` (REQ-OWN-8). I1 (S2d): the exclusion becomes one shared check, `!agent.work?.isQuietAction(interrupted_action)` (`action:tidy`, `mode:sleeping`, `action:bed`; from S2e also `action:items`, with no change to this file); one `modes_list` entry, `sleeping`, right after `self_defense` (`interrupts: ['all']`, `on: true`), whose `update` runs `agent.work?.sleeper?.next()`'s routine through `execute` (REQ-SLP-1). I1 (combat): `self_defense.update`, with `agent.work.combat`, reads `stop_epoch` and whether the fight cuts the follow (`combat.following()`), asks `combat.pick()` and executes `combat.fight(target, {epoch, cut, following})`; without it, upstream's code (REQ-CMB-1). Retire when upstream offers a quiet-action flag and a mode-end event; the `sleeping` entry when upstream sleeps by itself; the `self_defense` branch when upstream engages ranged mobs on aggro and bounds a fight's wandering. | upstream | I1 |
+| `agent/library/world.js` | I1 (combat): `isClearPath` searches with `bot.pathfinder.getPathFromTo(…, {timeout: 40, tickTimeout: 40})` instead of `getPathTo` (which replaced the search of the path she was walking), and really turns placing off (`scafoldingBlocks = []`, `allow1by1towers = false`; `canPlaceOn` is not a Movements field), as its comment and REQ-RES-8 always said (REQ-CMB-2). Retire when upstream's `isClearPath` does both. | existing fork carry (biome IDs) | I1 |
 | `agent/action_manager.js` | I1 (S2d): `_executeResume` stores the timeout of a new resumable action beside `resume_func` (`resume_timeout`) and uses it on every resume (two lines), so a resumed follow keeps "no timeout" (§4.2; junk design r7 §5, amendment 2). Retire when upstream passes the original timeout on resume. | upstream | I1 |
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/commands/actions.js` | I1 (ownblocks, REQ-SAFE-13): the new `!collectPlaced(type, num)` beside `!collectBlocks`; its perform hands over to `Work.collectPlaced` (the typed path runs its own `runAction`, since `runAsAction` finds its label by perform identity). | existing fork carry | I1 |
@@ -651,11 +654,14 @@ silently recording every pillar as `own`.
 
 - **REQ-RES-8 Resume check.** [I1] The first thing each run does. It passes when
   no protective mode is active (the run starts from `idle`, so no mode action is
-  running) and no hostile within 8 blocks has a clear path. The hostile test
-  reuses the pair `self_defense` uses, called directly:
-  `world.getNearestEntityWhere(bot, e => mc.isHostile(e), 8)` and
-  `world.isClearPath(bot, enemy)` (agent/library/world.js:194, :390;
-  modes.js:163-164). If it fails, the run returns and lets the modes act; the next
+  running) and no hostile `self_defense` would fight now. From the combat
+  slice the hostile test is `work.combat.threat()`: while `self_defense` is
+  on, the mode's own `pick()` (REQ-CMB-3, 8), so a task never resumes into a
+  fight the mode would start, and a target the mode ignores (given up, or
+  dropped) is ignored here too; with `self_defense` off it passes. (Before:
+  the pair `self_defense` used, `world.getNearestEntityWhere(bot, e =>
+  mc.isHostile(e), 8)` and `world.isClearPath`.) The refusal's cause names
+  the mob and its distance ("zombie 5 blocks away"). If it fails, the run returns and lets the modes act; the next
   idle retries it. It never blocks the step by itself; a long refusal is caught by
   the stall rule (REQ-RES-16).
   - **Health and food gate.** [Surv] The check also passes only when health ≥
@@ -1067,6 +1073,145 @@ owner lines are `alert`s).
   uses no-dig, no-tower, no-scaffold movements (`goToGoal` with `configure`)
   and is bounded by 10 s (the pathfinder's goal is cleared then);
   unreachable is a controlled outcome.
+
+### 7.10 Combat `[I1]` (the combat slice)
+
+The owner's rulings (DECISIONS 2026-11-13): "Combat starts late against
+skeletons" (engage a skeleton once it aggros, if there is a path or she can
+make one easily), "Combat stays near where it started" (a leash, 16 by
+default, and a walk back after any fight), "Both designs answered" (a cut
+follow resumes instead of the walk back; parched in her list; a skeleton out
+of easy reach is ignored for now) and "Following him on the move" (she
+passes the mobs while he travels). Design
+`runtime/diagnostics/i1-build/combat/recommended-design.md` r10.
+
+- **REQ-CMB-1 Shape.** [I1] `work/combat.js` (`Combat`, built in `Work.init`
+  beside the sleeper) owns whom to fight (`pick`), the fight
+  (`fight(first)`, run as `mode:self_defense`), the anchor and `threat()`.
+  The `self_defense` carry (§5.3) asks `pick()` and executes `fight`; without
+  the task layer upstream's code runs. `defendSelf` is unchanged (only the mode
+  called it; generated code keeps upstream's routine).
+- **REQ-CMB-2 The clear-path gate.** [I1] `world.isClearPath` (the melee gate,
+  and the hunting, item_collecting and cowardice gates) places nothing (no
+  scaffold blocks, no towers) and searches with `getPathFromTo` (40 ms, as
+  before), so it never replaces the path she is walking. Melee mobs reachable
+  only by towering or bridging no longer start a fight.
+- **REQ-CMB-3 Whom she fights.** [I1] `pick()`, in order: (1) the melee rule
+  (today's): the nearest `mc.isHostile` within 8, alive (health above 0 and
+  valid: a dying mob stays loaded about 1–2 s), not ignored (within 3 of her
+  a 10 s drop does not hold, and no ignore, a give-up's included, holds for a
+  mob that hurt her in the last 5 s); a mob named in
+  `work.combat.ranged` counts here only within 3 of her (farther, the ranged
+  rule alone); a new target (not the current one), in a fight too, through
+  `isClearPath`; when that nearer one is blocked, the current target is kept
+  while this rule still admits it (no extra search); it always wins. (2) The ranged rule: a mob named in
+  `work.combat.ranged` within `ranged_radius` of her, alive, not ignored, a **new**
+  one within `leash` of the leash centre when one is set (the current target
+  stays until her leash check drops it), engaged (its `mob_flags` aggressive
+  bit, `metadata[i] & 4` with `i` from the registry's `metadataKeys`, looked
+  up once per name; a missing index or a non-number reads as not aggressive;
+  or it hurt her within the last 5 s, `entityHurt` with a source), and an
+  easy path (REQ-CMB-4). Nearest first, at most one path search per update,
+  the melee gate's included; a verdict of either gate is cached 3 s per
+  entity, or until it moved more than 4 blocks (the current ranged target
+  keeps its last verdict while a nearer candidate takes the search).
+  The bit shows about 1 s before the first arrow (probe P18).
+- **REQ-CMB-4 An easy path.** [I1] One movement recipe (`fightMovements`) for
+  the gate, the chase (`bot.pvp.movements`) and the walk back: protection
+  applies, no doors (`canOpenDoors` off; the fork's climb-through-trapdoor
+  move ignores it and can still open a trapdoor, §16), no placing, the
+  default dig cost. Easy: a
+  `getPathFromTo` search (60 ms) toward the target (`GoalNear`, range 2)
+  succeeds with at most `work.combat.path_digs` digs and at most 2 × the
+  straight distance + 8 nodes. "No easy path to …" is logged once per verdict
+  change.
+- **REQ-CMB-5 The anchor and the walk back.** [I1] The anchor `{pos, dim}` is
+  set when a fight starts and none is set; later targets of the same fight
+  action keep it (a run of fights: the walk back re-picks every 500 ms, so an
+  attacker on the way is fought and the walk continues). It is cleared when
+  she is back within 2, on death, a dimension change, more than 2 × leash
+  away (a teleport), and whenever the fight action ends without
+  finishing its walk back (interrupted, a `!stop` or a command, cut by
+  `unstuck` or `self_preservation`, an error): every fight action ends with no
+  anchor. The walk back
+  runs inside the fight action, before `idle`, so the resumed task or follow
+  cannot start first: with nothing to fight and more than 2 from the anchor
+  she walks to it (`GoalNear`, range 1); after 30 s without arriving, or a
+  `noPath`, she logs it and ends. In a task she walks back to where the first
+  fight cut it, then the runner resumes. **Following** (the owner's answer):
+  when nothing is left to fight, or on a leash drop, in a fight that cut the
+  follow, she skips the walk back and the follow resumes. The follow rules
+  (this skip, the leash centre REQ-CMB-6, travelling REQ-CMB-9) hold only
+  when the action the fight cut was the follow (`currentActionLabel`
+  `action:followPlayer`), or nothing ran and the follow is the pending resume
+  (`resume_func` with that `resume_name`); the mode's update reads it before
+  `runAction`. A command run while the follow is pending (the model's
+  `!goToCoordinates`) gets the anchor rules and the walk back; the follow
+  resumes afterwards (upstream). With a self-prompted goal active the follow does not resume
+  by itself (upstream); she stands where the fight ended until the goal loop
+  re-issues it. A follow written as code (`!newAction`) is not recognised and
+  gets the walk back.
+- **REQ-CMB-6 The leash.** [I1] The leash is on her: beyond
+  `work.combat.leash` from the leash centre a target within 3 of her is kept,
+  whatever its kind; a farther one is dropped (a ranged one ignored 10 s, a
+  melee one never) and she walks back; after a leash drop the melee rule
+  fights only within 3 of her (one that follows her back is fought, one that
+  keeps its distance does not make her shuttle). The
+  leash centre is the anchor, except under the follow rules (REQ-CMB-5): then the
+  followed player's position, read each tick (`Work.followTarget()`, one
+  helper and one cache, called by the mode's update while the follow still
+  runs, so it learns whom she follows), falling back to the anchor when his
+  entity is not loaded. While she is beyond the leash of him, `pick` admits
+  melee only within 3 and no ranged target, so chained fights stay within 16
+  of him and a mob idling within 8 does not stall the follow.
+- **REQ-CMB-7 The fight.** [I1] A 500 ms loop. Setup: `self_defense` and
+  `cowardice` paused, `pvp.movements` set to `fightMovements`, `bot.dig`
+  wrapped for the fight's life. One movement owner: pvp's own follow chases
+  every target; each target change and the switch to the walk back go
+  through one serialized `switchTo`, which calls `pvp.forceStop()` first and
+  awaits the attack, so no pending attack overwrites a later goal. Each tick:
+  `gear.equipWeapon` (skipped while `bot.pathfinder.isMining()`: a path dig
+  keeps its tool and finish time), the switch when the pick changed, the wait,
+  then the checks: a target gone, dying or invalid is a kill (once: `pick`
+  never returns it again; a reload with the same id aside, §16); a target whose health has not
+  dropped for `work.combat.give_up_s` is given up (ignored 60 s, logged); her
+  digs during the chase of one target, counted as each dig completes (the
+  counter lives on the fight), above `path_digs` give it up too; the leash
+  (REQ-CMB-6); a re-pick (`pick` with the fight: melee within 8 wins, a
+  ranged target's verdict re-checked when its cache lapses, not easy →
+  dropped, ignored 10 s). An error in the loop is logged (`[combat] fight
+  error: …`) and ends the fight like an interrupt, without a throw, so the cut
+  action stays pending and no AUTO MESSAGE follows; its target is ignored
+  10 s (not lifted within 3 unless the mob hurt her in the last 5 s; §16), so a lasting error is no fight loop. Cancellation: `bot.interrupt_code`, or
+  `agent.stop_epoch` changed since the mode's `update` read it (before
+  `pick`'s searches; a `!stop` landing while `runAction` waits for the old
+  action to stop is otherwise lost), checked before every movement call and
+  after every await; the fight then exits at once, with no walk back.
+  `finally`: `pvp.forceStop()`, the goal cleared, `pvp.movements` and
+  `bot.dig` restored, both modes unpaused, the anchor cleared. Log lines
+  `[combat] anchor …`, `engage …`, `give up …`, `leash: …; back`, `back at the
+  anchor (…)`, `could not get back (…)`, `fight over: N kills, N hits taken,
+  max N from the anchor, N s`.
+- **REQ-CMB-8 The task runner and model calls.** [I1] `threat()` is
+  `self_defense` on ? `pick()` : null; the runner's resume check calls it
+  (REQ-RES-8). The fight itself makes no model call; as before, a fight that
+  cuts a non-resumable, non-quiet action gets the one AUTO MESSAGE after she is
+  back, and an active goal restarts with a call after its cooldown (counted in
+  the trials). `goToPlayer` and `stay` keep pausing `self_defense`
+  (upstream; the owner's question is open).
+- **REQ-CMB-9 Following him on the move.** [I1] Under the follow rules
+  (REQ-CMB-5) and with his entity loaded, `pick()` (the mode's update and every fight tick)
+  samples his position; the buffer is cleared when the followed entity changes
+  or unloads, and while the follow rules do not hold. His speed is the distance from
+  a sample 2.5–3.5 s old to the newest, over their time apart; with no such
+  sample, or none in the last second, it is unknown. He starts travelling at
+  `work.combat.travel_speed` or more and stops only after 3 s below half of
+  it (or unknown); 0 turns the rule off. While he travels `pick` admits no
+  ranged target and melee (any kind) only within 3; a running fight keeps its target
+  only if that still admits it, otherwise it ends through the follow skip; a
+  ranged target beyond 3 dropped so is ignored 10 s (a melee mob never). Logged once
+  per change: `[combat] owner travelling (N b/s): passing mobs`, `… stopped:
+  normal rules`. The rule ends at once when the follow rules no longer hold.
 
 ## 8. Plan mode and validation
 
@@ -3048,6 +3193,12 @@ About 13 tools in all.
 | `work.collect.placed_radius` | 8 | Radius of the complete search around where a collect started: the protected count of `!collectBlocks` (REQ-SAFE-12) and the candidates of `!collectPlaced` (REQ-SAFE-13); the search reads the whole cube, about 4.9 k block lookups at 8 (64 would cost about 2.1 M). A positive integer, else the default (logged). Ownblocks slice. | owner (2026-11-13); ownblocks design r4 |
 | `work.collect.question_s` | 120 | How long the mining question waits for his yes or no (REQ-SAFE-13). A positive integer, else the default (logged). Ownblocks slice. | ownblocks design r4 |
 | `work.sleep.max_mode_cuts` | 6 | protective-mode cuts (fights) a night allows before it is done; they are not among the 3 failed tries (REQ-SLP-7); anything but a positive integer means 6. S2d fix wave 1. | main-seat rulings r1 (#3 changed; P14: phantoms every night) |
+| `work.combat.ranged` | [] | The mobs engaged once they aggro (REQ-CMB-3); names unknown to the registry are logged and dropped at `Work.init`. Public default: none (no early engagement). The owner's profile: skeleton, stray, bogged, parched. Combat slice. | owner (2026-11-13); combat design r10 §7 |
+| `work.combat.ranged_radius` | 16 | How far from her a ranged mob is engaged (REQ-CMB-3). Combat slice. | combat design r10 §7 |
+| `work.combat.path_digs` | 3 | Digs an easy path may need, and a chase may make per target before it is given up (REQ-CMB-4, 7). Combat slice. | combat design r10 §7 |
+| `work.combat.give_up_s` | 15 | A target whose health has not dropped this long is given up, ignored 60 s (REQ-CMB-7); under `unstuck`'s 20 s. Combat slice. | combat design r10 §7 |
+| `work.combat.leash` | 16 | How far a fight may take her from its anchor, or from the player she follows (REQ-CMB-6); the owner: "an area [...] by default", the skeleton's range. Combat slice. | owner (2026-11-13) |
+| `work.combat.travel_speed` | 0 | Blocks/s at which the player she follows counts as travelling and she passes the mobs (REQ-CMB-9); 0 off (upstream fights while following). The owner's profile: 2. Combat slice. | owner (2026-11-13, "Following him on the move"); combat design r10 §7 |
 
 The four model keys are flat keys of the profile's `work` section, so the
 one-level merge never drops one of them; S2b adds them to the defaults in
@@ -3055,8 +3206,9 @@ one-level merge never drops one of them; S2b adds them to the defaults in
 `loadWorkConfig(profile.work)` itself and hands the timeout and retry count to
 the provider it builds (main-seat ruling, OQ-21).
 From S2c, `loadWorkConfig` merges object defaults one level deep (`work.clear`,
-`work.tidy`, from S2d `work.sleep`, from the ownblocks slice `work.collect`,
-whose two values are checked before the merge), so a profile that sets one sub-key keeps the
+`work.tidy`, from S2d `work.sleep`, from the ownblocks slice `work.collect`
+(whose two values are checked before the merge), from the combat slice `work.combat` (whose
+numbers `Combat` checks: a bad one is logged and its default used)), so a profile that sets one sub-key keeps the
 other defaults; other values still replace the default whole. From S2e,
 `work.inventory` merges `items` by item name (`mergeInventory`) and keeps the
 validation result as `inventory.error`. `work.junk_items` and `work.junk_keep`
@@ -3766,6 +3918,40 @@ Recorded, not built:
     way or the filled one drops from a full bag (adversary code r3, LOW);
   - learnability (does Qwen pick `!collectPlaced` first) and the model-call
     counts are expectations to measure in the live trial, not claims.
+- Combat (§7.10, REQ-CMB-1 … 9; combat design r10 §11), recorded, not built:
+  - the aggressive bit means "has a target", possibly the owner or a golem;
+    she engages anyway (it defends them);
+  - give-up reads health, so a skeleton losing health to sunlight or the
+    owner never triggers give-up while it lives;
+  - the `isClearPath` carry also changes the hunting, item_collecting and
+    cowardice gates of the public fork (off in the owner's profile);
+  - a goal's restart after a fight costs a model call (as before; counted in
+    the trials);
+  - travelling ends about 5.7 s after he stops, so a walk with pauses of
+    about 6 s still alternates (the live trial records it);
+  - while he travels, a creeper within 3 is fought rather than outrun (as
+    today);
+  - a follow written as code (`!newAction`) is not recognised as a follow and
+    gets the walk back;
+  - the fork's climb-through-trapdoor pathfinder move ignores `canOpenDoors`,
+    so a chase or a walk back can open (and leave open) a trapdoor; changing
+    it would change every path (existing fork behaviour);
+  - after a leash drop a creeper is fought only within 3, inside its fuse
+    range (invincible trials cannot judge it);
+  - a target that unloads and reloads with the same id and then dies counts
+    as two kills (the `fight over` log line only);
+  - the 3 s melee path cache keys on the mob's movement, not hers, so a wrong
+    blocked (or clear) verdict can last up to 3 s after she moves;
+  - a lasting fight error (a persistent equip failure) beside a mob that hit
+    her within 5 s retries every update for up to 5 s, each with its
+    "Fighting" line: the hit lifts the 10 s error ignore within 3;
+  - beyond the leash, a skeleton strafing between about 2.5 and 4 blocks can
+    make her alternate attack and walk-back per tick until it dies or leaves;
+  - a skeleton that just backed past 3 is dropped for one tick when a new
+    blocked mob appears nearer on that same tick;
+  - left out: hiding, bows, nether shooters (blazes and others), shields,
+    pillagers; `goToPlayer` keeps pausing `self_defense` (the owner's open
+    question).
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.
