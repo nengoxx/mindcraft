@@ -303,7 +303,8 @@ Why (details in RESEARCH.md):
 | `agent/work/dig.js` | The dig seam shared by the clear step, the tidy sweep, the bed pickup (S2d, `ownBed`) and S3's builder: `digCell` with its approach, occupancy check, safety check, tool and reason (REQ-CLR-6). | I1 (S2c) |
 | `agent/work/tidy.js` | The tidy sweep `tidyNear` and its triggers' launch checks (REQ-OWN-7 … 9). | I1 (S2c) |
 | `agent/work/sleep.js` | Sleeping through the night (§7.9): `Sleeper` with `next()` (when she sleeps, what sleep may cut), the `mode:sleeping` routine (spot, placement, sleep, the guarded wake), the bed pickup in the routine and as `action:bed` from `Work.tick`, the in-memory night record and collection receipt, the owner lines. | I1 (S2d) |
-| `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where; the best of a limited item stays), the dropper `dropItems` (facing over a one-block lip, the walk to a drop spot `findDropSpot`, the look fix, the hand off a held slot, per-slot tosses) and its re-pickup guard `isGuardedJunk`, `largestItems` (the kept note and the blocked report), and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. | I1 (S2e) |
+| `agent/work/inventory.js` | Inventory upkeep (REQ-OBT-11): the policy helpers (`keepOf`, the registry check), the planner `planRemoval` (slot operations: what, never where; the best of a limited item stays), the dropper `dropItems` (facing over a one-block lip, the walk to a drop spot `findDropSpot`, the look fix, the hand off a held slot, per-slot tosses) and its re-pickup guard `isGuardedJunk`, `largestItems` (the kept note and the blocked report), and `Upkeep`: the idle cleanup `action:items` from `Work.tick` (its two admissions, currency, holds), `!itemList` and the owner lines; its constants `INVENTORY`. The item list's merge lives in `config.js`. From the gear slice: the one-stack cap in `keepOf`, gear spares in the plan, the surplus allowance (`due`), the signature check before each toss. | I1 (S2e, gear) |
+| `agent/work/gear.js` | Gear (§9.5, REQ-GEAR-1): reading an item's own values (attack, mining rules, armour, unbreakable, enchantments) with the vanilla table as fallback; the ranking per kind and the spares (`assess`, `spares`, `giveOrder`); using the best: `equipWeapon`, the block chooser `chooseFor`/`equipForBlock` with the silk rule, the armour controller `equipAll`, the dig-time and harvest checks; `install(bot)`, which takes over the plugins' tool, armour and swing-timer members. | I1 (gear) |
 | `agent/model_outage.js` | Outage state shared by the prompter, the coder and the self-prompter: `down`, `up`, `isDown`, waiting; one owner notice per outage and one on recovery (REQ-RES-17). Created in the agent init carry. | I1 (S2b) |
 | `agent/work/resolve.js` | Obtain resolver (§9): surface items (I1); mine and smelt nodes (I5). | I1, I5 |
 | `agent/work/protect.js` | Protection predicate, tree test, placement ledger (S2; from S2c it reads `ledger.js` by kind and the active clear box's scope; from S2c-fu the component guard for old scaffold, REQ-OWN-4), the `Movements.prototype.safeToBreak` patch with the forced hazard flags, the SIGINT `clean_stop` handler. | I1 |
@@ -341,8 +342,8 @@ that needs it, as a test script or a short owner-agreed check (PLAN §4).
 | `agent/commands/index.js` | I1: register the work commands. I2: export the command list for the adapter. | fork carry | I1, I2 |
 | `agent/history.js` | `memory_max_chars` replaces the literal 500 (:44-45). I1 (S2b): the self-prompter's `outage` flag is saved with its state (:115-118). | fork carry | I1 |
 | `agent/npc/build_goal.js` | I1: cell classes, the patched `safeToBreak` at dig and replace, both door cells, dig order, face-aware placement, re-read, deferral of cells a player occupies. I3: ladder cells, suffix parsing, access before upper work. | existing fork carry | I1, I3 |
-| `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). | fork carry | I1 |
-| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
+| `utils/mcdata.js` | I1: `isHostile` also excludes `allay` and `copper_golem`, beside the iron and snow golems (owner ruling 2026-11-08, probe P11). I1 (S2c-fu): in `initBot`, beside the "[mcdata] Logged in" line (:97-102), listeners on the client's `login` and `respawn` packets keep `worldState.hashedSeed` as `bot.game.hashedSeed`, the ledger's world (REQ-OWN-1). I1 (gear): `initBot` loads `mineflayer-tool` itself, before collectblock, and the gear plugin (`work/gear.js` `install`) last; `mineflayer-armor-manager` is no longer loaded or a dependency (REQ-GEAR-1). | fork carry | I1 |
+| `agent/library/skills.js` | I1 (S2): `placeBlock` refuses to break a protected block in its way (:744) or to remove one as `air` (:660), and `tillAndSow` to break a protected block above the soil (:1654), through the work module's protection predicate (REQ-SAFE-3). I1 (S2b): `goToGoal(bot, goal, configure = null)` applies `configure` to both of its `Movements` instances, so callers' movement settings survive (today they are discarded). I1 (S2e-fu): the stuck-door helper `startDoorInterval` opens nothing while the active movements have `canOpenDoors === false` (the item walks). I1 (S3): door yaw positioning; post-place re-read. I1: `pickupNearbyItems` skips item entities of a name dropped at a recorded drop point within 3 blocks of it (per name and dimension from S2e, `work/inventory.js` `isGuardedJunk`; REQ-OBT-11). I1 (gear, REQ-GEAR-1): `attackEntity` and `defendSelf` equip through `gear.equipWeapon` (`equipHighestAttack` and `hasSilkTouch` removed); `collectBlock` sets the gear intent (`wanted`) around its collection (try/finally), refuses with "Only a silk-touch tool can mine …" when only a silk tool would change the drop, and binds the harvest check of the target block object to the held instance (`gear.bindHarvest`); the harvest checks in `breakBlockAt` and `goToPosition` use `gear.canHarvest`; `giveToPlayer` tosses exact slots (`tossToGive`: of a gear name the spares first, the kept best last); `craftRecipe` keeps its `bot.armorManager.equipAll()` call, now the gear plugin's. I5: `smeltItem` uses only a furnace with empty slots and takes back only what it put in (REQ-OBT-6). | existing fork carry | I1, I5 |
 
 Estimated I1 total: 4 upstream core files plus 2 existing fork carries, about
 80–110 lines (D4 §12; the builder and placement extensions are counted with the
@@ -366,7 +367,15 @@ those slices (PLAN §3). These hooks need no core edit:
   records the action on the turn it starts in, and the `handleMessage` wrap
   counts every turn in flight (the item cleanup's admission, REQ-OBT-11);
 - the provider's `outcome` seam in our own `models/openai_tools.js`; upstream
-  `gpt.js` is unchanged (REQ-RES-17).
+  `gpt.js` is unchanged (REQ-RES-17);
+- the gear plugin's member replacements at load (`work/gear.js` `install`,
+  REQ-GEAR-1): `bot.tool.equipForBlock` and `bot.tool.getDigTime`,
+  `bot.pathfinder.bestHarvestTool` (falling back to the original on an
+  error), `bot.pvp.meleeAttackRate`, `bot.armorManager` and its
+  `playerCollect` and `windowClose` listeners. Each replaced method (and
+  `meleeAttackRate.getTicks`) is checked first: a missing one is a console
+  "[gear] STARTUP ERROR: <member> is missing" line naming it, never a throw,
+  and that member stays as it was.
 
 Tell A (REQ-OWN-3) depends on one line of Mindcraft's pathfinder patch file
 (the predicted `setBlockStateId(dest, 1)` written before `bot.placeBlock`). It
@@ -1446,7 +1455,8 @@ owner lines are `alert`s).
       follow moves her anyway). Only this label is cut; any other running action blocks. The turn that started the
       follow stays open while it runs, so the turn count ignores the one turn
       whose recorded action is the running follow.
-    Both need: removal enabled and free slots below `work.min_free_slots`, a
+    Both need: removal enabled and free slots below `work.min_free_slots`
+    (or, with `surplus_slots` set, a plan that is due: the gear slice below), a
     non-empty plan (an empty one is remembered per inventory and task state
     for at most 5 minutes, so a bag of kept items is not re-planned every
     second) and a free direction to drop into or, idle, a drop spot to walk
@@ -1483,6 +1493,70 @@ owner lines are `alert`s).
     why, and the last pass ("dropped 86 rotten_flesh, 41 gravel, 3 min ago").
     The list is edited in the profile; a full operator Stop/Start reloads it
     (main.js reads every profile file at start).
+  - **The gear slice: the cap, gear, the surplus allowance, a finished task's
+    goods, giving.** [I1] Owner rulings: DECISIONS 2026-11-12 (night) "The
+    owner's gear and a one-stack cap" and 2026-11-13 "The gear slice"; design
+    `runtime/diagnostics/i1-build/gear/recommended-design.md` r5 §5–§6. Four
+    keys under `work.inventory` (§14); the public defaults keep today's
+    behaviour, the private profile turns each on.
+    - *The cap* (`cap`: `"all"` | `"stack"`). Under `"stack"`, for every item
+      whose registry stack size is above 1, `keepOf` returns the smaller of
+      its list value and one stack: `"all"` and unlisted become one stack, a
+      larger count is capped, `0`, a lower count and `"slot"` stay ("Yes
+      gunpowder is also capped, lets cap all items for now"). Non-stackables
+      are outside it. `!itemList` shows the effective values.
+    - *Gear* (`gear`: `"all"` | `"best"`). Under `"best"` the gear spares
+      (REQ-GEAR-1: every item of a ranked kind but the kept best of each)
+      may go, whole slots, lowest rank first; never a needed name, never a
+      worn piece (no source), never an unreadable item; a listed gear name
+      follows its list value, and which of its instances stay goes by the
+      gear rank (`gear.gearRank`: a sword by the weapon key, any other kind,
+      an axe too, by its own kind's key; an unreadable one by its vanilla
+      values),
+      never by the enchantment count (gear rulings r1, 4), in the counted
+      and `"slot"` paths alike.
+    - *Planner order:* tier-0 stacks, then gear spares, then the counted and
+      slot items as before (with the cap). Every operation carries the item's
+      component signature (`gear.signature`, without wear), and the
+      dropper's re-check before a toss requires it, so a swap between the
+      plan and the toss never throws away another same-name item. Upkeep's
+      inventory signature (the empty-plan memory, the holds) adds the held
+      slot and each slot's component signature.
+    - *The surplus allowance* (`surplus_slots`: `null` | an integer). A plan
+      is due when it is not empty and free slots are below
+      `min_free_slots`, or `surplus_slots` is an integer and the plan's
+      `freed` (every whole slot it empties: junk, gear spares, whole extra
+      stacks, a `"slot"` item's extra slots; one shared count, junk
+      included, owner 2026-11-13) is above it. The idle and follow cleanup
+      (`wanted()`) is also wanted with an allowance set; a plan that is not
+      due is remembered as the empty plan is (5 minutes); a pass re-plans
+      and drops nothing unless still due, and the re-plan after a walk is
+      empty when no longer due. A pass drops the whole plan: the third
+      surplus slot sends all surplus. The kept tell fires only below
+      `min_free_slots`. The runner's drop in a task is unchanged.
+    - *A finished task's goods.* `work.neededItems()` also holds the last done
+      task's `obtain` items (`step.args.item`, not intermediates or tools)
+      until `done_keep_min` minutes (30) after `done_at`, which `finishDone`
+      stamps once (later saves move `updated_at`, never `done_at`; a done
+      record saved before the build protects nothing), or until the next
+      task. Requested gear she keeps unused goes as a spare afterwards.
+    - *Giving* ("by default, she would just give me the one she has"):
+      `skills.giveToPlayer` (the `give` step and `!givePlayer`) tosses exact
+      slots; of a gear name her spares first, lowest gear rank first (an
+      axe by its tool key, as `gear.gearRank`), the kept best last; any other
+      item by type, as before. Nothing is given while an item is on the
+      cursor or a container is open (the toss would take the cursor item, or
+      act on the open window): she says "I can't give X right now: …"; this
+      is checked again before each slot, and a slot whose instance changed
+      since the order was made is skipped (gear rulings r1, 1). She crafts a
+      new one only when asked; the resolver still makes the tools a task
+      needs.
+    - *`!itemList`* opens with the cap and gear rules ("Item list (one stack at
+      most of anything that stacks, listed or not; …; of gear only the best
+      of each kind)"), then "Best gear:" per kind the kept item and why
+      ("weapon iron_axe: unbreakable, score 23.6") and "Spares that go: …";
+      the free-slot line adds "or when more than 2 slots hold spares, extra
+      stacks or junk (now M)".
   - **Gifts.** An item the owner hands her that is on the 0 list is dropped at
     the next pass when she is nearly full; the cure is `"all"` or a count for
     that item.
@@ -1493,6 +1567,72 @@ owner lines are `alert`s).
 - **REQ-OBT-12** (retired: merged into resolver failure, REQ-OBT-1. Nether, End,
   trade-only, structure-loot and animal-only items get "no method for X in this
   version".)
+
+### 9.5 Gear
+
+- **REQ-GEAR-1 She uses the best gear she holds, by the item's own values.**
+  [I1] Owner rulings: DECISIONS 2026-11-12 (night) "The owner's gear and a
+  one-stack cap" (the real values decide; unbreakable first for weapons and
+  armour; tools by capability first; the silk nuance stays; picked-up armour
+  never replaces his) and 2026-11-13 (the design approved). Design:
+  `runtime/diagnostics/i1-build/gear/recommended-design.md` r5 §1–§4, probe
+  P17. Module `work/gear.js`, a Mineflayer plugin loaded last (§5.3), no model
+  call. Equipping the best is always on; what she keeps of gear is REQ-OBT-11
+  (`gear`).
+  - **Reading.** `unbreakable` is the component (the Unbreaking enchantment
+    never counts); enchantments from `item.enchants`; attack damage and speed
+    from the `attribute_modifiers` component (entries resolved through
+    `bot.registry.attributesArray`, the main-hand slot group; a present
+    component replaces the vanilla modifiers, a removed one leaves none, an
+    absent one uses the vanilla table in code, with player bases damage 1 and
+    speed 4); armour and toughness likewise per armour slot. Mining from the
+    `tool` component's rules (speed, `correctDropForBlocks`), else the
+    registry materials; a block's tags are its material split on `;`, with
+    `mineable/pickaxe` added for an `incorrect_for_*` material (the 26.1
+    bridge), and the `incorrect_for_<tier>_tool` tags derived from the
+    registry. A rule naming any other tag makes the item unreadable: kept,
+    and ranked by vanilla values. Readings are cached per item object.
+  - **Ranking**, key by key, ties to the held or worn item, then the lowest
+    slot. Melee weapon (swords and axes): unbreakable · `damage × 20 /
+    interval` · damage · durability left, where damage adds Sharpness (0.5 ×
+    level + 0.5) and `interval = max(10, ceil(20 / speed)) + 1` ticks (the
+    10-tick hurt cooldown, P17); an item with a non-positive or non-finite
+    speed is never wielded. Armour per slot: unbreakable · armour ·
+    toughness · Protection · durability left. Tools per kind (pickaxe, axe,
+    shovel, hoe): reach (how many tool-requiring blocks it harvests) · no
+    silk touch · unbreakable · speed on the kind's reference block (stone, oak
+    log, dirt, hay block) · durability left. The owner's copy pickaxe reaches
+    403 blocks, as a diamond one, and mines stone at 35.
+  - **Using.** Fights: `gear.equipWeapon` (the best melee weapon; with none
+    the best-scoring other item); PVP's swing counter is `interval − 1`, so
+    she swings every 11 ticks with his axe or the bare hand, 14 with a sword.
+    Digging: `bot.tool.equipForBlock` (also collectblock's re-equip and
+    `dig.js`) picks, for one block: harvests it · no silk touch where it
+    changes the drop, unless the block itself is wanted (the collection's
+    intent) · dig ticks · unbreakable · already held · lowest slot; the bare
+    hand only while an empty slot exists (re-checked right before
+    unequipping: with a full bag an unequip tosses the held stack). The
+    pathfinder's `bestHarvestTool` is the fastest item among those that
+    harvest the block when any does, else the fastest item (no silk rule, no
+    intent, no bare hand, as upstream; gear rulings r1, 2). Armour: her own controller in place of
+    mineflayer-armor-manager: per slot the bag piece only when it ranks
+    strictly higher than the worn one, that very instance; the off-hand by
+    upstream's rule (a totem over a shield); after her own pickups of armour
+    and on `craftRecipe`; never while a container window is open, an item is
+    on the cursor or an item drop holds the slots (again on `windowClose` and
+    when the hold ends); it never rejects. His unbreakable pieces cannot be
+    outranked by a breakable one.
+  - **The silk rule** (moved from `skills.js`): `collectBlock` sets the
+    intent and refuses "Only a silk-touch tool can mine …" when only a silk
+    tool would change the drop. Harvest checks in `collectBlock`,
+    `breakBlockAt`, `goToPosition` and `dig.js` read the held item's
+    components; `collectBlock` binds the target block object's `canHarvest`
+    to the held instance, so collectblock's own check and dig wait accept the
+    copy on obsidian.
+  - **The resolver** (`resolve.js` `ownHarvester`): a tool demand is met by a
+    bag item that harvests the block by its components; `tier_req` names
+    the item she would dig with (obsidian with the copy demands no diamond
+    pickaxe).
 
 ## 10. Find and explore
 
@@ -2787,6 +2927,10 @@ About 13 tools in all.
 | `work.min_free_slots` | 4 | Below this many free inventory slots she drops the item list's surplus: before a step that needs free slots, and when idle or following (REQ-OBT-11). | W3b (owner); S2e (owner, 2026-11-11) |
 | `work.inventory.items` | `0`: rotten_flesh, spider_eye, gravel, leaf_litter, cobbled_deepslate, andesite, diorite, granite, tuff, netherrack, wheat_seeds; `1`: bow, crossbow; `"stack"`: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal; `"slot"`: ominous_bottle, the 16 `<color>_banner`s; `"all"`: gunpowder | Per item name how many she keeps (`0`, a count, `"stack"`, `"slot"` (the best stack's slot) or `"all"`); unlisted items are kept; of a limited item the best stays (REQ-OBT-11). Merged by item name over the defaults; a bad structure, value or name turns automatic removal off, told once (REQ-OBT-11). A new default needs the owner's approval. S2e; bow, crossbow, ominous_bottle and the banners S2e-fu. | W3b (owner); owner (2026-11-11, 2026-11-12); junk council r7 |
 | `work.inventory.idle` | true | The idle cleanup (`action:items`) on or off; tasks use the list either way (REQ-OBT-11). S2e. | owner (2026-11-11); junk council r7 |
+| `work.inventory.gear` | `"all"` | `"best"`: of each gear kind only the best stays, the spares may go (REQ-OBT-11, REQ-GEAR-1); `"all"`: gear is kept as before. The private profile sets `"best"`. Gear slice. | owner (2026-11-12 night); gear design r5 |
+| `work.inventory.cap` | `"all"` | `"stack"`: every stackable item keeps at most one stack, listed `"all"` included; `"all"`: the list alone (REQ-OBT-11). The private profile sets `"stack"`. Gear slice. | owner (2026-11-12 night); gear design r5 |
+| `work.inventory.surplus_slots` | null | An integer: when the plan would empty more slots than this (junk, gear spares, extra stacks), a cleanup is due even with free slots to spare; null: only below `min_free_slots` (REQ-OBT-11). The private profile sets 2. Gear slice. | owner (2026-11-12 night, 2026-11-13); gear design r5 |
+| `work.inventory.done_keep_min` | 30 | Minutes after a task finishes that its `obtain` items stay protected, even over the cap (REQ-OBT-11); 0: none. Gear slice. | owner (2026-11-13); gear design r5 |
 | `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
 | `work.model_timeout_s` | 600 | OpenAI client timeout (REQ-RES-17). S2b. | clear council; main-seat ruling R7 (2026-11-11) |
 | `work.model_max_retries` | 2 | OpenAI client retries of every call except decisions, which pass 0 per request because `promptConvo` retries them: one retry owner per call (REQ-RES-17). S2b. | clear council; main-seat ruling R8 (2026-11-11) |
@@ -2826,7 +2970,10 @@ quiet, 30 s between passes, 3 s resume gap, 5-minute and 8-block retry of a
 pass that removed nothing, 10-minute `!stop` hold, the cap of 4 passes in 10
 minutes and its 10-minute hold, and the five kept items named; from S2e-fu
 the one-block lip (`lipHeight`, P16), the 5-block walk radius (`walkRadius`;
-1 below to 3 above her feet) and the 15 s walk bound (`walkMs`); the resume check's hostile radius 8 (the same as
+1 below to 3 above her feet) and the 15 s walk bound (`walkMs`); from the gear
+slice (`work/gear.js`, game facts) the vanilla attack and armour table, the
+10-tick hurt cooldown, the tool kinds' reference blocks and the 100 ms delay
+before the armour check after a pickup; the resume check's hostile radius 8 (the same as
 `self_defense`); the task view cap of 700 characters; the step result cap of 160
 characters; the DSL cap of 1,000 characters; the scaffold block (dirt) and the
 scaffold reserve (4 per 5-level lift above the first). From S2b: the outage
@@ -3426,6 +3573,50 @@ Recorded, not built:
     `!goToBed` stays for those, with its `!stop` defect in ISSUES), fetching a
     bed left far away (the owner is told), daytime thunderstorms, restoring the
     respawn point.
+- The gear slice (REQ-GEAR-1, REQ-OBT-11; gear design r5 §9), recorded, not
+  built:
+  - a held shield's attack delay adds about 5 ticks to every weapon's swing
+    alike; armour equips are not guarded against a running 2×2 craft;
+  - a custom tool slower than its material can get a too-short dig wait
+    through the block-object override;
+  - path digs (the pathfinder's own digging) ignore the silk rule, as
+    upstream: with a silk tool held, a path through stone or grass yields
+    stone or grass;
+  - where the block-object override does not apply (`dig.js`, `breakBlockAt`,
+    the pathfinder's own digs) the native `bot.digTime` waits about 3.5×
+    longer than needed on the 5 diamond-only blocks with the copy (in the
+    collect path 47 ticks against 43); pathfinder cost ignores components;
+  - the copper values are vanilla knowledge (P17 had no copper item; the hurt
+    cooldown is confirmed on one run); the derived tags cover the vanilla
+    mining tags only (`mineable/*`, `incorrect_for_*`);
+  - the off-hand stack is outside the cap count; dropping a same-name spare
+    makes `pickupNearbyItems` skip that name near the drop point for 5
+    minutes;
+  - frequent junk (path digs, mob drops) can start more passes, each cutting a
+    follow for about a second; the existing cap holds the cleanup 10 minutes
+    after 4 passes in 10 minutes (owner accepted, 2026-11-13);
+  - left out: Smite and Bane, situational picks (Fire Aspect, Looting,
+    Fortune), Protection's exact formula, elytra, bows' unbreakable priority,
+    server tags, chest storage (part B);
+  - (code review r1, Sol 3) a tool demand falls back to the registry's tool
+    names when no bag item harvests the block, so a held tool of that name
+    whose `tool` component was removed counts as the tool, and the collection
+    then refuses; no such item is on the owner's deployment;
+  - (code review r1, adversary G1) an unbreakable armour piece that outranks
+    his replaces it, and his then goes as a spare under `gear: "best"`; only
+    he can give her unbreakable pieces. Pending the owner's answer (the
+    ruling "picked-up armour must never replace his" was made with
+    breakable pickups in mind);
+  - (code review r1, adversary G4) on a hardness-0 block (short grass, a torch)
+    every item digs in 0 ticks, so `unbreakable` decides before `held` and she
+    swaps her hand to an unbreakable tool for each such dig;
+  - (code review r1, adversary G5) `!itemList` under `gear: "best"` with
+    `surplus_slots` null lists "Spares that go" although they go only below
+    `min_free_slots` (the public defaults set no `"best"`);
+  - (code review r1, adversary C20) `equipWeapon`'s fallback ranks by score,
+    and wooden and golden hoes score below the bare hand, so with only such a
+    hoe she fights worse than barehanded; the fallback is never reached while
+    she holds a melee weapon.
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.

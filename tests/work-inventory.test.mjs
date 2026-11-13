@@ -182,7 +182,7 @@ test('the planner never takes a needed item, an unlisted or an "all" item; the s
 
 // --- the dropper (design §3) -------------------------------------------------------------------
 
-const op = (bot, slot) => { const s = bot.inventory.slots[slot]; return { slot, name: s.name, count: s.count, have: s.count, whole: true }; };
+const op = (bot, slot) => { const s = bot.inventory.slots[slot]; return { slot, name: s.name, count: s.count, have: s.count, whole: true, sig: F.modules.gear.signature(s) }; };
 
 test('the dropper re-checks each slot before its toss: a grown tier-0 stack goes whole, a changed limited stack or another item is skipped', async () => {
     const bot = slotted([[9, 'rotten_flesh', 55], [10, 'dirt', 64], [11, 'dirt', 30], [12, 'gravel', 10]]);
@@ -647,7 +647,7 @@ test('!itemList shows the list by tier with what she holds, her free slots, the 
     const agent = setup({ drive: false });
     const items = agent.work.items;
     const before = await F.modules.commands.executeCommand(agent, '!itemList');
-    assert.match(before, /^Item list \(anything not listed I keep\): Drop all: rotten_flesh 128, spider_eye, gravel 41, /);
+    assert.match(before, /^Item list \(anything not listed I keep; all my gear, and I use the best\): Drop all: rotten_flesh 128, spider_eye, gravel 41, /);
     assert.match(before, /Keep 1: bow, crossbow\. Keep 1 slot: ominous_bottle, white_banner, orange_banner, (\w+_banner, ){13}black_banner\. /);
     assert.match(before, /Keep 64: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal\. Keep all: gunpowder\./);
     assert.match(before, /2 free slots; I clean up below 4\. Idle cleanup: on\. No pass yet\.$/);
@@ -719,7 +719,11 @@ test('R1-4: the empty-plan memory keys on the inventory and the task state and e
     bot.take(FILLER, 64 * 2);
     assert.equal(items.admit(), null, 'a bag of kept planks');
     assert.ok(items.emptyKey);
-    bot.quickBarSlot = 1;   // the selection is no part of the plan any more (S2e-fu §1)
+    const first = items.emptyKey.key;
+    // The held slot is part of the key (gear design r5 §5; gear Sol review r1, 7): planned again, still empty.
+    bot.quickBarSlot = 1;
+    assert.equal(items.admit(), null);
+    assert.notEqual(items.emptyKey.key, first);
     assert.equal(items.admit(), null, 'remembered');
     agent.work.config.inventory.items[FILLER] = 0;   // a change the key does not see
     assert.equal(items.admit(), null);
@@ -1211,4 +1215,267 @@ test('S2e-fu §4: the best one stays: of five bows the least worn, of four cross
     const odd = slotted([tool(9, 'bow', 10), tool(10, 'bow', 300)]);
     Object.defineProperty(odd.inventory.slots[9], 'enchants', { get() { throw new Error('bad component'); } });
     assert.deepEqual(I.planRemoval(odd, policyOf()).map(o => o.slot), [10]);
+});
+
+// --- the gear slice (gear design r5 §5, §6; DECISIONS 2026-11-12 (night), 2026-11-13) -----------
+
+const G = F.modules.gear;
+const GEAR = F.OWNER_GEAR;
+// Real items (prismarine-item, as Mineflayer makes them) in exact slots.
+function gearBag(entries) {
+    const bot = F.makeBot();
+    for (const [slot, item] of entries) bot.inventory.slots[slot] = item;
+    bot.heldItem = bot.inventory.slots[36] ?? null;
+    return bot;
+}
+const stacks = (name, ...counts) => counts.map(count => F.realItem(name, [], { count }));
+// Her bag on 2026-11-13 (P17): his axe and the copy, her placeholder diamond
+// pickaxe and axe, her diamond sword; his leather chestplate, leggings and boots worn.
+const herBag = () => gearBag([[37, GEAR.axe()], [43, GEAR.copy()], [20, GEAR.herPickaxe()], [21, GEAR.herAxe()], [22, F.realItem('diamond_sword')],
+    [6, GEAR.chest()], [7, GEAR.legs()], [8, GEAR.feet()], [9, F.realItem('oak_planks', [], { count: 64 })]]);
+const best = (work = {}) => policyOf({ inventory: { gear: 'best', ...work } });
+
+test('gear "best": her bag drops exactly the diamond pickaxe, diamond axe and diamond sword; "all" drops nothing', () => {
+    const bot = herBag();
+    const plan = I.planRemoval(bot, best());
+    assert.deepEqual(ops(plan), [[20, 'diamond_pickaxe', 1], [21, 'diamond_axe', 1], [22, 'diamond_sword', 1]]);
+    assert.equal(plan.freed, 3, 'each spare frees its slot');
+    assert.ok(plan.every(o => o.sig === G.signature(bot.inventory.slots[o.slot])));
+    assert.deepEqual(ops(I.planRemoval(bot, policyOf())), [], 'the public default keeps all gear');
+    // After the tier-0 stacks, before the counted items.
+    bot.inventory.slots[10] = F.realItem('rotten_flesh', [], { count: 3 });
+    bot.inventory.slots[11] = F.realItem('dirt', [], { count: 64 });
+    bot.inventory.slots[12] = F.realItem('dirt', [], { count: 5 });
+    assert.deepEqual(ops(I.planRemoval(bot, best())).map(o => o[1]), ['rotten_flesh', 'diamond_pickaxe', 'diamond_axe', 'diamond_sword', 'dirt']);
+    // Picked-up armour beside his worn pieces is a spare; a worn piece is never a source.
+    const armour = gearBag([[6, GEAR.chest()], [9, F.realItem('netherite_chestplate')], [10, F.realItem('iron_boots')]]);
+    assert.deepEqual(ops(I.planRemoval(armour, best())), [[9, 'netherite_chestplate', 1]], 'the iron boots are her best feet piece (none worn)');
+});
+
+test('gear "best" protects needed names, listed names (the list decides) and unreadable items', () => {
+    assert.deepEqual(ops(I.planRemoval(herBag(), best(), { needed: new Set(['diamond_pickaxe']) })).map(o => o[1]), ['diamond_axe', 'diamond_sword']);
+    assert.deepEqual(ops(I.planRemoval(herBag(), best({ items: { diamond_sword: 1 } }))).map(o => o[1]), ['diamond_pickaxe', 'diamond_axe']);
+    assert.deepEqual(ops(I.planRemoval(herBag(), best({ items: { diamond_sword: 0 } }))).map(o => o[1]), ['diamond_sword', 'diamond_pickaxe', 'diamond_axe'],
+        'listed 0: junk, first');
+    const odd = herBag();
+    odd.inventory.slots[21] = F.realItem('diamond_axe', [{ type: 'tool', data: { rules: [{ blocks: { name: 'minecraft:needs_magic' }, speed: 50 }],
+        defaultMiningSpeed: 1, damagePerBlock: 1, canDestroyBlocksInCreative: true } }]);
+    assert.deepEqual(ops(I.planRemoval(odd, best())).map(o => o[1]), ['diamond_pickaxe', 'diamond_sword'], 'an unreadable item is kept');
+});
+
+test('the cap "stack": every stackable at most one stack, "all" and unlisted included; a lower count, 0 and "slot" stay; non-stackables outside', () => {
+    const cap = (work = {}) => policyOf({ inventory: { cap: 'stack', ...work } });
+    const bot = F.makeBot();
+    assert.equal(I.keepOf(bot, cap(), 'gunpowder'), 64, '"all" becomes one stack (DECISIONS 2026-11-12 night: "gunpowder is also capped")');
+    assert.equal(I.keepOf(bot, cap(), 'oak_log'), 64, 'unlisted: one stack');
+    assert.equal(I.keepOf(bot, cap(), 'ender_pearl'), 16, 'its own stack size');
+    assert.equal(I.keepOf(bot, cap({ items: { bone: 100 } }), 'bone'), 64, 'a count above a stack is capped');
+    assert.equal(I.keepOf(bot, cap({ items: { bone: 10 } }), 'bone'), 10);
+    assert.equal(I.keepOf(bot, cap(), 'rotten_flesh'), 0);
+    assert.equal(I.keepOf(bot, cap(), 'ominous_bottle'), 'slot');
+    assert.equal(I.keepOf(bot, cap(), 'diamond_pickaxe'), undefined, 'a non-stackable stays outside');
+    assert.equal(I.keepOf(bot, cap(), 'bow'), 1);
+    assert.equal(I.keepOf(bot, cap(), 'white_bed'), undefined);
+    assert.equal(I.keepOf(bot, policyOf(), 'gunpowder'), Infinity, 'cap "all": the list alone');
+    assert.equal(I.keepOf(bot, policyOf(), 'oak_log'), undefined);
+    const bag = gearBag([...stacks('gunpowder', 64, 30).map((s, i) => [9 + i, s]), ...stacks('oak_log', 64, 64, 10).map((s, i) => [11 + i, s]),
+        [14, F.realItem('ender_pearl', [], { count: 16 })], [15, F.realItem('ender_pearl', [], { count: 5 })], [16, F.realItem('white_bed')], [17, F.realItem('white_bed')]]);
+    assert.deepEqual(ops(I.planRemoval(bag, cap())), [[10, 'gunpowder', 30], [13, 'oak_log', 10], [11, 'oak_log', 64], [15, 'ender_pearl', 5]]);
+    assert.deepEqual(ops(I.planRemoval(bag, policyOf())), [], 'the public default');
+    assert.match(policyOf({ inventory: { cap: 'one' } }).error, /^cap: "one"$/);
+});
+
+test('config: gear, cap, surplus_slots and done_keep_min are checked; a bad value turns removal off; the public defaults', () => {
+    const base = policyOf();
+    assert.deepEqual([base.gear, base.cap, base.surplus_slots, base.done_keep_min], ['all', 'all', null, 30]);
+    assert.deepEqual(C.WORK_DEFAULTS.inventory.gear, 'all');
+    const set = policyOf({ inventory: { gear: 'best', cap: 'stack', surplus_slots: 2, done_keep_min: 0 } });
+    assert.deepEqual([set.error, set.gear, set.cap, set.surplus_slots, set.done_keep_min], [null, 'best', 'stack', 2, 0]);
+    assert.equal(policyOf({ inventory: { surplus_slots: null } }).error, null);
+    for (const [key, value] of [['gear', 'some'], ['gear', true], ['cap', 'slot'], ['cap', 64], ['surplus_slots', -1], ['surplus_slots', 1.5], ['surplus_slots', '2'],
+        ['done_keep_min', null], ['done_keep_min', -5], ['done_keep_min', 2.5]]) {
+        const p = policyOf({ inventory: { [key]: value } });
+        assert.equal(p.error, `${key}: ${JSON.stringify(value)}`, `${key} ${JSON.stringify(value)}`);
+        assert.equal(I.removalEnabled(p), false);
+    }
+    assert.equal(policyOf({ inventory: { constructor: 'x' } }).error, null, 'an inherited name is an unknown sub-key, only logged');
+});
+
+test('fix wave 1, 4 (adversary G2): a listed gear name keeps by its gear rank, counted or "slot", never by enchantment count', () => {
+    // A plain iron axe with 17 enchantment levels against his (15 levels, unbreakable).
+    const plain = () => F.realItem('iron_axe', [{ type: 'enchantments', data: { enchantments: [
+        { id: 33, level: 5 }, { id: 8, level: 5 }, { id: 18, level: 3 }, { id: 23, level: 1 }, { id: 40, level: 3 }] } }]);
+    const bag = () => gearBag([[37, GEAR.axe()], [20, plain()]]);
+    assert.deepEqual(ops(I.planRemoval(bag(), policyOf({ inventory: { items: { iron_axe: 1 } } }))), [[20, 'iron_axe', 1]], 'counted: his axe stays');
+    assert.deepEqual(ops(I.planRemoval(bag(), policyOf({ inventory: { items: { iron_axe: 'slot' } } }))), [[20, 'iron_axe', 1]], '"slot": his axe stays');
+    // A swapped bag (his axe in the higher slot) changes nothing.
+    const swapped = gearBag([[20, GEAR.axe()], [37, plain()]]);
+    assert.deepEqual(ops(I.planRemoval(swapped, policyOf({ inventory: { items: { iron_axe: 1 } } }))), [[37, 'iron_axe', 1]]);
+    // Not gear: bows keep the S2e-fu worth (the least worn stays).
+    const bows = gearBag([[9, F.realItem('bow', [{ type: 'damage', data: 300 }])], [10, F.realItem('bow', [{ type: 'damage', data: 10 }])]]);
+    assert.deepEqual(ops(I.planRemoval(bows, policyOf())), [[9, 'bow', 1]]);
+});
+
+test('fix wave 1, 5 (adversary G3, Mq): the dropper holds the slots against armour equips and releases them, also after a failed toss', async () => {
+    for (const fail of [false, true]) {
+        const bot = gearBag([[9, F.realItem('rotten_flesh', [], { count: 5 })], [10, F.realItem('iron_helmet')]]);
+        const equips = [];
+        bot.equip = async (item, dest) => { equips.push([item.name, dest]); };
+        let during = null;
+        const transfer = bot.transfer;
+        bot.transfer = async args => {
+            during ??= G.equipAll(bot);
+            if (fail) throw new Error('fixture: the click failed');
+            return transfer(args);
+        };
+        const result = await I.dropItems(bot, I.planRemoval(bot, policyOf()));
+        assert.equal(result.outcome, fail ? 'failed' : 'done');
+        assert.equal(await during, false, 'no equip while the drop runs');
+        assert.equal(await G.equipAll(bot), true, 'released afterwards');
+        assert.deepEqual(equips, [['iron_helmet', 'head']]);
+    }
+});
+
+test('the dropper skips a slot whose item changed its component signature (no toss of the wrong same-name item after a swap)', async () => {
+    const bot = herBag();
+    const plan = I.planRemoval(bot, best());
+    bot.inventory.slots[20] = F.realItem('diamond_pickaxe');   // another diamond pickaxe now (an equip swap)
+    const result = await I.dropItems(bot, plan);
+    assert.deepEqual(result.removed, { diamond_axe: 1, diamond_sword: 1 });
+    assert.equal(bot.inventory.slots[20].name, 'diamond_pickaxe');
+    // Wear alone is no change.
+    const worn = herBag();
+    const again = I.planRemoval(worn, best());
+    worn.inventory.slots[21] = F.realItem('diamond_axe', [...worn.inventory.slots[21].components, { type: 'damage', data: 9 }]);
+    assert.deepEqual((await I.dropItems(worn, again)).removed, { diamond_pickaxe: 1, diamond_axe: 1, diamond_sword: 1 });
+});
+
+test('due: a plan that is not empty, with free slots below min_free_slots or more slots to free than surplus_slots', () => {
+    const agent = setup({ inventory: {}, free: 10, drive: false, work: { inventory: { surplus_slots: 2 } } });
+    const items = agent.work.items;
+    const plan = freed => Object.assign(new Array(Math.max(1, freed)).fill({}), { freed });
+    assert.equal(items.due(Object.assign([], { freed: 5 })), false, 'an empty plan never');
+    assert.equal(items.due(plan(2)), false, 'at the allowance');
+    assert.equal(items.due(plan(3)), true, 'one more');
+    agent.work.config.inventory.surplus_slots = null;
+    assert.equal(items.due(plan(30)), false, 'no allowance: only a low bag');
+    agent.bot.give(FILLER, 64 * 7);
+    assert.equal(agent.bot.inventory.emptySlotCount(), 3);
+    assert.equal(items.due(plan(0)), true, 'below 4 free slots: any surplus');
+    assert.equal(items.wanted(), true);
+});
+
+test('surplus_slots 2: two surplus slots wait above 4 free slots ("not due", no kept tell); the third sends all surplus', async () => {
+    const agent = setup({ inventory: { rotten_flesh: 64, dirt: 64 + 30 }, free: 10, drive: false, work: { inventory: { surplus_slots: 2 } } });
+    const { bot } = agent;
+    const items = agent.work.items;
+    assert.equal(items.wanted(), true, 'the cheap check with an allowance set');
+    assert.equal(items.admit(), null, '2 slots of surplus: rotten flesh and the 30 dirt');
+    assert.ok(items.emptyKey, 'remembered as not due under the inventory key');
+    assert.equal(items.told.has('kept'), false, 'no kept tell above min_free_slots (adversary r3, D1)');
+    bot.inventory.slots[30] = F.realItem('gravel', [], { count: 5 });
+    const admitted = items.admit();
+    assert.ok(admitted, 'a third slot');
+    items.launch(admitted);
+    await quiet(agent);
+    assert.deepEqual(agent.work.items.last.removed, { rotten_flesh: 64, gravel: 5, dirt: 30 }, 'the whole plan');
+    // Without an allowance and above min_free_slots: nothing is wanted.
+    const plain = setup({ inventory: { rotten_flesh: 64 * 5 }, free: 10, drive: false });
+    assert.equal(plain.work.items.wanted(), false);
+});
+
+test('a pass drops nothing unless still due at entry, and the re-plan after a walk is empty when no longer due', async () => {
+    const agent = setup({ inventory: { rotten_flesh: 64 * 3 }, free: 10, drive: false, work: { inventory: { surplus_slots: 2 } } });
+    const { bot } = agent;
+    const items = agent.work.items;
+    const admitted = items.admit();
+    assert.ok(admitted);
+    bot.take('rotten_flesh', 64);   // two slots left: within the allowance
+    items.launch(admitted);
+    await quiet(agent);
+    assert.equal(tosses(bot).length, 0);
+    // The walk out of a pit used one surplus stack: the re-plan is not due.
+    const walker = setup({ inventory: { rotten_flesh: 64 * 3 }, free: 10, drive: false, ownerAt: [10.5, 64, 0.5], work: { inventory: { surplus_slots: 2 } } });
+    walker.bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(walker.bot.world, 2);
+    walker.bot.hooks.goto = () => { walker.bot.take('rotten_flesh', 64); };
+    walker.work.items.launch(walker.work.items.admit());
+    await quiet(walker);
+    assert.equal(goals(walker.bot).length, 1, 'she walked');
+    assert.equal(tosses(walker.bot).length, 0, 'and dropped nothing');
+});
+
+test('the kept tell only below min_free_slots', async () => {
+    const low = setup({ inventory: {}, free: 2, drive: false });
+    assert.equal(low.work.items.admit(), null);
+    assert.equal(low.work.items.told.has('kept'), true);
+    const roomy = setup({ inventory: {}, free: 10, drive: false, work: { inventory: { surplus_slots: 2 } } });
+    assert.equal(roomy.work.items.admit(), null);
+    assert.equal(roomy.work.items.told.has('kept'), false);
+});
+
+test('the Upkeep signature adds the held slot and each slot\'s component signature, without wear', () => {
+    const agent = setup({ inventory: {}, free: 10, drive: false });
+    const { bot } = agent;
+    const items = agent.work.items;
+    bot.inventory.slots[20] = F.realItem('diamond_axe');
+    const first = items.signature();
+    bot.inventory.slots[20] = F.realItem('diamond_axe', [{ type: 'damage', data: 40 }]);
+    assert.equal(items.signature(), first, 'wear does not churn it');
+    bot.inventory.slots[20] = GEAR.herAxe();
+    assert.notEqual(items.signature(), first, 'another diamond axe');
+    const second = items.signature();
+    bot.quickBarSlot = 3;
+    assert.notEqual(items.signature(), second, 'the held slot');
+});
+
+test('a finished task\'s goods stay protected for done_keep_min from done_at, stamped once in finishDone, or until the next task', () => {
+    const c = F.clock();
+    const bot = F.makeBot();
+    const agent = F.makeAgent({ bot, name: `items${n++}` });
+    F.clearRecord(agent);
+    agents.push(agent);
+    const work = F.startWork(agent, { now: c.now });
+    const record = F.modules.record.newRecord({ objective: 'logs', request_text: 'logs', requested_by: F.OWNER, anchor: null, now: c.now(),
+        steps: [{ skill: 'obtain', args: { item: 'oak_log', count: 128 } }, { skill: 'obtain', args: { item: 'stick', count: 4 } }, { skill: 'go_to', args: { target: 'owner' } }] });
+    record.cursor = record.plan.length;
+    work.adopt(record);
+    work.finishDone();
+    assert.equal(record.done_at, c.now());
+    assert.deepEqual([...work.neededItems()].sort(), ['oak_log', 'stick']);
+    const stamped = record.done_at;
+    c.advance(29 * 60);
+    work.write();
+    assert.equal(F.readRecord(agent).done_at, stamped, 'later saves move updated_at, never done_at');
+    assert.notEqual(F.readRecord(agent).updated_at, stamped);
+    assert.deepEqual([...work.neededItems()].sort(), ['oak_log', 'stick'], 'within 30 minutes');
+    c.advance(61);
+    assert.deepEqual([...work.neededItems()], [], 'past 30 minutes');
+    c.t = stamped + 60000;
+    work.config.inventory.done_keep_min = 0;
+    assert.deepEqual([...work.neededItems()], [], 'done_keep_min 0: none');
+    work.config.inventory.done_keep_min = 30;
+    delete record.done_at;
+    assert.deepEqual([...work.neededItems()], [], 'a done record saved before the build protects nothing');
+    // Over the cap: the logs stay while protected.
+    record.done_at = c.now();
+    for (const [slot, s] of stacks('oak_log', 64, 64).entries()) bot.inventory.slots[9 + slot] = s;
+    const cap = policyOf({ inventory: { cap: 'stack' } });
+    assert.deepEqual(ops(I.planRemoval(bot, cap, { needed: work.neededItems() })), []);
+    assert.equal(I.planRemoval(bot, cap).length, 1);
+});
+
+test('!itemList with the gear rules: the rules, per kind the best and why, the spares that go, the effective counts and the surplus count', async () => {
+    const agent = setup({ inventory: { rotten_flesh: 5 }, free: null, drive: false, work: { inventory: { gear: 'best', cap: 'stack', surplus_slots: 2 } } });
+    const { bot } = agent;
+    for (const [slot, item] of [[37, GEAR.axe()], [43, GEAR.copy()], [20, GEAR.herPickaxe()], [21, GEAR.herAxe()], [22, F.realItem('diamond_sword')], [6, GEAR.chest()]])
+        bot.inventory.slots[slot] = item;
+    const text = await F.modules.commands.executeCommand(agent, '!itemList');
+    assert.match(text, /^Item list \(one stack at most of anything that stacks, listed or not; anything else not listed I keep; of gear only the best of each kind\): Best gear: /);
+    assert.match(text, /pickaxe iron_pickaxe: reaches 403 blocks, unbreakable, speed 35; axe iron_axe: unbreakable, speed 32; /);
+    assert.match(text, /weapon iron_axe: unbreakable, score 23\.6; chest leather_chestplate \(worn\): unbreakable, armour 8, toughness 2\./);
+    assert.match(text, / Spares that go: diamond_pickaxe, diamond_axe, diamond_sword\. Drop all: rotten_flesh 5, /);
+    assert.match(text, /Keep 64: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal, gunpowder\./, 'the effective counts: gunpowder capped');
+    assert.match(text, /\d+ free slots; I clean up below 4, or when more than 2 slots hold spares, extra stacks or junk \(now 4\)\. Idle cleanup: /, 'the junk slot and the three spares');
+    assert.match(F.modules.commands.getCommand('!itemList').description, /the one-stack cap and the gear rule/);
 });

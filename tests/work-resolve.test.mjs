@@ -105,7 +105,7 @@ const disposable = name => Number.isFinite(I.keepOf(F.makeBot(), policy, name));
 async function dropHere(bot, name, count = 1) {
     bot.give(name, count);
     const slot = bot.inventory.slots.findIndex(s => s?.name === name);
-    const result = await I.dropItems(bot, [{ slot, name, count, have: count, whole: true }]);
+    const result = await I.dropItems(bot, [{ slot, name, count, have: count, whole: true, sig: F.modules.gear.signature(bot.inventory.slots[slot]) }]);
     assert.equal(result.outcome, 'done');
     return Object.values(bot.entities).find(e => e.name === 'item' && e.getDroppedItem().name === name);
 }
@@ -421,4 +421,27 @@ test('junk drop tosses one observed inventory stack per call: an interruption st
     agent.work.startTask('9 oak logs', 'obtain item=oak_log count=9');
     await F.until(() => tosses >= 1 && !agent.work.runner.executing);
     assert.equal(tosses, 1);
+});
+
+// --- the gear slice (REQ-GEAR-1; gear design r5 §4) ------------------------------------------
+
+test('the tool demand accepts a bag item that harvests by its components: obsidian with the copy demands no diamond pickaxe', () => {
+    const put = (...items) => { const bot = F.makeBot({ world: landscape() }); items.forEach((item, i) => { bot.inventory.slots[9 + i] = item; }); return bot; };
+    assert.equal(resolve.ownHarvester(put(F.OWNER_GEAR.copy()), 'obsidian'), 'iron_pickaxe', 'the copy: tier_req names it');
+    assert.equal(resolve.ownHarvester(put(F.realItem('iron_pickaxe')), 'obsidian'), null, 'a plain iron pickaxe does not');
+    assert.equal(resolve.ownHarvester(put(F.realItem('iron_pickaxe'), F.realItem('diamond_pickaxe')), 'obsidian'), 'diamond_pickaxe');
+    assert.equal(resolve.ownHarvester(put(F.OWNER_GEAR.copy()), 'obsidian', { iron_pickaxe: 0 }), null, 'only what the counts still hold');
+    assert.equal(resolve.ownHarvester(put(F.OWNER_GEAR.copy()), 'dirt'), null, 'no tool needed');
+    assert.deepEqual(resolve.harvestToolNames(F.makeBot(), 'obsidian'), ['diamond_pickaxe', 'netherite_pickaxe'], 'the registry\'s demand it replaces');
+    // Through the resolver, on a natural block: a wooden pickaxe whose tool
+    // component gets iron ore's drop needs no stone pickaxe crafted.
+    const world = landscape();
+    world.set(-3, 64, -3, 'iron_ore');
+    const granted = F.makeBot({ world });
+    granted.inventory.slots[9] = F.realItem('wooden_pickaxe', [{ type: 'tool', data: { rules: [{ blocks: { name: 'minecraft:mineable/pickaxe' }, speed: 2, correctDropForBlocks: true }],
+        defaultMiningSpeed: 1, damagePerBlock: 1, canDestroyBlocksInCreative: true } }]);
+    assert.deepEqual(show(resolve.resolveObtain(granted, 'raw_iron', 1).nodes), ['collect raw_iron 1 from iron_ore with wooden_pickaxe']);
+    const plain = F.makeBot({ world });
+    plain.inventory.slots[9] = F.realItem('wooden_pickaxe');
+    assert.ok(show(resolve.resolveObtain(plain, 'raw_iron', 1).nodes).includes('craft stone_pickaxe 1 x1 table'), 'the registry demand otherwise');
 });

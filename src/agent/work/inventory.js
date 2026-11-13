@@ -6,6 +6,7 @@ import * as mc from '../../utils/mcdata.js';
 import { itemLine } from './report.js';
 import { NO_DIG } from './sleep.js';
 import { fullCube } from './tidy.js';
+import * as gear from './gear.js';
 
 // Inventory upkeep (SPEC §9.4, REQ-OBT-11; design junk-council/recommended-
 // design.md r7 §2–§6, part A). One item policy (work.inventory, merged in
@@ -66,13 +67,19 @@ const total = removed => Object.values(removed).reduce((n, c) => n + c, 0);
 
 // How many of `name` she keeps: undefined (not listed: all of it), Infinity
 // ("all"), 'slot' (one slot, the best stack) or a count ("stack": the item's
-// registry stack size).
+// registry stack size). With `cap` "stack" (DECISIONS 2026-11-12 (night): "cap
+// all items for now"), every item whose stack size is above 1 keeps at most
+// one stack, listed or not: "all" and unlisted become one stack, a count above
+// a stack is capped, 0 and lower counts stay, "slot" stays. Non-stackables
+// (tools, weapons, armour, the bed) are outside the cap.
 export function keepOf(bot, policy, name) {
-    const keep = policy?.items?.[name];
-    if (keep === undefined || keep === 'all') return keep === 'all' ? Infinity : undefined;
-    if (keep === 'slot') return keep;
-    if (keep === 'stack') return bot.registry?.itemsByName?.[name]?.stackSize ?? 64;
-    return keep;
+    const listed = policy?.items?.[name];
+    const size = bot.registry?.itemsByName?.[name]?.stackSize ?? 64;
+    let keep = listed;
+    if (listed === 'all') keep = Infinity;
+    else if (listed === 'stack') keep = size;
+    if (policy?.cap !== 'stack' || size <= 1 || keep === 'slot') return keep;
+    return keep === undefined ? size : Math.min(keep, size);
 }
 
 // Automatic removal is on only for a valid policy (a bad one never widens it).
@@ -104,19 +111,36 @@ function worth(item) {
     }
     return [levels, item.maxDurability ? item.maxDurability - (item.durabilityUsed ?? 0) : 0];
 }
-const byWorth = (a, b) => a.worth[0] - b.worth[0] || a.worth[1] - b.worth[1];
+// Of a gear name the gear rank decides instead (gear rulings r1, 4: adversary
+// G2): the best of the name by `!itemList`'s rules, never the enchantment count.
+const rankOf = (bot, item) => gear.gearRank(bot, item) ?? worth(item);
+const byWorth = (a, b) => gear.compare(a.worth, b.worth);
 
-// Slot operations [{slot, name, count, have, whole}]: what to remove, never
+// The gear spares that may go [{item, slot}] (`gear` "best" only): never a
+// needed name, and a listed name follows its list value.
+function gearSpares(bot, policy, needed) {
+    if (policy.gear !== 'best') return [];
+    return gear.spares(bot).filter(e => !needed.has(e.item.name) && policy.items[e.item.name] === undefined);
+}
+
+// Slot operations [{slot, name, count, have, whole, sig}]: what to remove, never
 // where. Sources are the 36 main slots, the selected hotbar slot included
 // (DECISIONS 2026-11-12: junk in her hand is junk; the dropper switches her
 // hand off it); armour and offhand are outside them. Never an unlisted, "all"
-// or needed item. Order: every tier-0 stack whole; then per limited item, for a
-// "slot" item every slot but its best (highest worth, then the larger count),
+// or needed item (with `cap` "stack" an unlisted or "all" stackable keeps one
+// stack: keepOf). Order: every tier-0 stack whole; then, with `gear` "best",
+// the gear spares (work/gear.js spares: every item of a kind but its best,
+// lowest rank first, whole; never unreadable, needed or listed: a listed name
+// follows its list value); then per limited item, for a
+// "slot" item every slot but its best (highest worth, of a gear name its gear
+// rank: gear.gearRank; then the larger count),
 // for a counted one its surplus as whole stacks smallest first, then lowest worth, then slot, within
 // its budget (DECISIONS 2026-11-12 "best one, period": the best stays), and a
 // remainder below a whole stack from the first stack left in that order (it may
-// free no slot, so it never counts toward minFree). `freed` and `reaches` are
-// the simulation; the caller re-reads the real free slots afterwards.
+// free no slot, so it never counts toward minFree). Each operation carries the
+// item's component signature (`sig`), which the dropper re-checks. `freed`
+// (every whole slot the plan empties) and `reaches` are the simulation; the
+// caller re-reads the real free slots afterwards.
 export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {}) {
     const ops = [];
     ops.freed = 0;
@@ -132,22 +156,26 @@ export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {
         if (!stacks.has(item.name)) stacks.set(item.name, []);
         stacks.get(item.name).push({ slot, count: item.count, item });
     }
+    const op = (s, count, whole) => ({ slot: s.slot, name: s.item.name, count, have: s.count, whole, sig: gear.signature(s.item) });
     const limited = [];
     for (const [name, list] of stacks) {
         const keep = keepOf(bot, policy, name);
         if (keep === undefined || keep === Infinity || needed.has(name)) continue;
-        if (keep === 0) for (const s of list) ops.push({ slot: s.slot, name, count: s.count, have: s.count, whole: true });
+        if (keep === 0) for (const s of list) ops.push(op(s, s.count, true));
         else limited.push({ name, list, keep });
     }
+    // DECISIONS 2026-11-12 (night), "Gear: the best one, period": her
+    // placeholder diamond pickaxe and axe and her diamond sword go as spares.
+    for (const e of gearSpares(bot, policy, needed)) ops.push(op({ ...e, count: e.item.count }, e.item.count, false));
     ops.freed = ops.length;
     for (const { name, list, keep } of limited) {
-        for (const s of list) s.worth = worth(s.item);
+        for (const s of list) s.worth = rankOf(bot, s.item);
         if (keep === 'slot') {
             // One slot of the best (DECISIONS 2026-11-12: bottles of different
             // strengths do not stack together): every other slot goes whole,
             // lowest worth first, then the smaller count, then by slot.
             const sorted = [...list].sort((a, b) => byWorth(a, b) || a.count - b.count || a.slot - b.slot);
-            for (const s of sorted.slice(0, -1)) ops.push({ slot: s.slot, name, count: s.count, have: s.count, whole: false });
+            for (const s of sorted.slice(0, -1)) ops.push(op(s, s.count, false));
             ops.freed += sorted.length - 1;
             continue;
         }
@@ -156,13 +184,13 @@ export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {
         const taken = new Set();
         for (const s of sorted) {
             if (s.count > left) break;
-            ops.push({ slot: s.slot, name, count: s.count, have: s.count, whole: false });
+            ops.push(op(s, s.count, false));
             taken.add(s.slot);
             left -= s.count;
             ops.freed++;
         }
         const rest = sorted.find(s => !taken.has(s.slot));
-        if (left > 0 && rest) ops.push({ slot: rest.slot, name, count: left, have: rest.count, whole: false });
+        if (left > 0 && rest) ops.push(op(rest, left, false));
     }
     ops.reaches = bot.inventory.emptySlotCount() + ops.freed >= minFree;
     return ops;
@@ -322,11 +350,12 @@ export function ownerNear(bot, owner) {
 
 // The slot still holds what the operation planned (design §3, F-N8): a tier-0
 // stack the same item with at least the planned count (a contact pickup may
-// have merged into it), any other the same item with the planned count; and
-// it is not the live selected hotbar slot (the hand-off found no other slot,
-// or the server selected it since: R1-3).
+// have merged into it), any other the same item with the planned count; the
+// same component signature (gear design r5 §5: no toss of the wrong
+// same-name item after an equip swap); and it is not the live selected
+// hotbar slot (the hand-off found no other slot, or the server selected it since: R1-3).
 function stillThere(bot, op, item) {
-    if (!item || item.name !== op.name || op.slot === heldSlot(bot)) return false;
+    if (!item || item.name !== op.name || gear.signature(item) !== op.sig || op.slot === heldSlot(bot)) return false;
     return op.whole ? item.count >= op.count : item.count === op.have;
 }
 
@@ -344,15 +373,6 @@ function handOff(bot, plan) {
     const hotbar = [...Array(9).keys()];
     const to = hotbar.find(i => !bot.inventory.slots[first + i]) ?? hotbar.find(i => !planned.has(first + i));
     if (to !== undefined) bot.setQuickBarSlot(to);
-}
-
-// Why no slot may be clicked now, or null: an item on the cursor (a one-slot
-// transfer swaps it in and tosses it as a leftover: R1-1), or a container
-// window open (the click would act on it: R1-2).
-function busy(bot) {
-    if (bot.inventory.selectedItem) return 'an item on the cursor';
-    if (bot.currentWindow && bot.currentWindow !== bot.inventory) return 'a container is open';
-    return null;
 }
 
 // Removes the plan's slot operations where she stands: faces a free cardinal
@@ -373,6 +393,8 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
         return { outcome, removed, reason };
     };
     if (!plan.length) return end('done');
+    // The armour controller clicks nothing while this runs, and catches up after (gear design r5 §4).
+    const release = gear.holdSlots(bot);
     try {
         let facing = chooseFacing(bot, awayFrom, { avoid, never });
         if (!facing && walk) {
@@ -401,7 +423,7 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
             if (halted()) return end('interrupted');
             const item = bot.inventory.slots[op.slot];
             if (!stillThere(bot, op, item)) continue;   // the next pass plans again from the live inventory
-            const why = busy(bot);
+            const why = gear.busy(bot);
             if (why) return end('unavailable', why);
             const count = op.whole ? item.count : op.count;
             if (!point.names.includes(op.name)) point.names.push(op.name);
@@ -413,6 +435,8 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
     } catch (err) {
         if (halted()) return end('interrupted');
         return end('failed', String(err?.message ?? err));
+    } finally {
+        release();
     }
 }
 
@@ -491,9 +515,22 @@ export class Upkeep {
         return name ? this.bot.players?.[name]?.entity ?? null : null;
     }
 
-    // Removal is enabled and her free slots are low.
+    // The cheap check: removal is enabled, and her free slots are low or a
+    // surplus allowance is set (then `admit` asks `due` of the plan).
     wanted() {
-        return removalEnabled(this.policy) && this.policy.idle === true && this.bot.inventory.emptySlotCount() < this.config.min_free_slots;
+        return removalEnabled(this.policy) && this.policy.idle === true
+            && (this.bot.inventory.emptySlotCount() < this.config.min_free_slots || Number.isInteger(this.policy.surplus_slots));
+    }
+
+    // Whether a plan is due (gear design r5 §5; DECISIONS 2026-11-12 (night):
+    // "when there's 2 spares, the 3rd one gets dropped, and [...] when she has
+    // fewer than 4 free slots, then yeah, definitely"; 2026-11-13: one shared
+    // count over junk, spares and extra stacks): not empty, and her free slots
+    // below min_free_slots, or more whole slots to free than `surplus_slots`.
+    due(plan) {
+        if (!plan.length) return false;
+        const allowance = this.policy.surplus_slots;
+        return this.bot.inventory.emptySlotCount() < this.config.min_free_slots || (Number.isInteger(allowance) && plan.freed > allowance);
     }
 
     // What a pending pass re-checks besides the currency: no task running, no
@@ -527,8 +564,12 @@ export class Upkeep {
         return true;
     }
 
+    // The inventory as the holds and the not-due memo see it: the counts by
+    // name, the held slot and each slot's component signature (without wear:
+    // gear design r5 §5; gear Sol review r1, 7; adversary r2).
     signature() {
-        return JSON.stringify(world.getInventoryCounts(this.bot));
+        const slots = this.bot.inventory.slots.map((item, slot) => (item ? [slot, gear.signature(item)] : null)).filter(Boolean);
+        return JSON.stringify([world.getInventoryCounts(this.bot), heldSlot(this.bot), slots]);
     }
 
     // The hold of a pass that removed nothing or found no direction, with why
@@ -563,16 +604,19 @@ export class Upkeep {
             // A pending resume is due within the resume gap; a follow whose target is not visible re-runs every second (F-N2).
             if (actions.resume_func && now - this.lastIdleAt < INVENTORY.resumeGapMs && !(actions.resume_name === FOLLOW_LABEL && !target)) return null;
         }
-        // A bag of kept items is planned once per inventory and task state,
-        // not every second (the needed items of a paused task cost world
-        // lookups); at most for the 5-minute retry (R1-4).
+        // A bag of kept items, or surplus within the allowance, is planned
+        // once per inventory and task state, not every second (the needed
+        // items of a paused task cost world lookups); at most for the 5-minute
+        // retry (R1-4; gear design r5 §5: "not due" under the same key).
         const record = this.work.record;
         const key = `${this.signature()}|${record?.id}:${record?.status}:${record?.cursor}`;
         if (this.emptyKey?.key === key && now - this.emptyKey.at < INVENTORY.retryMs) return null;
         const plan = this.plan();
-        if (!plan.length) {
+        if (!this.due(plan)) {
             this.emptyKey = { key, at: now };
-            this.noteKept();
+            // The kept tell only for a low bag (gear design r5 §5; adversary r3, D1): above
+            // min_free_slots an empty plan is simply not due.
+            if (bot.inventory.emptySlotCount() < this.config.min_free_slots) this.noteKept();
             return null;
         }
         this.emptyKey = null;
@@ -594,8 +638,8 @@ export class Upkeep {
         return planRemoval(this.bot, this.policy, { needed: this.work.neededItems(), minFree: this.config.min_free_slots });
     }
 
-    // The bag is low on slots and nothing in it may go: the five largest kept
-    // items, totalled by name, once per session.
+    // The bag is low on slots and nothing in it may go (the caller checks
+    // the slots): the five largest kept items, totalled by name, once per session.
     noteKept() {
         this.tellOnce('kept', largestItems(this.bot));
     }
@@ -662,12 +706,16 @@ export class Upkeep {
             this.log('pass dropped before it started');
             return;
         }
-        const plan = this.plan();   // from the live inventory
+        // From the live inventory, and nothing unless still due (also after a
+        // walk: gear design r5 §5; adversary r3, D2). A pass drops the whole plan: the third
+        // surplus slot sends all surplus (DECISIONS 2026-11-13).
+        const duePlan = () => { const plan = this.plan(); return this.due(plan) ? plan : []; };
+        const plan = duePlan();
         if (!plan.length) return;
         let awayFrom = admitted.awayFrom;
         if (admitted.follow) awayFrom = this.followTarget()?.position ?? awayFrom;   // always away from the follow target (C-F3)
         // While following no walk (the follow moves her anyway); idle she may walk to a drop spot, placing nothing.
-        const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, walk: admitted.follow ? false : 'idle', replan: () => this.plan(), current });
+        const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, walk: admitted.follow ? false : 'idle', replan: duePlan, current });
         const now = Date.now();
         const n = total(result.removed);
         this.log(`pass ${result.outcome}${result.reason ? ` (${result.reason})` : ''}: ${n ? `dropped ${summary(result.removed)}` : 'nothing dropped'}`);
@@ -686,12 +734,14 @@ export class Upkeep {
         }
     }
 
-    // !itemList (design §6): the effective list by tier with what she holds,
-    // her free slots, whether the idle cleanup is on or held and why, and the
-    // last pass. Code-rendered.
+    // !itemList (design §6; gear design r5 §6): the cap and gear rules, per
+    // kind the best item and why, the spares that go, the effective list by
+    // tier with what she holds, her free slots and the surplus count, whether
+    // the idle cleanup is on or held and why, and the last pass. Code-rendered.
     render(now = Date.now()) {
         const bot = this.bot;
         const policy = this.policy;
+        const needed = this.work.neededItems();
         const counts = world.getInventoryCounts(bot);
         const tiers = new Map();
         for (const name of Object.keys(policy.items)) {
@@ -702,9 +752,25 @@ export class Upkeep {
         }
         const order = ([a], [b]) => (a === 'Drop all' ? -1 : b === 'Drop all' ? 1 : a === 'Keep all' ? 1 : b === 'Keep all' ? -1 : parseInt(a.slice(5)) - parseInt(b.slice(5)));
         const list = [...tiers].sort(order).map(([tier, names]) => `${tier}: ${names.join(', ')}.`).join(' ');
-        const slots = `${bot.inventory.emptySlotCount()} free slots; I clean up below ${this.config.min_free_slots}.`;
+        const allowance = policy.surplus_slots;
+        const slots = `${bot.inventory.emptySlotCount()} free slots; I clean up below ${this.config.min_free_slots}` + (Number.isInteger(allowance)
+            ? `, or when more than ${allowance} slots hold spares, extra stacks or junk (now ${planRemoval(bot, policy, { needed }).freed}).` : '.');
         const state = this.held(now) ?? 'on';
         const last = this.last ? `Last pass: dropped ${summary(this.last.removed)}, ${Math.max(0, Math.round((now - this.last.at) / 60000))} min ago.` : 'No pass yet.';
-        return `Item list (anything not listed I keep): ${list} ${slots} Idle cleanup: ${state}. ${last}`;
+        const cap = policy.cap === 'stack' ? 'one stack at most of anything that stacks, listed or not; anything else not listed I keep' : 'anything not listed I keep';
+        const rule = policy.gear === 'best' ? 'of gear only the best of each kind' : 'all my gear, and I use the best';
+        return `Item list (${cap}; ${rule}): ${this.renderGear(needed)}${list} ${slots} Idle cleanup: ${state}. ${last}`;
+    }
+
+    // The gear part of !itemList: per kind the best and why, then (gear
+    // "best") the spares that go; nothing when she has no gear.
+    renderGear(needed) {
+        const bot = this.bot;
+        const { kinds } = gear.assess(bot);
+        const best = [...kinds].map(([kind, { winner }]) => `${kind} ${winner.item.name}${winner.worn ? ' (worn)' : ''}: ${gear.why(bot, kind, winner.item)}`);
+        if (!best.length) return '';
+        const spares = gearSpares(bot, this.policy, needed).map(e => e.item.name);
+        const go = this.policy.gear === 'best' ? ` Spares that go: ${spares.length ? spares.join(', ') : 'none'}.` : '';
+        return `Best gear: ${best.join('; ')}.${go} `;
     }
 }

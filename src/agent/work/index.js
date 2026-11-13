@@ -564,6 +564,13 @@ export class Work {
         const items = new Set();
         const record = this.record;
         if (!record) return items;
+        // A finished task's goods (gear design r5 §5; DECISIONS 2026-11-13: "a
+        // finished task's goods stay 30 minutes or until the next task, even
+        // over the cap"): the obtain targets of the last done task, from its
+        // `done_at` (a record done before it was stamped protects nothing).
+        const keepMs = (this.config.inventory.done_keep_min ?? 0) * 60000;
+        if (record.status === 'done' && Number.isFinite(record.done_at) && this.now() - record.done_at < keepMs)
+            for (const step of record.plan) if (step.skill === 'obtain' && step.args?.item) items.add(step.args.item);
         const ctx = this.runner.ctx();
         for (const step of record.plan.slice(record.cursor)) {
             if (step.status === 'done') continue;
@@ -883,6 +890,8 @@ export class Work {
 
     finishDone() {
         setStatus(this.record, 'done');
+        // Stamped once (gear design r5 §5): later saves move updated_at, never done_at.
+        this.record.done_at ??= this.now();
         this.endTidyFlag();
         this.releaseResume();
         this.log('done');

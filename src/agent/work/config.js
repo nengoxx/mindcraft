@@ -26,6 +26,15 @@ export const WORK_DEFAULTS = Object.freeze({
     // the ominous bottles the best slot (DECISIONS 2026-11-12 "One slot of the
     // best": bottles of different strengths do not stack together).
     // `idle`: the idle cleanup on or off.
+    // The gear slice (REQ-GEAR-1, REQ-OBT-11; DECISIONS 2026-11-12 (night),
+    // 2026-11-13), off in public: `gear` "best" keeps only the best of each
+    // tool kind, one melee weapon and one piece per armour slot ("all": every
+    // one); `cap` "stack" caps every stackable item at one stack, listed or
+    // not ("all": the list alone); `surplus_slots` an integer lets that many
+    // slots of junk, spares and extra stacks wait above min_free_slots and
+    // starts a pass at one more (null: only below min_free_slots);
+    // `done_keep_min`: a finished task's obtained goods stay this long, or
+    // until the next task.
     inventory: Object.freeze({
         items: Object.freeze({
             rotten_flesh: 0, spider_eye: 0, gravel: 0, leaf_litter: 0, cobbled_deepslate: 0, andesite: 0,
@@ -37,6 +46,10 @@ export const WORK_DEFAULTS = Object.freeze({
             gunpowder: 'all',
         }),
         idle: true,
+        gear: 'all',
+        cap: 'all',
+        surplus_slots: null,
+        done_keep_min: 30,
     }),
     // Model outages (REQ-RES-17/18). The prompter reads these itself: it is
     // built before Work (OQ-21).
@@ -91,6 +104,17 @@ const MERGED = new Set(['clear', 'tidy', 'sleep']);
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
 export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
 
+const count = value => Number.isSafeInteger(value) && value >= 0;
+// work.inventory's keys besides `items`, each with its check (the gear slice
+// adds all but `idle`: design gear/recommended-design.md r5 §6).
+const INVENTORY_KEYS = Object.freeze({
+    idle: value => typeof value === 'boolean',
+    gear: value => value === 'all' || value === 'best',
+    cap: value => value === 'all' || value === 'stack',
+    surplus_slots: value => value === null || count(value),
+    done_keep_min: count,
+});
+
 // REQ-OBT-11 (design r7 §2): work.inventory merged by item name over the
 // defaults, into fresh maps (the defaults are never mutated). The supplied
 // structure and every entry are checked before the merge; any error is kept
@@ -99,7 +123,8 @@ export const validKeep = value => value === 'stack' || value === 'slot' || value
 function mergeInventory(value) {
     // A map with no prototype: a "__proto__" entry stays an entry (and fails
     // the registry check) instead of vanishing in the merge (R1-6).
-    const inventory = { items: Object.assign(Object.create(null), WORK_DEFAULTS.inventory.items), idle: WORK_DEFAULTS.inventory.idle, error: null };
+    const { items: defaultItems, ...defaults } = WORK_DEFAULTS.inventory;
+    const inventory = { items: Object.assign(Object.create(null), defaultItems), ...defaults, error: null };
     if (value === undefined) return inventory;
     const fail = why => {
         console.log(`[work] work.inventory has an error (${why}); automatic removal is off`);
@@ -115,9 +140,9 @@ function mergeInventory(value) {
             const bad = Object.entries(subValue).find(([, keep]) => !validKeep(keep));
             if (bad) fail(`${bad[0]}: ${JSON.stringify(bad[1])}`);
             else Object.assign(inventory.items, subValue);
-        } else if (sub === 'idle') {
-            if (typeof subValue === 'boolean') inventory.idle = subValue;
-            else fail(`idle: ${JSON.stringify(subValue)}`);
+        } else if (Object.hasOwn(INVENTORY_KEYS, sub)) {
+            if (INVENTORY_KEYS[sub](subValue)) inventory[sub] = subValue;
+            else fail(`${sub}: ${JSON.stringify(subValue)}`);
         } else console.log(`[work] ignoring unknown work setting: inventory.${sub}`);
     }
     return inventory;
