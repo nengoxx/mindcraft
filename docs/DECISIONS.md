@@ -331,3 +331,10 @@ The owner's answers after the gear live trials (ISSUES "Gear live trials, 2026-1
   requires a diamond pickaxe" came from the false count, not from the game: the main seat corrects that memory
   entry once, and the count fix removes the cause. Her lessons about tools should come from the item's own data
   (the gear rules), not from material names.
+
+## 2026-11-13 — Combat stays near where it started
+
+The owner, during the combat-start council: "I would like her to not wander around too much when going with combat.
+Maybe go back to the place where combat started, or rather the first combat started or something, because I think
+she wanders too much when chasing mobs and stuff." The combat-start slice bounds how far a fight takes her and brings
+her back to where the first fight of a run of fights began; the council designs it.
