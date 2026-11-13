@@ -5,7 +5,8 @@ import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { format } from 'node:util';
 import { isGuardedJunk } from "../work/inventory.js";
-import { isProtectedForBot } from "../work/protect.js";
+import { isProtectedForBot, protectorFor, posKey } from "../work/protect.js";
+import { findAllBlocks } from "../work/commands.js";
 import * as gear from "../work/gear.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
@@ -438,16 +439,179 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     // silk rule: no silk touch where it changes the drop, unless the block itself is wanted.
     const restoreIntent = gear.intend(bot, { wanted: blockType });
     try {
-        return await collectBlocksOf(bot, blockType, num, exclude);
+        return (await collectBlocksOf(bot, blockType, num, { exclude })).gained;
     } finally {
         restoreIntent();
     }
 }
 
-async function collectBlocksOf(bot, blockType, num, exclude) {
+// Fork carry (REQ-SAFE-13, DECISIONS 2026-11-13): the cells the owner granted,
+// a frozen list dug as it is (no search, no natural substitutes), each through
+// the same attempt, count and reasons as collectBlock. Only Work calls it,
+// inside the granted action with the grant set; without the grant the cells
+// stay protected. Not documented for generated code (no doc comment).
+// Returns {gained, summary}: the complete summary line, which the action
+// output may shorten (action_manager.js getBotOutputSummary).
+export async function collectGrantedCells(bot, blockType, num, cells) {
+    const restoreIntent = gear.intend(bot, { wanted: blockType });
+    try {
+        return await collectBlocksOf(bot, blockType, num, { cells });
+    } finally {
+        restoreIntent();
+    }
+}
+
+const LIQUIDS = ['water', 'lava'];
+// The faces the pathfinder's dontCreateFlow checks (movements.js:274-280): above and the four sides.
+const FLOW_FACES = [[0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]];
+const heldName = bot => bot.heldItem?.name ?? 'an empty hand';
+const errorReason = err => String(err?.message ?? err);
+// Game fact: blocks that fall into a cell dug below them (the pathfinder's
+// gravityBlocks, sand and gravel, with their kin).
+const FALLING = ['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'];
+const falls = name => FALLING.includes(name) || name.endsWith('_concrete_powder');
+// How long a bucket waits for the server to fill it: activateItem only sends
+// use_item (mineflayer inventory.js:120-140); the slot update comes later.
+const BUCKET_WAIT_MS = 1000;
+
+function slotUpdate(bot, done, ms) {
+    return new Promise(resolve => {
+        const check = () => { if (done()) finish(); };
+        const finish = () => {
+            clearTimeout(timer);
+            bot.inventory.removeListener('updateSlot', check);
+            resolve();
+        };
+        const timer = setTimeout(finish, ms);
+        bot.inventory.on('updateSlot', check);
+    });
+}
+
+// Fork carry (REQ-SAFE-12): why a block was not dug, from the world as it is now.
+function failReason(bot, block, now, dug) {
+    if (!now) return 'unverified';
+    if (now.name !== block.name) return 'changed';   // gone or replaced, not by her dig
+    if (dug) return 'still there';
+    if (isProtectedForBot(bot, now)) return 'protected';
+    if (!gear.canHarvest(bot, now, bot.heldItem)) return `cannot harvest with ${heldName(bot)}`;
+    if (FLOW_FACES.some(([dx, dy, dz]) => LIQUIDS.includes(bot.blockAt(now.position.offset(dx, dy, dz))?.name))) return 'next to water or lava';
+    return 'still there';
+}
+
+// Fork carry (REQ-SAFE-12, DECISIONS 2026-11-13 "fix the collect bug"): one
+// attempt on one block. It counts only when her own dig of that exact cell
+// completed during the attempt (a diggingCompleted listener of this attempt:
+// Mineflayer drops them all on death) or, for a bucket, the bucket filled, and
+// the cell is loaded and no longer holds the block (or holds a block that fell
+// into it). collectblock waits 10 ticks after the dig and Mineflayer applies
+// the server's update at once, so there is no revert window. A bucket counts
+// by the filled bucket alone (an infinite source refills its cell), waiting up
+// to BUCKET_WAIT_MS for the server's slot update. Returns {counted} or
+// {reason}, and {error} when one was thrown.
+async function attemptBlock(bot, block, blockType, isLiquid) {
+    const key = posKey(block.position);
+    const dim = bot.game?.dimension;
+    let dug = false;
+    const onDug = done => { if (done?.position && posKey(done.position) === key) dug = true; };
+    const bucket = `${blockType}_bucket`;
+    const counts = world.getInventoryCounts(bot);
+    const buckets = counts[bucket] || 0;
+    const empties = counts.bucket || 0;
+    // A fill is an empty bucket spent together with a filled one gained: a
+    // filled bucket picked up on the way is no fill (rulings r2 C2).
+    const filled = () => {
+        const now = world.getInventoryCounts(bot);
+        return (now[bucket] || 0) > buckets && (now.bucket || 0) < empties;
+    };
+    // The top of the column of falling blocks above the cell, as it was
+    // before the dig: a real fall empties it, a dig the server refused and
+    // put back leaves it as it was (rulings r2 C1).
+    const columnTop = () => {
+        let top = null;
+        for (let pos = block.position.offset(0, 1, 0), b = bot.blockAt(pos); b && falls(b.name); pos = pos.offset(0, 1, 0), b = bot.blockAt(pos))
+            top = b;
+        return top;
+    };
+    const top = isLiquid ? null : columnTop();
+    const fell = () => top != null && bot.blockAt(top.position)?.name !== top.name;
+    let error = null;
+    let used = false;
+    bot.on('diggingCompleted', onDug);
+    try {
+        if (isLiquid) {
+            used = await useToolOnBlock(bot, 'bucket', block);
+        }
+        else if (mc.mustCollectManually(blockType)) {
+            await goToPosition(bot, block.position.x, block.position.y, block.position.z, 2);
+            await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
+            // The cell as it is now, right before the dig packet (the dig
+            // seam's last check, work/dig.js digCell): the block object may be
+            // stale after the walk and the look.
+            const ready = bot.blockAt(block.position);
+            if (bot.interrupt_code) return { reason: 'interrupted' };
+            if (!ready || ready.name !== block.name || bot.game?.dimension !== dim) return { reason: 'changed' };
+            if (isProtectedForBot(bot, ready)) return { reason: 'protected' };
+            gear.bindHarvest(bot, ready);
+            await bot.dig(ready, 'ignore');
+            await pickupNearbyItems(bot);
+        }
+        else {
+            // The real plugin swallows PathStopped (CollectBlock.js:212): an
+            // interrupted collect resolves, and only the check below counts.
+            // No final re-check here, unlike the hand-dug path (rulings r2 C3,
+            // SPEC §16): the plugin checks the type and protection itself
+            // (CollectBlock.js:70), and only its equip and one smooth look (a
+            // few ticks) lie between that check and its dig (:86); the grant covers
+            // only the current cell (S4). Wrapping bot.dig for a whole collect
+            // is not done: the combat slice wraps bot.dig during fights, and
+            // nested wrap and restore across an interrupted action would drop one.
+            await bot.collectBlock.collect(block);
+        }
+    } catch (err) {
+        error = err;
+    } finally {
+        bot.removeListener('diggingCompleted', onDug);
+    }
+    if (isLiquid) {
+        if (error) return { reason: errorReason(error), error };
+        // Only a use that was sent can fill (rulings r2 C2).
+        if (used && !filled()) await slotUpdate(bot, filled, BUCKET_WAIT_MS);
+        if (used && filled()) return { counted: true };
+        return { reason: 'the bucket did not fill' };
+    }
+    const now = bot.blockAt(block.position);
+    if (dug && now && (now.name !== block.name || (falls(now.name) && fell()))) return { counted: true, error };
+    if (error) return { reason: error.name === 'NoChests' ? 'inventory full, no place to deposit' : errorReason(error), error };
+    return { reason: failReason(bot, block, now, dug) };
+}
+
+// Fork carry (REQ-SAFE-12): the protected cells of the type around where the
+// collect started, by the complete search (findBlocks misses in-range blocks,
+// SPEC §4.1), the cells tried excluded: G the owner may grant, K kept (her own
+// records, containers, beds, spawners, a kept clear layer). Ores protected only
+// by a run's harvest policy are natural and in neither. Null with no work layer.
+function protectedCount(bot, blocktypes, start, tried) {
+    const protector = protectorFor(bot);
+    if (!protector) return null;
+    const radius = protector.config().collect.placed_radius;
+    let grantable = 0, kept = 0;
+    for (const name of blocktypes) {
+        if (!bot.registry.blocksByName[name]) continue;
+        for (const pos of findAllBlocks(bot, name, radius, start).positions) {
+            if (tried.has(posKey(pos))) continue;
+            const block = bot.blockAt(pos);
+            if (!protector.isProtected(block)) continue;
+            if (protector.grantable(block)) grantable++;
+            else if (!name.endsWith('_ore')) kept++;
+        }
+    }
+    return { grantable, kept, radius };
+}
+
+async function collectBlocksOf(bot, blockType, num, { exclude = null, cells = null } = {}) {
     if (num < 1) {
         log(bot, `Invalid number of blocks to collect: ${num}.`);
-        return false;
+        return { gained: false, summary: null };
     }
     let blocktypes = [blockType];
     if (blockType === 'coal' || blockType === 'diamond' || blockType === 'emerald' || blockType === 'iron' || blockType === 'gold' || blockType === 'lapis_lazuli' || blockType === 'redstone')
@@ -460,7 +624,13 @@ async function collectBlocksOf(bot, blockType, num, exclude) {
         blocktypes.push('stone');
     const isLiquid = blockType === 'lava' || blockType === 'water';
 
+    // Fork carry (REQ-SAFE-12): where the collect started, captured before the
+    // first await: the centre of the protected count.
+    const start = bot.entity.position.floored();
     let collected = 0;
+    let found = false;          // a block of the type was eligible
+    const failures = [];        // one reason per block that could not be dug
+    const tried = new Set();    // cells that failed: never searched again
     const initialInventory = world.getInventoryCounts(bot);
 
     const movements = new pf.Movements(bot);
@@ -470,53 +640,76 @@ async function collectBlocksOf(bot, blockType, num, exclude) {
     // Blocks to ignore safety for, usually next to lava/water
     const unsafeBlocks = ['obsidian'];
 
+    // Fork carry (REQ-SAFE-12, 13): findBlocks' palette pass calls the filter
+    // with `position === null` (mineflayer blocks.js:128-130): a name test only.
+    // The obsidian allowance stays, but protection always wins (DECISIONS 2026-11-13).
+    const eligible = block => {
+        if (!block.position) return blocktypes.includes(block.name);
+        if (!blocktypes.includes(block.name)) return false;
+        if (exclude?.some(p => block.position.x === p.x && block.position.y === p.y && block.position.z === p.z)) return false;
+        if (tried.has(posKey(block.position))) return false;
+        if (isLiquid) {
+            // collect only source blocks
+            return block.metadata === 0;
+        }
+        return movements.safeToBreak(block) || (unsafeBlocks.includes(block.name) && !isProtectedForBot(bot, block));
+    };
+    const queue = cells ? [...cells] : null;
+    const protector = cells ? protectorFor(bot) : null;
+
     for (let i=0; i<num; i++) {
         if (bot.interrupt_code) break;
         const inventory = world.getInventoryCounts(bot);
         if ((inventory[blockType] || 0) - (initialInventory[blockType] || 0) >= num) break;
-        let blocks = world.getNearestBlocksWhere(bot, block => {
-            if (!blocktypes.includes(block.name)) {
-                return false;
-            }
-            if (exclude) {
-                for (let position of exclude) {
-                    if (block.position.x === position.x && block.position.y === position.y && block.position.z === position.z) {
-                        return false;
-                    }
-                }
-            }
-            if (isLiquid) {
-                // collect only source blocks
-                return block.metadata === 0;
-            }
-            
-            return movements.safeToBreak(block) || unsafeBlocks.includes(block.name);
-        }, 64, 1);
-
-        if (blocks.length === 0) {
-            if (collected === 0)
-                log(bot, `No ${blockType} nearby to collect.`);
-            else
-                log(bot, `No more ${blockType} nearby to collect.`);
-            break;
+        let block;
+        if (queue) {
+            // The frozen list only; a cell that changed is skipped. Only the
+            // cell dug now is exempt, so no path digs another granted cell.
+            const cell = queue.shift();
+            if (!cell) break;
+            protector?.focusGrant(cell);
+            block = bot.blockAt(new Vec3(cell.x, cell.y, cell.z));
+            if (!block || block.name !== cell.name) { failures.push(block ? 'changed' : 'unverified'); continue; }
+            if (!eligible(block)) { failures.push(failReason(bot, block, block, false)); continue; }
+        } else {
+            const blocks = world.getNearestBlocksWhere(bot, eligible, 64, 1);
+            if (blocks.length === 0) break;
+            block = blocks[0];
         }
-        const block = blocks[0];
-        await bot.tool.equipForBlock(block);
+        found = true;
+        // A rejected equip is this block's reason, never an exit without the summary.
+        const failSetup = err => {
+            failures.push(errorReason(err));
+            tried.add(posKey(block.position));
+        };
+        try {
+            await bot.tool.equipForBlock(block);
+        } catch (err) {
+            if (bot.interrupt_code) break;
+            failSetup(err);
+            continue;
+        }
         if (bot.interrupt_code) break;
         // Carry (I1 S2; REQ-GEAR-1): a silk-touch tool drops the block itself (stone for cobblestone, grass for
         // dirt), not the item asked for; blocks that drop nothing without silk touch (ice, glass, leaves) keep
         // it. The tool choice already avoids silk here when anything else will do (work/gear.js chooseFor).
         if (gear.silkChangesDrop(bot, block, bot.heldItem, blockType)) {
-            log(bot, `Only a silk-touch tool can mine ${block.name}: it would drop ${block.name}, not ${blockType}.`);
-            return false;
+            failures.push(`only a silk-touch tool, which drops ${block.name}, not ${blockType}`);
+            break;
         }
         if (isLiquid) {
             const bucket = bot.inventory.findInventoryItem('bucket');
             if (!bucket) {
-                log(bot, `Don't have bucket to harvest ${blockType}.`);
-                return false;
+                failures.push('no bucket');
+                break;
             }
-            await bot.equip(bucket, 'hand');
+            try {
+                await bot.equip(bucket, 'hand');
+            } catch (err) {
+                if (bot.interrupt_code) break;
+                failSetup(err);
+                continue;
+            }
         }
         // Fork carry (REQ-GEAR-1): this check, collectblock's own and the dig wait
         // ask this block object, so it answers for the held item from its components
@@ -524,49 +717,51 @@ async function collectBlocksOf(bot, blockType, num, exclude) {
         gear.bindHarvest(bot, block);
         const itemId = bot.heldItem ? bot.heldItem.type : null
         if (!block.canHarvest(itemId)) {
-            log(bot, `Don't have right tools to harvest ${blockType}.`);
-            return false;
+            failures.push(`cannot harvest with ${heldName(bot)}`);
+            break;
         }
+        const outcome = await attemptBlock(bot, block, blockType, isLiquid);
+        if (outcome.counted) collected++;
+        else if (!bot.interrupt_code) {
+            failures.push(outcome.reason);
+            tried.add(posKey(block.position));
+        }
+        if (bot.interrupt_code || outcome.error?.name === 'NoChests') break;
         try {
-            let success = false;
-            if (isLiquid) {
-                success = await useToolOnBlock(bot, 'bucket', block);
-            }
-            else if (mc.mustCollectManually(blockType)) {
-                await goToPosition(bot, block.position.x, block.position.y, block.position.z, 2);
-                await bot.dig(block);
-                await pickupNearbyItems(bot);
-                success = true;
-            }
-            else {
-                await bot.collectBlock.collect(block);
-                success = true;
-            }
-            if (success)
-                collected++;
-            if (!bot.interrupt_code) await autoLight(bot);
+            await autoLight(bot);
+        } catch (err) {
+            console.warn(`[collect] could not place a torch: ${err?.message ?? err}`);
         }
-        catch (err) {
-            if (bot.interrupt_code) break;
-            if (err.name === 'NoChests') {
-                log(bot, `Failed to collect ${blockType}: Inventory full, no place to deposit.`);
-                break;
-            }
-            else {
-                log(bot, `Failed to collect ${blockType}: ${err}.`);
-                continue;
-            }
-        }
-        
         if (bot.interrupt_code)
-            break;  
+            break;
+    }
+    protector?.focusGrant(null);
+    // Fork carry (REQ-SAFE-12): always one summary line, the protected count
+    // when the run ended short and was not interrupted (a granted run lists its
+    // own cells, so it has none).
+    const interrupted = Boolean(bot.interrupt_code);
+    const count = collected < num && !interrupted && !cells ? protectedCount(bot, blocktypes, start, tried) : null;
+    if (!cells && !interrupted && !found && !failures.length && !count?.grantable && !count?.kept) {
+        // Nothing admitted: one unfiltered search (name only, the same range)
+        // tells "none there" from "there, but she may not mine them".
+        const there = world.getNearestBlocksWhere(bot, b => blocktypes.includes(b.name), 64, 1).length > 0;
+        log(bot, there ? `The ${blockType} nearby are ones I may not mine (protected or next to water or lava).` : `No ${blockType} nearby to collect.`);
     }
     const finalInventory = world.getInventoryCounts(bot);
     const changes = [...new Set([...Object.keys(initialInventory), ...Object.keys(finalInventory)])]
         .map(name => [name, (finalInventory[name] || 0) - (initialInventory[name] || 0)])
         .filter(([, count]) => count !== 0);
-    log(bot, `Completed ${collected} ${blockType} block operations${bot.interrupt_code ? ' before interruption' : ''}. Inventory net change: ${changes.map(([name, count]) => `${count > 0 ? '+' : ''}${count} ${name}`).join(', ') || 'none'}.`);
-    return changes.some(([, count]) => count > 0);
+    const summary = [`Collected ${collected} of ${num} ${blockType}${interrupted ? ' before interruption' : ''}.`];
+    if (count?.grantable)
+        summary.push(`${count.grantable} ${blockType} within ${count.radius} are protected (not natural); I mine those only if the owner asks me to (!collectPlaced).`);
+    if (count?.kept)
+        summary.push(`${count.kept} ${blockType} within ${count.radius} are kept (my own builds, containers or a kept area); I do not mine those.`);
+    if (failures.length)
+        summary.push(`${failures.length} could not be dug: ${[...new Set(failures)].slice(0, 3).join('; ')}.`);
+    summary.push(`Inventory net change: ${changes.map(([name, count]) => `${count > 0 ? '+' : ''}${count} ${name}`).join(', ') || 'none'}.`);
+    const line = summary.join(' ');
+    log(bot, line);
+    return { gained: changes.some(([, count]) => count > 0), summary: line };
 }
 
 export async function pickupNearbyItems(bot) {

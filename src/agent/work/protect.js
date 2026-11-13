@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
+import { WORK_DEFAULTS } from './config.js';
 
 // Protection (SPEC §13): one predicate for paths, collection and (from S3)
 // building, applied through Movements.prototype.safeToBreak (REQ-SAFE-3).
@@ -52,16 +53,19 @@ const UP = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], 
 
 // The protection predicate for one bot. `ledger` is the placements ledger
 // (ledger.js: get, retire and the !buildStructure run in progress); `scope()`
-// returns the active clear step's box scope or null (REQ-CLR-5; steps/clear.js).
+// returns the active clear step's box scope or null (REQ-CLR-5; steps/clear.js);
+// `config()` the work settings (the container list, the collect radius).
 export class Protector {
-    constructor(bot, { ledger = null, scope = () => null } = {}) {
+    constructor(bot, { ledger = null, scope = () => null, config = () => WORK_DEFAULTS } = {}) {
         this.bot = bot;
         this.ledger = ledger;
         this.scope = scope;
+        this.config = config;
         this.treeMemo = null;
         this.componentMemo = null;
         this.running = false;
         this.guardMemo = null;   // {generation, at, verdicts}: the component guard's verdicts (REQ-OWN-4)
+        this.grant = null;       // REQ-SAFE-13: {cells: [{x, y, z, name, dim}]} while a granted action runs (withGrant)
     }
 
     // The tree test is memoized per position inside a run only (REQ-SAFE-3),
@@ -108,6 +112,11 @@ export class Protector {
         // REQ-OWN-4: a lapsed old scaffold entry falls through to the default
         // predicate, as an unrecorded block (its record is kept).
         if (recorded && !this.lapsed(recorded, inBox)) return !this.exempt(recorded, inBox);
+        // REQ-SAFE-13 (DECISIONS 2026-11-13, "only if I ask"): the owner's
+        // grant, checked after the clear scope and her own records, so a kept
+        // layer, her records and a box's containers stay protected; the exact
+        // cell, while it still holds the granted block.
+        if (this.granted(block)) return false;
         if (isLeavesName(name)) return !naturalLeaves(block);
         if (isLogName(name)) return !this.isNaturalTree(block);
         // A task-layer harvesting policy, not owner property: inside a task run
@@ -131,6 +140,51 @@ export class Protector {
             return fn();
         } finally {
             this.ownBed = before;
+        }
+    }
+
+    // --- the owner's grant (REQ-SAFE-13) ---------------------------------------
+
+    // Only the granted cell being dug now (focusGrant) is exempt, so the
+    // pathfinder never digs another granted cell on the way (rulings r1 S4).
+    granted(block) {
+        const c = this.grant?.current;
+        if (!c) return false;
+        const dim = this.bot.game?.dimension ?? 'overworld';
+        const { x, y, z } = block.position.floored ? block.position.floored() : block.position;
+        return c.x === x && c.y === y && c.z === z && c.name === block.name && c.dim === dim;
+    }
+
+    // The collect names the cell it digs now; a cell outside the frozen list, or none, lifts nothing.
+    focusGrant(cell) {
+        if (!this.grant) return;
+        this.grant.current = cell && this.grant.cells.includes(cell) ? cell : null;
+    }
+
+    // A cell the owner may grant: protected by the default predicate only.
+    // Never a clear scope cell, a record of hers (lapsed or not), a container,
+    // bed or spawner by name, nor an ore (protected only by a run's harvest
+    // policy: natural, not his).
+    grantable(block) {
+        if (!block?.name || !block.position) return false;
+        const name = block.name;
+        const scope = this.scope();
+        if (scope?.inShell(block.position) || scope?.inBox(block.position)) return false;
+        if (this.ledger?.get(block.position)?.block === name) return false;
+        const { containers, never_remove } = this.config().clear;
+        if (containers.includes(name) || never_remove.includes(name) || name.endsWith('_bed') || name.endsWith('_ore')) return false;
+        return this.isProtected(block);
+    }
+
+    // The grant lives only while `fn` runs: Work sets it inside the granted
+    // action's own function, after any older action has stopped, so nothing
+    // else ever sees it; it ends with the action (or on !stop).
+    async withGrant(cells, fn) {
+        this.grant = { cells, current: null };
+        try {
+            return await fn();
+        } finally {
+            this.grant = null;
         }
     }
 

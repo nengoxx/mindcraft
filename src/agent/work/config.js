@@ -95,11 +95,25 @@ export const WORK_DEFAULTS = Object.freeze({
         when: 'always',
         max_mode_cuts: 6,
     }),
+    // The owner's blocks on request (REQ-SAFE-12, 13; DECISIONS 2026-11-13).
+    // `placed_radius`: the complete search around where a collect started,
+    // for the protected count of !collectBlocks and the candidates of
+    // !collectPlaced (8: the whole cube, about 4.9 k block lookups; 64 would cost about 2.1 M).
+    // `question_s`: how long the mining question waits for his yes or no.
+    collect: Object.freeze({
+        placed_radius: 8,
+        question_s: 120,
+    }),
 });
 
 // Object defaults merged one level deep (SPEC §14): a profile that sets one
 // sub-key keeps the other defaults.
-const MERGED = new Set(['clear', 'tidy', 'sleep']);
+const MERGED = new Set(['clear', 'tidy', 'sleep', 'collect']);
+// Sub-keys checked before the merge; a bad value keeps the default (logged).
+const positive = value => Number.isSafeInteger(value) && value > 0;
+const SUB_CHECKS = Object.freeze({
+    collect: Object.freeze({ placed_radius: positive, question_s: positive }),
+});
 
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
 export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
@@ -161,8 +175,10 @@ export function loadWorkConfig(profileWork = {}) {
         else {
             config[key] = { ...WORK_DEFAULTS[key] };
             for (const [sub, subValue] of Object.entries(value)) {
-                if (sub in WORK_DEFAULTS[key]) config[key][sub] = subValue;
-                else console.log(`[work] ignoring unknown work setting: ${key}.${sub}`);
+                if (!(sub in WORK_DEFAULTS[key])) console.log(`[work] ignoring unknown work setting: ${key}.${sub}`);
+                else if (SUB_CHECKS[key]?.[sub] && !SUB_CHECKS[key][sub](subValue))
+                    console.log(`[work] ignoring work setting ${key}.${sub}: ${JSON.stringify(subValue)} is not valid`);
+                else config[key][sub] = subValue;
             }
         }
     }

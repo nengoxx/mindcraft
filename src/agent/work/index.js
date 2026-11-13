@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
+import Vec3 from 'vec3';
 import { getCommand, containsCommand } from '../commands/index.js';
+import * as skills from '../library/skills.js';
+import { findAllBlocks } from './commands.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
 import { loadWorkConfig } from './config.js';
@@ -43,6 +46,28 @@ const sameArgs = (a, b) => isDeepStrictEqual(plain(a), plain(b));
 // before `notify_done` is judged by who asked and whether a goal ran it.
 const ownerAsked = record => record.notify_done ?? Boolean(record.requested_by && !record.goal);
 
+// REQ-SAFE-13 (DECISIONS 2026-11-13): the owner's blocks on request.
+export const PLACED_LABEL = 'action:collectPlaced';
+export const PLACED_NOT_OWNER = 'Only the owner can ask me to mine protected blocks.';
+export const PLACED_TASK_QUESTION = 'A task question is waiting; ask me again after it.';
+export const PLACED_LAPSED = 'The mining question lapsed.';
+const PLACED_LISTED = 4;   // positions the question lists one by one
+const cellText = c => `${c.x},${c.y},${c.z}`;
+const andList = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+
+// The one yes/no question naming the exact cells (design r4 §3).
+function blockQuestion(type, cells, more) {
+    const which = cells.length <= PLACED_LISTED
+        ? `${cells.length} protected ${type} at ${andList(cells.map(cellText))}`
+        : `the ${cells.length} nearest protected ${type}, from ${cellText(cells[0])} to ${cellText(cells.at(-1))}`;
+    const rest = more ? ` ${more} more ${more === 1 ? 'is' : 'are'} nearby.` : '';
+    return `May I mine ${which}?${rest} Answer yes or no.`;
+}
+
+// The action output with the granted collect's complete summary line, which
+// getBotOutputSummary may have cut (rulings r1 S5).
+const withSummary = (message, summary) => !summary || message.includes(summary) ? message : `${message}\n${summary}`.trim();
+
 function refusal(command, errors) {
     return `${command} refused: ${errors.join('; ')}${errors.some(e => /no method for/.test(e)) ? NO_METHOD_HINT : ''}`;
 }
@@ -76,6 +101,10 @@ export class Work {
         this.nextSend = 0;
         this.handoff = null;        // {message, ownerTask}: the blocked report being handed to the model (its turn's voice is `alert`)
         this.answerPending = false; // the owner's last turn showed nothing (G1, guardTurns)
+        // REQ-SAFE-13: the mining question, one in-memory slot apart from the
+        // task's pending_question: {type, cells, owner, text, asked_at, armed, reposted}.
+        this.blockAsk = null;
+        this.actionStarts = 0;      // every action start (onActionStart): a newer action drops a hand-back
         this.disposers = [];
     }
 
@@ -89,7 +118,7 @@ export class Work {
         this.runner = new Runner(this);
         this.ledger = new Ledger(bot, { file: ledgerPath(agent.name), max: this.config.ledger_max, now: this.now,
             label: () => agent.actions?.currentActionLabel || null });
-        this.protector = new Protector(bot, { ledger: this.ledger, scope: () => this.clearScope() });
+        this.protector = new Protector(bot, { ledger: this.ledger, scope: () => this.clearScope(), config: () => this.config });
         installSafeToBreakPatch();
         guardBot(bot, this.protector, () => this.record?.status === 'active');
         this.disposers.push(() => unguardBot(bot));
@@ -194,6 +223,11 @@ export class Work {
                     agent.work?.stopTask();
                 } catch (err) {
                     console.error('[work] !stop: could not write the cancelled task:', err?.message ?? err);
+                }
+                try {
+                    agent.work?.stopBlocks();   // REQ-SAFE-13: the mining question and any grant end
+                } catch (err) {
+                    console.error('[work] !stop: could not end the mining question:', err?.message ?? err);
                 }
                 return perform.call(this, agent, ...args);
             };
@@ -315,17 +349,23 @@ export class Work {
             const owner = source !== 'system' && source !== agent.name && !convoManager.isOtherAgent(source);
             const alert = !owner && handoff != null && source === 'system' && message === handoff.message;
             const voice = owner ? 'owner' : alert ? 'alert' : 'own';
+            // REQ-SAFE-13: `raw`, the owner's typed command, by
+            // agent.js's raw-branch test (his message holds a command); only
+            // that command reads it (rawOwnerCommand).
+            const raw = owner && typeof message === 'string' ? containsCommand(message) || null : null;
             // `model`: the owner's words go to the model (not a raw command,
             // not an answer code consumes) while a goal runs; only such a turn
             // can leave his answer pending.
-            const model = owner && !(typeof message === 'string' && containsCommand(message))
-                && Boolean(agent.self_prompter?.isActive());
-            const turn = { done: false, chats: 0, voice, ownerTask: alert && handoff.ownerTask, shown: 0, model };
+            const model = owner && !raw && Boolean(agent.self_prompter?.isActive());
+            const turn = { done: false, chats: 0, voice, ownerTask: alert && handoff.ownerTask, shown: 0, model, raw };
             // REQ-OBT-11: every turn in flight, counted synchronously on entry;
             // `turn.action` is the last action started inside it (onActionStart).
             work.liveTurns.add(turn);
             return turns.run(turn, async () => {
                 try {
+                    // REQ-SAFE-13: a raw owner command is not his answer: it
+                    // disarms the mining question here, before agent.js:286 returns.
+                    if (raw && work.blockAsk) work.disarm();
                     return await handleMessage.apply(this, args);
                 } finally {
                     work.liveTurns.delete(turn);
@@ -382,17 +422,21 @@ export class Work {
 
     // Disarms the open question for the current turn (or, outside a live
     // turn, for a token that is already finished) and returns the token.
+    // REQ-SAFE-13: the mining question follows the same rule; after its one
+    // re-post, any further disarm (a non-answer or bot chat) clears it.
     disarm() {
         const store = turns.getStore();
         const token = store && store !== QUESTION && !store.done ? store : { done: true, chats: 0 };
         this.armed = null;
+        if (this.blockAsk?.reposted) this.dropBlockAsk('disarmed after its re-post');
+        else if (this.blockAsk) this.blockAsk.armed = false;
         this.disarming.add(token);
         return token;
     }
 
     // A bot chat to the owner: anything but the question's own lines disarms it.
     onChat() {
-        if (turns.getStore() === QUESTION || !this.record?.pending_question) return null;
+        if (turns.getStore() === QUESTION || (!this.record?.pending_question && !this.blockAsk)) return null;
         const token = this.disarm();
         token.chats++;
         return token;
@@ -400,6 +444,10 @@ export class Work {
 
     settle(token) {
         if (!token.done || token.chats || !this.disarming.delete(token) || this.disarming.size) return;
+        if (this.blockAsk) {
+            this.postBlockAsk(this.blockAsk, { repost: true });
+            return;
+        }
         if (this.record?.pending_question) this.log(`asking the owner again (${this.record.pending_question.kind})`);
         this.postQuestion();
     }
@@ -620,6 +668,7 @@ export class Work {
 
     // Every action start (the runAction wrap, guardActions).
     onActionStart(label, fn, opts) {
+        this.actionStarts++;
         this.lastStart = { label, voice: this.turnVoice(), goal: Boolean(this.agent.self_prompter?.isActive()) };
         // REQ-OBT-11 (C-F1): the turn an action starts in stays open while it runs.
         const store = turns.getStore();
@@ -707,6 +756,7 @@ export class Work {
 
     // The self-heal timer (REQ-RES-10), also the stall clock while no run writes.
     tick() {
+        this.expireBlockAsk();
         // REQ-SLP-5: the bed pickup, before the active-task guard and whatever
         // work.sleep.when says.
         try {
@@ -838,6 +888,7 @@ export class Work {
     // into history, so the model knows it is open.
     askOwner(step, ask) {
         const record = this.record;
+        this.dropBlockAsk('a task question was asked');   // REQ-SAFE-13: one question at a time
         record.pending_question = newQuestion(ask, this.now());
         setStatus(record, 'blocked', 'awaiting_owner');
         step.status = 'blocked';
@@ -853,6 +904,7 @@ export class Work {
     // owner's own chat answers; anything else goes on to the model and the
     // question stays open.
     answerQuestion(source, message) {
+        if (this.blockAsk && this.answerBlockAsk(source, message)) return true;
         const record = this.record;
         const question = record?.pending_question;
         if (!question || record.status !== 'blocked') return false;
@@ -886,6 +938,194 @@ export class Work {
         this.write();
         this.scheduleRun();
         return true;
+    }
+
+    // --- the owner's blocks on request (REQ-SAFE-13; design ownblocks r4 §3) ---
+
+    // True only for the live owner turn's own typed command (the guardTurns
+    // marker), once: the grant authority is here and in the perform, never a
+    // skills option generated code could pass (a typed !newAction is raw too).
+    rawOwnerCommand(name) {
+        const store = turns.getStore();
+        if (!store || store === QUESTION || store.done || store.voice !== 'owner' || store.raw !== name) return false;
+        store.raw = null;
+        return true;
+    }
+
+    // The grantable cells of `type` around where she stands now, nearest first,
+    // by the complete search; the first `num`, frozen with their dimension.
+    grantCandidates(type, num) {
+        const bot = this.agent.bot;
+        const start = bot.entity.position.floored();
+        const dim = bot.game?.dimension ?? 'overworld';
+        const radius = this.config.collect.placed_radius;
+        const all = findAllBlocks(bot, type, radius, start).positions.filter(pos => this.protector.grantable(bot.blockAt(pos)));
+        return { cells: all.slice(0, num).map(p => ({ x: p.x, y: p.y, z: p.z, name: type, dim })), more: Math.max(0, all.length - num), radius };
+    }
+
+    // !collectPlaced (DECISIONS 2026-11-13, "if I ask, obviously she can mine
+    // a block that I placed, but only if I ask"): typed by the owner it mines
+    // at once; run by the model in his turn, code asks him about the exact
+    // cells and only his yes grants them; in any other turn it is refused.
+    async collectPlaced(type, num) {
+        // Before the first await: the start position, the dimension and whether this is his typed command.
+        const typed = this.rawOwnerCommand('!collectPlaced');
+        if (!typed && this.turnVoice() !== 'owner') return PLACED_NOT_OWNER;
+        if (!typed && this.record?.pending_question && this.record.status === 'blocked') return PLACED_TASK_QUESTION;
+        // His typed command is a newer ask: an open mining question lapses, never re-posted (rulings r1 A8).
+        if (typed) this.dropBlockAsk('a typed !collectPlaced');
+        const { cells, more, radius } = this.grantCandidates(type, num);
+        if (!cells.length) return `No protected ${type} within ${radius} that I may mine.`;
+        if (!typed) {
+            // A plain perform that returns nothing, so the model's loop ends
+            // (the work/commands.js pattern); his answer is read before the model.
+            await this.askBlocks(type, cells, more);
+            return;
+        }
+        console.log(`[protect] owner grant (typed): ${type} ×${cells.length} at ${cells.map(cellText).join('; ')}`);
+        const result = await this.runGrant(type, num, cells, cells);
+        const message = withSummary(result.message ?? '', result.summary);
+        // As runAsAction: an interrupted run keeps its output in history and ends the loop.
+        if (result.interrupted && !result.timedout) {
+            if (message) {
+                await this.agent.history.add('system', message);
+                await this.agent.history.save();
+            }
+            return;
+        }
+        return message;
+    }
+
+    // The granted action: `granted` (the cells still grantable) are exempt
+    // only inside its own function; the frozen `cells` are dug in order.
+    // Returns the action's result with `summary`, the complete summary line
+    // (the action output may shorten it, rulings r1 S5). The stop epoch and
+    // the open mining question are captured before runAction queues the
+    // function: a !stop (or a newer ask) while an older action is still
+    // stopping means nothing is granted (rulings r1 S1).
+    async runGrant(type, num, cells, granted) {
+        const bot = this.agent.bot;
+        const epoch = this.agent.stop_epoch;
+        const asked = this.blockAsk;
+        let summary = null;
+        const result = await this.agent.actions.runAction(PLACED_LABEL, async () => {
+            if (this.agent.stop_epoch !== epoch || this.blockAsk !== asked) {
+                console.log('[protect] owner grant dropped: a !stop or a newer ask came first');
+                return;
+            }
+            summary = (await this.protector.withGrant(granted, () => skills.collectGrantedCells(bot, type, num, cells))).summary;
+        }, { timeout: 10 });
+        return { ...result, summary };
+    }
+
+    async askBlocks(type, cells, more) {
+        this.dropBlockAsk('a newer ask');
+        const ask = { type, cells, owner: this.owner(), text: blockQuestion(type, cells, more), asked_at: this.now(), armed: false, reposted: false };
+        this.blockAsk = ask;
+        this.disarming.clear();   // a turn that spoke before this question is not why it is re-posted
+        console.log(`[protect] asked the owner: ${ask.text}`);
+        await this.postBlockAsk(ask);
+    }
+
+    // Posts the mining question and arms it once every line is out, if it is
+    // still the open one and nothing disarmed it meanwhile (the task
+    // question's rule, postQuestion); a re-post happens once.
+    async postBlockAsk(ask, { repost = false } = {}) {
+        if (this.disposed || this.blockAsk !== ask) return;
+        if (repost) {
+            ask.reposted = true;
+            console.log('[protect] asking the owner again (the mining question)');
+        }
+        ask.armed = false;
+        const current = () => this.blockAsk === ask;
+        let sent;
+        try {
+            sent = await turns.run(QUESTION, () => this.deliver(ask.text, { current, category: 'question' }));
+        } catch (err) {
+            console.error('[work] could not post the mining question:', err?.message ?? err);
+            return;
+        }
+        if (sent && current() && !this.disarming.size) ask.armed = true;
+    }
+
+    dropBlockAsk(why) {
+        if (!this.blockAsk) return;
+        this.blockAsk = null;
+        console.log(`[protect] the mining question lapsed (${why})`);
+        this.agent.history.add('system', PLACED_LAPSED).then(() => this.agent.history.save())
+            .catch(err => console.error('[work] could not save the lapsed question:', err?.message ?? err));
+    }
+
+    expireBlockAsk() {
+        if (this.blockAsk && this.now() - this.blockAsk.asked_at >= this.config.collect.question_s * 1000) this.dropBlockAsk('no answer in time');
+    }
+
+    // The !stop wrapper: the question and any grant end at once.
+    stopBlocks() {
+        this.dropBlockAsk('stop');
+        if (this.protector) this.protector.grant = null;
+    }
+
+    // The agent.js interception (answerQuestion): his armed yes or no, by the
+    // task question's parser; a non-answer of his disarms it.
+    answerBlockAsk(source, message) {
+        this.expireBlockAsk();
+        const ask = this.blockAsk;
+        if (!ask || !ask.owner || source !== ask.owner || !ask.armed) return false;
+        const answer = parseAnswer(message, ['yes', 'no']);
+        if (!answer) {
+            this.settle(this.disarm());   // goes to the model; re-posted once after this turn
+            return false;
+        }
+        this.blockAsk = null;
+        const store = turns.getStore();
+        if (store && store !== QUESTION) store.model = false;   // answered by code: nothing pending (G1)
+        console.log(`[protect] the owner answered the mining question: ${answer}`);
+        this.agent.history.add('system', `Asked the owner: "${ask.text}" The owner answered: ${answer}.`).then(() => this.agent.history.save())
+            .catch(err => console.error('[work] could not save the answered question:', err?.message ?? err));
+        if (answer === 'yes') this.grantAsked(ask).catch(err => console.error('[work] the granted collect failed:', err?.message ?? err));
+        return true;
+    }
+
+    // His yes: each cell re-validated (still that block, in this dimension,
+    // still grantable), the listed cells dug with no model call; then the
+    // result goes back to the model once (DECISIONS 2026-11-13, "after his yes
+    // the result goes back to the model"), after the action has ended, as the
+    // blocked report does (blockStep): dropped after a !stop or a newer action.
+    async grantAsked(ask) {
+        const bot = this.agent.bot;
+        const dim = bot.game?.dimension ?? 'overworld';
+        const granted = ask.cells.filter(c => {
+            const block = bot.blockAt(new Vec3(c.x, c.y, c.z));
+            return c.dim === dim && block?.name === c.name && this.protector.grantable(block);
+        });
+        console.log(`[protect] owner grant (answered yes): ${ask.type} ×${granted.length} at ${granted.map(cellText).join('; ')}`);
+        const stopEpoch = this.agent.stop_epoch;
+        const run = this.runGrant(ask.type, ask.cells.length, ask.cells, granted);
+        const ours = this.actionStarts;   // counted synchronously as the action started (guardActions)
+        const result = await run;
+        const summary = result.summary;
+        const message = withSummary(result.message ?? '', summary);
+        try {
+            if (summary) await this.deliver(summary, { category: 'reply', record: false });
+        } catch (err) {
+            console.error('[work] could not tell the granted collect:', err?.message ?? err);
+        }
+        if (!message) return;
+        if (this.disposed || this.agent.stop_epoch !== stopEpoch || this.actionStarts !== ours || (result.interrupted && !result.timedout)) {
+            await this.agent.history.add('system', message);
+            await this.agent.history.save();
+            return;
+        }
+        // REQ-CHAT-1: marked right before the call; the turn's voice is
+        // `alert`, never the owner's, so a !collectPlaced in it is refused.
+        this.handoff = { message, ownerTask: true };
+        try {
+            Promise.resolve(this.agent.handleMessage('system', message))
+                .catch(err => console.error('[work] could not hand the granted collect back:', err?.message ?? err));
+        } finally {
+            this.handoff = null;
+        }
     }
 
     finishDone() {
@@ -947,10 +1187,13 @@ export class Work {
     // REQ-CHAT-1: the report always goes into history; its chat text (`chat`,
     // by default the report) is queued only when its category is shown, with
     // no pacing wait for a dropped one. False when it was dropped or `current`
-    // stopped it.
-    async deliver(report, { current = () => true, category = 'detail', chat = report } = {}) {
-        await this.agent.history.add('system', report);
-        await this.agent.history.save();
+    // stopped it. `record` false leaves history to the caller (a hand-back
+    // to the model records it as its own message).
+    async deliver(report, { current = () => true, category = 'detail', chat = report, record = true } = {}) {
+        if (record) {
+            await this.agent.history.add('system', report);
+            await this.agent.history.save();
+        }
         if (!chatShown(this.agent, category)) {
             console.log(`[chat] quiet: dropped (${category}): ${chat}`);
             return false;
