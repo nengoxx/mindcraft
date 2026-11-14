@@ -27,7 +27,6 @@
 - Step 2 records: `runtime/diagnostics/i1-build/reliability/` (`STATE.md`). Live state: the operator runs since 2026-11-13 17:53 (bot
   log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); private profile unchanged (`work.combat.ranged` the
   four skeletons, `travel_speed` 2, `work.inventory` gear best / cap stack / surplus 2, `min_free_slots` default).
-  The worktree `<scratch>/mindcraft-rel1` (branch `reliability`, merged) can be removed.
 - **Travel trials** (ISSUES "Travel live trials, 2026-11-14 night"): T1–T6 pass (T5 in the reliability trials).
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
@@ -39,11 +38,27 @@
 
 ## Waiting for the owner
 
-- Trials only he can run: combat while following him (the leash on him, the follow skip, passing mobs while he
-  travels); `goToPlayer` while he moves; armour thrown to her (gear trial 2); following him at dusk (S2d) and the
-  cleanup while following (S2e); watch a night once
-  sleeping is back on (she places her bed, sleeps, the night skips, she takes it back; any "I lost my bed" / "I left
-  my bed" line).
+- **Test cards** (trials only he can run; he may do them as he plays; report anything under "Report"):
+  1. *Questions while she works* (Reliability 2). Ask about her bag, the time, her health during a task. Expect:
+     quick answers, no long pause. Report: a reply much slower than the others.
+  2. *Her memory* (Reliability 2). After a while, ask what she remembers. Expect: his standing rules and recent
+     tasks. Report: anything wrong or missing.
+  3. *A changed order* (Reliability 2). "collect 64 dirt", then at once "leave the dirt and come here". Expect: only
+     the second happens. Report: she collects anyway.
+  4. *Armour thrown to her* (gear trial 2). Throw her a piece of armour. Expect: she wears it if better and keeps
+     it. Report: dropped, not worn, or worn over better gear.
+  5. *Bottles and banners* (S2e-fu trial 6). Hand her potions of different strengths, two banner stacks, an
+     enchanted bow. Expect: each kept in one best slot, nothing dropped. Report: any of them dropped.
+  6. *Combat while following him* (Combat). Let her follow him past mobs. Expect: she fights within her leash and
+     comes back to him; passing mobs she ignores. Report: she wanders off or stops following.
+  7. *`goToPlayer` while he moves*. Call her while walking away. Expect: she reaches him. Report: she stops short.
+  8. *Following at dusk; cleanup while following* (S2d, S2e). Expect: no bed placed while she follows; the bag
+     cleanup does not stop the follow. Report: she stops or wanders.
+  9. *A night, once sleeping is back on* (S2d; `modes.sleeping` is off until his word). Expect: she places her
+     bed, sleeps, the night skips, she takes the bed back and goes on. Report: any "I lost my bed" / "I left my
+     bed" line, or a bed left in the world.
+  10. *A clear box in a cave* (Reliability 2, offline only so far). Mark a small box underground and ask her to
+     clear it. Expect: it completes. Report: it stops part way, and what she said.
 - Open questions: U1 (keep "yes, chests too" in the clear's leftovers question); the death line naming its cause (a
   taste call); the operator as its own user service, with a retry after a server restart (ISSUES "Operator: the proxy
   after a server restart"); memory across full restarts (a full start begins with empty memory, `load_memory:
