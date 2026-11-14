@@ -365,6 +365,28 @@ test('give: a toss nobody picks up blocks the step with that fact and is never t
     assert.equal(agent.work.record.plan[0].progress.confirmed, 0);
 });
 
+// I1-10 (DECISIONS 2026-11-14): unstuck (20 s) no longer cuts the 30 s confirm window.
+test('I1-10: give pauses unstuck for its confirm wait only (stationary by design), not for the walk and toss', async () => {
+    const agent = setup({ inventory: { stick: 6 }, ownerAt: [3, 64, 0], modes: { unstuck: true } });
+    const { bot } = agent;
+    const events = [];
+    const pause = bot.modes.pause.bind(bot.modes);
+    const unpause = bot.modes.unpause.bind(bot.modes);
+    bot.modes.pause = name => { events.push(`pause ${name}`); pause(name); };
+    bot.modes.unpause = name => { events.push(`unpause ${name}`); unpause(name); };
+    bot.hooks.toss = () => { events.push('toss'); };
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => { if (/^blocked:/.test(message)) events.push('blocked'); log(message); };
+    agent.work.startTask('sticks', `give player=${F.OWNER} item=stick count=4`);
+    await F.until(() => agent.work.record.status === 'blocked', { timeout: 8000 });
+    const toss = events.indexOf('toss');
+    assert.ok(toss >= 0);
+    assert.equal(events.slice(0, toss).includes('pause unstuck'), false);
+    assert.deepEqual(events.slice(toss + 1).filter(e => /unstuck/.test(e)).slice(0, 2), ['pause unstuck', 'unpause unstuck']);
+    // Fix wave 2 (adversary mutant M10): give's own unpause, before the step blocks (not the next idle's).
+    assert.ok(events.indexOf('unpause unstuck') < events.indexOf('blocked'), events.join(', '));
+});
+
 test('give: inv_start is on disk before the first toss, so a crash after it never gives twice (F10)', async () => {
     const first = setup({ name: 'giver', inventory: { stick: 8 }, ownerAt: [3, 64, 0], drive: false });
     let onDisk = null;
@@ -853,6 +875,34 @@ test('obtain cobblestone with a silk-touch pickaxe and a plain one uses the plai
     await done(agent);
     assert.equal(agent.bot.count('cobblestone'), 3);
     assert.equal(agent.bot.count('stone'), 0);
+});
+
+// I1-6 (DECISIONS 2026-11-14): the gain counts the target items she placed during the call.
+for (const other of [false, true]) test(`I1-6: a collect that places some of the target as scaffold counts them as gained: no false failure${other ? ' (another item gained: "got no")' : ''}`, async () => {
+    const agent = setup({ world: quarry(), inventory: { wooden_pickaxe: 1, cobblestone: 4 } });
+    const { bot } = agent;
+    let first = true;
+    bot.hooks.collect = async () => {
+        if (!first) return;
+        first = false;
+        if (other) bot.give('flint', 1);   // a pickup on the way: the collect's own net check sees a gain
+        // The pathfinder's pillar step (index.js:571-575): the predicted stone, then bot.placeBlock.
+        const p = bot.entity.position.floored();
+        const tool = bot.heldItem;
+        bot.heldItem = bot.inventory.findInventoryItem('cobblestone');
+        bot.setBlock(p.x, p.y, p.z, 'stone');
+        bot.entity.position.y += 1;
+        await bot.placeBlock(bot.blockAt(new F.Vec3(p.x, p.y - 1, p.z)), new F.Vec3(0, 1, 0));
+        bot.heldItem = tool;   // collectblock re-equips its tool before the dig
+    };
+    const lines = [];
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => { lines.push(message); log(message); };
+    agent.work.startTask('cobble', 'obtain item=cobblestone count=5');
+    await done(agent);
+    assert.ok(bot.calls.some(c => c[0] === 'place' && c[1] === 'cobblestone'));
+    assert.equal(bot.calls.filter(c => c[0] === 'collect').length, 2, 'the first collect netted nothing, the second one');
+    assert.deepEqual(lines.filter(l => /failed/.test(l)), [], 'no attempt failed');
 });
 
 test('obtain cobblestone with only a silk-touch pickaxe digs nothing', async () => {

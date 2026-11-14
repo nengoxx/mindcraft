@@ -5,7 +5,7 @@ import * as world from '../../library/world.js';
 import { findAllBlocks } from '../commands.js';
 import { digCell, isCleared, occupant } from '../dig.js';
 import { ledgerFor } from '../ledger.js';
-import { isProtectedForBot, posKey } from '../protect.js';
+import { isEmptyBlock, isProtectedForBot, posKey } from '../protect.js';
 import { resolveObtain } from '../resolve.js';
 import { clearStatement, clearReport, leftoversQuestion } from '../report.js';
 import obtain from './obtain.js';
@@ -156,8 +156,9 @@ function nextCell(bot, candidates, tried) {
     return { cell: free[0] };
 }
 
-// A cleared cell of the box to stand in: air at feet and head, a solid block
-// below that is not a cell still to dig.
+// A cleared cell of the box to stand in: empty at feet and head (I1-4: the
+// shared test, so a cave's cave_air counts), a solid block below that is not a
+// cell still to dig.
 function standCell(ctx, step, avoid) {
     const { bot } = ctx;
     const here = bot.entity.position;
@@ -166,7 +167,7 @@ function standCell(ctx, step, avoid) {
         const feet = bot.blockAt(pos);
         const head = bot.blockAt(pos.offset(0, 1, 0));
         const below = bot.blockAt(pos.offset(0, -1, 0));
-        if (!feet || feet.name !== 'air' || !head || head.name !== 'air' || below?.boundingBox !== 'block') continue;
+        if (!isEmptyBlock(feet) || !isEmptyBlock(head) || below?.boundingBox !== 'block') continue;
         if (avoid.some(c => c.equals(below.position))) continue;
         const d = pos.distanceTo(here);
         if (!best || d < best.d) best = { pos, d };
@@ -290,6 +291,9 @@ export default {
                 // lower layers dug meanwhile give it a cell to stand in).
                 const stand = moved ? null : standCell(ctx, step, s.candidates);
                 if (!stand) {
+                    // I1-4: the cause the stall rule's block reports.
+                    p.last_cause = moved ? 'could not step off the cells under me'
+                        : 'only cells under me are left and no cleared cell of the box to stand in';
                     for (const c of underMe) tried.add(posKey(c));
                     continue;
                 }

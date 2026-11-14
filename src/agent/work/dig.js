@@ -1,6 +1,6 @@
 import pf from 'mineflayer-pathfinder';
 import * as skills from '../library/skills.js';
-import { isProtectedForBot, knowFallingBlocks, protectorFor } from './protect.js';
+import { isEmptyBlock, isProtectedForBot, knowFallingBlocks, protectorFor } from './protect.js';
 import { ledgerFor } from './ledger.js';
 import { harvestToolNames } from './resolve.js';
 import { canHarvest } from './gear.js';
@@ -16,13 +16,12 @@ const EYE_HEIGHT = 1.62;
 const APPROACH = 3;         // GoalNear range; the reach check after it decides
 const HALF_WIDTH = 0.3;     // a player's hitbox half width
 const ON_TOP = 0.5;         // feet this close above a cell's top stand on it
-const EMPTY = ['air', 'cave_air', 'void_air'];
 const LIQUIDS = ['water', 'lava', 'bubble_column'];
 const BESIDE = [[0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]]; // safeToBreak's dontCreateFlow cells
 
 // Air or a liquid: nothing to dig (REQ-CLR-7).
 export function isCleared(block) {
-    return Boolean(block) && (EMPTY.includes(block.name) || LIQUIDS.includes(block.name));
+    return isEmptyBlock(block) || (Boolean(block) && LIQUIDS.includes(block.name));
 }
 
 export function eyeDistance(bot, pos) {

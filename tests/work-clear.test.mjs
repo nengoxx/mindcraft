@@ -191,6 +191,20 @@ test('a box= box is stated and waits for the owner\'s yes with no dig before it;
     }
 });
 
+// I1-16 (DECISIONS 2026-11-14): task-command lines go through the one owner-output queue (REQ-REC-12).
+test('I1-16: the owner\'s !taskStart line and the box question after it are paced by the one queue', async () => {
+    const agent = setup({ world: site({ markers: false }) });
+    agent.work.lineGapMs = 150;
+    const sent = [];
+    agent.openChat = message => { sent.push({ message, at: Date.now() }); agent.chats.push(message); };
+    await F.ownerSays(agent, '!taskStart("clear the box", "clear box=2,64,0:4,66,2")');
+    await until(agent, 'blocked');
+    const start = sent.find(s => /^Task started/.test(s.message));
+    const question = sent.find(s => /Clear it\? yes \/ no$/.test(s.message));
+    assert.ok(start && question, sent.map(s => s.message).join('\n'));
+    assert.ok(question.at - start.at >= 140, `${question.at - start.at} ms apart`);
+});
+
 test('ungranted containers and the spawner are never candidates; a buried ore inside the box is dug', async () => {
     const world = site();
     world.set(3, 65, 1, 'coal_ore');      // buried in the middle of the stone
@@ -279,6 +293,32 @@ test('when only cells under the bot are left, it moves to a cleared cell first; 
     bot.players[F.OWNER].entity.position = new F.Vec3(...OWNER_AT);
     await until(agent, 'done');
     assert.equal(cellsLeft(bot.world, { ...BOX, y2: 64 }), 0);
+});
+
+// I1-4 (DECISIONS 2026-11-14): one empty-block test (air, cave air, void air) for every module.
+test('I1-4: a box in a cave (cave_air above it) steps off and completes', async () => {
+    const world = site({ markers: false });
+    world.fill(2, 65, 0, 4, 66, 2, 'air');                 // one layer, y 64
+    world.fill(-6, 65, -6, 10, 67, 8, 'cave_air');         // in a cave: cave air above the layer
+    const agent = setup({ world, position: [3.5, 65, 1.5] });   // standing on 3,64,1
+    const { bot } = agent;
+    agent.work.startTask('clear', 'clear box=2,64,0:4,64,2');
+    await until(agent, 'blocked');
+    await F.ownerSays(agent, 'yes');
+    await until(agent, 'done');
+    assert.ok(bot.calls.some(c => c[0] === 'goto' && c[1] === 'GoalBlock'));
+    assert.equal(cellsLeft(bot.world, { ...BOX, y2: 64 }), 0);
+});
+
+test('I1-4: the soft refusal (only the cell under her is left, none cleared to stand in) records its cause', async () => {
+    const world = site({ markers: false });
+    world.fill(2, 65, 0, 4, 66, 2, 'air');
+    const agent = setup({ world, position: [3.5, 65, 1.5] });
+    agent.work.startTask('clear', 'clear box=3,64,1:3,64,1');   // the one cell she stands on
+    await until(agent, 'blocked');
+    await F.ownerSays(agent, 'yes');
+    await F.until(() => step(agent).progress.last_cause === 'only cells under me are left and no cleared cell of the box to stand in', { timeout: 5000 });
+    assert.equal(agent.bot.world.block(at(3, 64, 1)).name, 'stone');
 });
 
 test('a tool is obtained inline when nothing held can harvest the next cell', async () => {

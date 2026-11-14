@@ -877,9 +877,9 @@ Two upstream carries:
     interrupted mode action threw into the ActionManager's catch and
     cancelled the pending resume (a follow after `unstuck` or
     `self_preservation`). Reapply check: `work-travel.test.mjs` "§3
-    (REQ-TRV-1, S4): an interrupted mode action keeps a pending follow …" and
-    "§3 (S4): a mode action's own error … is still thrown". Retire when
-    upstream's interrupted mode actions return normally.
+    (REQ-TRV-1, S4): an interrupted mode action keeps a pending follow …"
+    (the "own error … is still thrown" half was reversed in Reliability 2,
+    below). Retire when upstream's interrupted mode actions return normally.
 The kept walk's quiet check needs no change in `modes.js`: `should_reprompt`
 already asks `agent.work?.isQuietAction`.
 
@@ -902,3 +902,139 @@ One upstream carry:
   `work-travel.test.mjs` "fix wave 1, S1 and D-B1: a hostile that chases her
   through a real near-death flee …" (fails without the line). Retire when
   upstream tells which branch a mode action ran.
+
+Reliability 2, the I1 audit's fixes (ledger `docs/audits/i1_audit.md`; SPEC
+§6.6 REQ-REC-11, REQ-REC-7, §7.2 REQ-RES-16, §9.3 REQ-OBT-9, §11.9 REQ-CLR-7,
+§15.1 REQ-CHAT-1; DECISIONS 2026-11-14 "The I1 audit's fixes").
+Why: on the one backend 61 of 132 decisions waited behind a memory summary
+(33.5 s against 14.2 s), and summaries spent about three quarters of their
+tokens on reasoning; the code's own lines brought summaries forward; and the
+audit's smaller defects (below).
+In our own files: `work.request_params` (`work/config.js`) and its merge into
+the request body (`models/openai_tools.js`, `kind_params`); the one
+empty-block test `isEmptyBlock` (`work/protect.js`) used by `climb.js`,
+`sleep.js`, `dig.js`, `tidy.js`, `ledger.js` and the clear step's stand cell,
+and the soft refusal's cause (`steps/clear.js`); `Ledger.placedSince` and
+obtain's gain (`steps/obtain.js`); no persisted automatic recipe choice
+(`steps/obtain.js` `graph`, the `resolve.js` comment); the no-dig short cut in
+the `safeToBreak` patch and the start-up lock `lockBot`, `isLockedBot` (`work/protect.js`);
+the give step's paused `unstuck` (`steps/give.js`); the stall rule's hold
+(settled at an owner action's start and end, in the `guardActions` wrap) and
+unrounded sum, `deliver`'s `code` option, the code-line re-posts and
+`codeResult`/`isCodeResult` (`work/index.js`); the tidy line as a code line,
+also when handed back (`work/tidy.js`); the summary's reasoning budget in the
+`request_params` default and `summary_timeout_s` with its top-level check
+(`work/config.js`); the task commands' lines through
+`deliver` (`work/commands.js`).
+Six upstream carries:
+- `agent/history.js` (grown carry):
+  - decisions first (I1-1): `startSummary` starts nothing while
+    `agent.prompter.decisions` is above 0; `summarizePending` waits one
+    macrotask (`setImmediate`) before its first request, so the decision
+    `handleMessage` sends right after the crossing line registers first; each
+    summary run has an `AbortController` (`summary_controller`), whose signal
+    reaches the request; `yieldSummary()` aborts it; an aborted run publishes
+    nothing, keeps every turn, logs "Memory summary yielded to a decision; it
+    runs again after it." and calls `startSummary` again (which the decision
+    gate holds until the prompter restarts it). The bound (fix wave 1):
+    `summaryOverdue()` (`max_messages` + `summary_chunk_size` countable
+    turns); an overdue summary starts beside a decision, `yieldSummary()`
+    returns it instead of aborting it, and with a decision in flight or
+    waiting the loop stops after one chunk (fix wave 2; a 95-turn backlog
+    drained 16 summaries before the decision). Why: back-to-back query
+    decisions aborted every summary (history 15 → 95 turns over 40
+    iterations, Sol's probe). The carried invariants hold:
+    one summary in flight, the pending evidence visible until a valid
+    publication, ordered prefix removal and archive, invalid and error
+    outputs retained, `clear`/`load` invalidating late results.
+  - code lines (I1-5): `add(name, content, { code })` marks a turn `code`;
+    `countable()` counts the others toward `max_messages`; `chunkEnd()` takes
+    `summary_chunk_size` countable turns (then the assistant turns after them,
+    upstream's rule); the summariser gets the chunk without its code lines,
+    which leave history with it; `getHistory()` sends only `role` and
+    `content`, so the flag never reaches a provider. A `memory.json` turn
+    with the flag loads as a code line; one without it as before.
+  Reapply check: `work-s0.test.mjs` "I1-1: …" (three tests) and "I1-1 fix
+  wave 1: 40 query iterations back to back keep history bounded …", and
+  `work-record.test.mjs` "I1-5: code lines are visible to the model, …".
+  Retire when upstream schedules summaries around decisions and can keep
+  lines out of its summary.
+- `models/prompter.js` (grown carry): `decisions`, counted from
+  `promptConvo`'s entry to its return; entry calls
+  `agent.history.yieldSummary()` and waits for each overdue summary it
+  returns (fix wave 1), at most `work.summary_timeout_s` in all, and returns
+  '' with no request when the stop epoch or the newest entry changed during
+  that wait (fix wave 2); the entry counter is also checked wherever
+  `promptConvoTurn` checked `most_recent_msg_time` (`stale`), so an older
+  response is dropped once a newer turn entered, and after a wait the
+  history is read again (final ruling, build2 r3); the last return calls
+  `agent.history.startSummary()` (I1-1). `promptMemSaving(to_summarize,
+  signal)` checks the signal after the cooldown and after the prompt build
+  and passes it to the request; an abort puts `last_prompt_time` back at
+  once (an `abort` listener), so an aborted summary sets no cooldown (fix
+  wave 1); the request has `maxRetries: 0`, `timeout` and an
+  `AbortSignal.timeout` of `work.summary_timeout_s` (fix wave 2: the SDK's
+  timeout stops at the headers, its retries tripled the wait); after a cut
+  the next deadline doubles, capped by `work.model_timeout_s`, and resets
+  once one completes (`summaryRequestMs`, final ruling).
+  `requestOptions(kind)` adds `kind_params`,
+  `work.request_params[kind]` when the profile (or the default) sets one
+  (I1-2). Reapply check: `work-s0.test.mjs` "I1-1: …", "I1-1 fix wave 1: an
+  aborted summary sets no cooldown …", the three "I1-1 fix wave 2: …" tests,
+  the three "final ruling: …" tests and "I1-2: a summary request carries
+  work.request_params.summary …". Retire with the history
+  carry above; `kind_params` when the I2 provider sends per-kind params.
+- `models/gpt.js` (grown carry): a `finish_reason` of `length` throws
+  "Reply cut at max_tokens" instead of "Context length exceeded", so the
+  shorter-context retry (which re-sent a reasoning run cut at `max_tokens`
+  up to about 15 times, one turn fewer each) runs only on a real
+  `context_length_exceeded` error; the cut call ends with the stand-in reply
+  (I1-15). Reapply check: `work-s0.test.mjs` "I1-15: a reply cut at
+  max_tokens …" and "gpt.js's shorter-context retry (a
+  context_length_exceeded error) …". Retire when upstream tells a cut reply
+  from a context overflow.
+- `agent/agent.js` (grown carry):
+  - `startWork(init_message)`, called where `startEvents` built `this.work`:
+    a throw in `Work.init` is logged, the half-built instance disposed, every
+    block protected in its place (`lockBot` from `work/protect.js`, fix wave
+    1), `this.work` left null and the owner told once (`WORK_FAILED`,
+    `alert`); she stays up with no tasks and no digging (I1-14). Why: the
+    spawn handler's catch exits 0, which the process manager never restarts,
+    and a non-zero exit there would fall under its 10 s rule; without the
+    lock her modes and generated code could dig the owner's builds. Reapply
+    check: `work-record.test.mjs` "I1-14: a throw in the task layer's start-up
+    keeps her up without it: …, every block protected, …". Retire with the
+    task layer.
+  - the command loop's write of a command result passes `{ code:
+    this.work?.isCodeResult?.(execute_res) }`, so a worded `!tidy`'s line
+    handed back to the model stays a code line (I1-5, fix wave 1, Sol S3).
+    Reapply check: `work-tidy.test.mjs` "quiet: the owner's raw !tidy is
+    answered … (G2)". Retire with the history carry.
+  - code lines (I1-5): the behaviour log, `cleanKill`'s line, the restart
+    line added when a self-prompt is loaded, and `handleMessage`'s own add of
+    the restart message (`RESTART_MESSAGE` from `work/index.js`) pass
+    `{ code: true }`. Reapply check: `work-record.test.mjs` "I1-5: agent.js
+    writes the behaviour log, the restart line and cleanKill's line as code
+    lines …". Retire with the history carry.
+- `agent/modes.js` (grown carry): `execute()` logs a mode function's own
+  error ("Mode <name> failed: …") and swallows it, as it already did for an
+  interrupted one, when the action it cut is the task run (`action:task`), so
+  it never reaches the ActionManager's catch, which cancelled the task's
+  resume slot (I1-9). Any other cut rethrows as upstream (fix wave 1: that
+  cancel is the only stop for a follow resumed into a failing `unstuck`).
+  Reapply check: `work-travel.test.mjs` "I1-9: unstuck failing on a task run
+  is logged and keeps the task's resume …" and "I1-9 fix wave 1: unstuck
+  failing on a follow is thrown as upstream …". Retire when upstream keeps a
+  pending resume over a failed mode action.
+- `agent/library/skills.js` (grown carry): `pickupNearbyItems` passes
+  `m => { m.canDig = false; }` as `goToGoal`'s `configure` and drops its
+  own `setMovements`, which `goToGoal` replaced, so the chase never dug
+  (I1-12). Reapply check: `work-resolve.test.mjs` "I1-12: a
+  pickupNearbyItems chase walks with canDig false". Retire when upstream's
+  pickup walk keeps its movements. `placeBlock` refuses any target that is
+  not empty by `isEmptyBlock` (air, cave air, void air) while
+  `isLockedBot(bot)` (the start-up lock, I1-14 fix wave 2 and the final
+  ruling), so a plant, snow or water is not replaced either. Reapply check:
+  `work-protect.test.mjs` "I1-14 fix wave 2: under lockBot placeBlock
+  refuses to replace short grass, snow or a fern …". Retire with the task
+  layer.

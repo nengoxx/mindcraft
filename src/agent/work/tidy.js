@@ -3,7 +3,7 @@ import * as world from '../library/world.js';
 import * as mc from '../../utils/mcdata.js';
 import { digCell, eyeDistance, REACH } from './dig.js';
 import { ledgerFor } from './ledger.js';
-import { isNaturalBlockName, protectorFor } from './protect.js';
+import { isEmptyBlock, isNaturalBlockName, protectorFor } from './protect.js';
 import { tidyLine } from './report.js';
 import { chatShown } from './chat.js';
 
@@ -28,7 +28,6 @@ export const TIDY = {
     recheckForMs: 60000,
 };
 const HALF_WIDTH = 0.3;   // the bot's hitbox half width
-const EMPTY = ['air', 'cave_air', 'void_air'];
 const LIQUIDS = ['water', 'lava', 'bubble_column'];
 const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const UNDER = 'part of what I stand on';
@@ -110,7 +109,7 @@ function pillarTop(bot, ledger, under, want) {
 function freeAbove(bot, pos) {
     const above = bot.blockAt(new Vec3(pos.x, pos.y + 1, pos.z));
     if (!above) return false;
-    if (EMPTY.includes(above.name)) return true;
+    if (isEmptyBlock(above)) return true;
     return above.boundingBox === 'empty' && !LIQUIDS.includes(above.name) && isNaturalBlockName(above.name);
 }
 
@@ -322,7 +321,7 @@ export class Tidy {
         if (result.line && !result.interrupted) {
             result.posted = true;
             result.said = chatShown(this.agent, 'detail');
-            this.work.postReport(result.line, { category: 'detail' });
+            this.work.postReport(result.line, { category: 'detail', code: true });   // I1-5: never summarised
         }
         return result;
     }
@@ -450,7 +449,9 @@ export class Tidy {
         const code = await this.agent.actions.runAction('action:tidy', async () => { result = await this.run('!tidy'); }, { timeout: -1 });
         if (code.interrupted || result?.interrupted) return;
         if (!result) return code.message;
-        if (result.posted) return !result.said && this.work.turnVoice() === 'owner' ? result.line : undefined;
+        // Fix wave 1 (Sol S3): the line handed back to the model is the posted
+        // code line; agent.js writes it again with the flag (Work.codeResult).
+        if (result.posted) return !result.said && this.work.turnVoice() === 'owner' ? this.work.codeResult(result.line) : undefined;
         return result.line ?? (result.ended ? `Nothing tidied (${result.ended}).` : 'No scaffold of mine within reach.');
     }
 

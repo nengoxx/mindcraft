@@ -86,7 +86,14 @@ export default {
             // (design travel r4 §0c N2: a 30 s wait standing still let unstuck
             // cut the task, and the attempt was never counted).
             const waiting = () => (!error && ok !== false) || inventory(ctx, item) < start;
-            while (waiting() && credit() < remaining && Date.now() < deadline && !bot.interrupt_code) await sleep(100);
+            // I1-10 (DECISIONS 2026-11-14): the wait is stationary by design, so
+            // unstuck (20 s) is paused for it, as for obtain's craft.
+            bot.modes.pause('unstuck');
+            try {
+                while (waiting() && credit() < remaining && Date.now() < deadline && !bot.interrupt_code) await sleep(100);
+            } finally {
+                bot.modes.unpause('unstuck');
+            }
         } finally {
             bot.removeListener('playerCollect', onCollect);
         }

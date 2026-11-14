@@ -54,9 +54,31 @@ export const WORK_DEFAULTS = Object.freeze({
     // Model outages (REQ-RES-17/18). The prompter reads these itself: it is
     // built before Work (OQ-21).
     model_timeout_s: 600,       // OpenAI client timeout (the SDK's; one decision took 551 s)
-    model_max_retries: 2,       // OpenAI client retries of every call but decisions, which promptConvo retries
+    model_max_retries: 2,       // OpenAI client retries of every call but decisions (promptConvo retries them) and summaries (the next line does)
     model_outage_wait_s: 600,   // how long promptConvo waits through an outage
     model_outage_probe_s: 60,   // recovery probe interval of an outage-paused goal
+    // Fix wave 2 (build2 r2 rulings): a memory summary's own deadline, with no
+    // SDK retry (the next line retries it); a decision waits behind an overdue
+    // summary at most this long. Summaries took a median 19 s; 141 to 817 s
+    // only while the engine was slow overall.
+    summary_timeout_s: 120,
+    // Request body params per request kind (I1-2, DECISIONS 2026-11-14), sent
+    // over the model's params by the openai_tools provider, each replacing the
+    // param it names; a profile value replaces the whole map. Kinds: decision,
+    // summary, coding, bot_responder, probe. The default turns a memory
+    // summary's reasoning off with the Qwen chat-template switch (llama.cpp
+    // and vLLM read chat_template_kwargs) and, in case the backend ignores it,
+    // caps it with the profile's own budget key (fix wave 1): every logged
+    // summary reasoned more than 128 tokens (p10 about 200, median about 380;
+    // the one at about 2,048 matches the profile's budget being enforced), and
+    // a positive value avoids 0's "unlimited" reading. Decisions keep the
+    // model's params.
+    request_params: Object.freeze({
+        summary: Object.freeze({
+            chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+            reasoning_budget_tokens: 128,
+        }),
+    }),
     // Clearing an area (REQ-CLR-2, 3, 5).
     clear: Object.freeze({
         max_cells: 32768,       // largest box (32 x 32 x 32; the owner wants no tight limit)
@@ -148,6 +170,8 @@ const SUB_CHECKS = Object.freeze({
     collect: Object.freeze({ placed_radius: positive, question_s: positive }),
     travel: Object.freeze({ resume_max: count, safe_health: count, safe_radius: positive, safe_quiet_s: count, safe_wait_s: positive }),
 });
+// Top-level keys checked the same way (fix wave 2).
+const TOP_CHECKS = Object.freeze({ summary_timeout_s: positive });
 
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".
 export const validKeep = value => value === 'stack' || value === 'slot' || value === 'all' || (Number.isSafeInteger(value) && value >= 0);
@@ -202,6 +226,8 @@ export function loadWorkConfig(profileWork = {}) {
     for (const [key, value] of Object.entries(profileWork || {})) {
         if (!(key in WORK_DEFAULTS)) console.log(`[work] ignoring unknown work setting: ${key}`);
         else if (key === 'inventory') continue;
+        else if (TOP_CHECKS[key] && !TOP_CHECKS[key](value))
+            console.log(`[work] ignoring work setting ${key}: ${JSON.stringify(value)} is not valid`);
         else if (!MERGED.has(key)) config[key] = value;
         else if (!value || typeof value !== 'object' || Array.isArray(value)) console.log(`[work] ignoring work setting ${key}: not an object`);
         else {

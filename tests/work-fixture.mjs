@@ -471,7 +471,8 @@ export function makeAgent({ bot = makeBot(), modes = {}, work = {}, replies = []
     });
     agent.history = {
         turns: agent.turns, saved: 0,
-        add: async (source, content) => { agent.turns.push({ source, content }); },
+        // history.js add: `code` marks a code line (I1-5).
+        add: async (source, content, options) => { agent.turns.push(options?.code ? { source, content, code: true } : { source, content }); },
         save: async () => { agent.history.saved++; },
         getHistory: () => agent.turns.map(t => ({ role: t.source === 'system' ? 'system' : 'user', content: t.content })),
     };

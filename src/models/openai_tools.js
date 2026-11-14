@@ -20,10 +20,13 @@ export class OpenAITools extends GPT {
         const completions = this.openai.chat.completions;
         const create = completions.create.bind(completions);
         completions.create = (body, options = {}) => {
-            // `kind`, `task_id` and `outcome` arrive in sendRequest's options from the
-            // prompter; they are ours, so they are removed before the options reach
-            // the HTTP client.
-            const { kind = null, task_id = null, outcome = null, ...requestOptions } = options;
+            // `kind`, `task_id`, `outcome` and `kind_params` arrive in sendRequest's
+            // options from the prompter; they are ours, so they are removed before
+            // the options reach the HTTP client. `kind_params` (I1-2, DECISIONS
+            // 2026-11-14: a summary runs with little or no reasoning) are body
+            // params sent over the model's own, each replacing the one it names.
+            const { kind = null, task_id = null, outcome = null, kind_params = null, ...requestOptions } = options;
+            if (kind_params) body = { ...body, ...kind_params };
             const started = Date.now();
             const request = create(body, requestOptions);
             // The SDK's own APIPromise is returned, so awaiting it and withResponse()

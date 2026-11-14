@@ -17,7 +17,11 @@ import settings from './settings.js';
 import { Task } from './tasks/tasks.js';
 import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
-import { Work } from './work/index.js';
+import { Work, RESTART_MESSAGE } from './work/index.js';
+import { lockBot } from './work/protect.js';
+
+// I1-14: her line when the task layer could not start (startWork).
+export const WORK_FAILED = 'My task system failed to start, so tasks and digging are off until I restart.';
 import { ModelOutage } from './model_outage.js';
 import { chatMode, chatShown, replyCategory } from './work/chat.js';
 
@@ -204,7 +208,7 @@ export class Agent {
 
         if (save_data?.self_prompt) {
             if (init_message) {
-                this.history.add('system', init_message);
+                this.history.add('system', init_message, { code: true }); // fork carry (I1-5): never summarised
             }
             // Fork carry (REQ-RES-18): an outage pause is loaded with its flag.
             await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state, save_data.self_prompt_outage);
@@ -329,11 +333,12 @@ export class Agent {
                 behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
             }
             behavior_log = 'Recent behaviors log: \n' + behavior_log;
-            await this.history.add('system', behavior_log);
+            await this.history.add('system', behavior_log, { code: true }); // fork carry (I1-5): never summarised
         }
 
         // Handle other user messages
-        await this.history.add(source, message);
+        // Fork carry (I1-5, DECISIONS 2026-11-14): the restart line is a code line.
+        await this.history.add(source, message, { code: source === 'system' && message === RESTART_MESSAGE });
         this.history.save();
 
         if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
@@ -398,8 +403,8 @@ export class Agent {
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
                 used_command = true;
 
-                if (execute_res)
-                    this.history.add('system', execute_res);
+                if (execute_res) // fork carry (I1-5, fix wave 1): a code line's result keeps its flag
+                    this.history.add('system', execute_res, { code: this.work?.isCodeResult?.(execute_res) ?? false });
                 else
                     break;
             }
@@ -534,9 +539,7 @@ export class Agent {
         // Init NPC controller
         this.npc.init();
 
-        // Fork carry: the task layer. init_message tells a crash restart from a
-        // fresh start (REQ-REC-7).
-        this.work = new Work(this).init(init_message);
+        this.startWork(init_message);
 
         // This update loop ensures that each update() is called one at a time, even if it takes longer than the interval
         const INTERVAL = 300;
@@ -556,6 +559,25 @@ export class Agent {
         this.bot.emit('idle');
     }
 
+    // Fork carry: the task layer. init_message tells a crash restart from a
+    // fresh start (REQ-REC-7). I1-14 (DECISIONS 2026-11-14): a throw in its
+    // start-up exited 0 inside the spawn handler, so she was never restarted;
+    // now she stays up without it (its commands say it is not ready) and says so.
+    // Fix wave 1 (build2 r1 rulings): with no Protector every block is
+    // protected (lockBot), so nothing she does digs the owner's builds.
+    startWork(init_message) {
+        const work = new Work(this);
+        try {
+            this.work = work.init(init_message);
+        } catch (err) {
+            console.error('[work] the task layer failed to start; running without it, with digging off:', err);
+            work.dispose();
+            lockBot(this.bot);
+            this.work = null;
+            this.openChat(WORK_FAILED, 'alert');
+        }
+    }
+
     async update(delta) {
         await this.bot.modes.update();
         this.self_prompter.update(delta);
@@ -568,7 +590,7 @@ export class Agent {
     
 
     cleanKill(msg='Killing agent process...', code=1) {
-        this.history.add('system', msg);
+        this.history.add('system', msg, { code: true }); // fork carry (I1-5): never summarised
         if (chatShown(this, 'detail')) this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.'); // fork carry (REQ-CHAT-1)
         this.history.save();
         process.exit(code);

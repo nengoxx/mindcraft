@@ -493,6 +493,21 @@ silently recording every pillar as `own`.
     exits with code 1, actions.js:113-117) is a crash restart and resumes an active
     task. That is acceptable; PLAN §7 says to finish or cancel tasks before
     deploying.
+  - *A failed start-up* (Reliability 2, I1-14). A throw inside `Work.init` used
+    to reach the spawn handler's catch, which exits 0, so she was never
+    restarted (and a non-zero exit there would fall under the 10 s rule).
+    `Agent.startWork` catches it: the half-built work layer is disposed (its
+    hooks and its Protector undone), and every block is protected in its place
+    (fix wave 1, `protect.js` `lockBot`: the `safeToBreak` patch, installed if
+    the throw came before it, refuses every dig, and every protection check
+    answers yes, so no dig and no break of a block in a placement's way; from
+    fix wave 2 `placeBlock` also refuses to replace a plant or snow, and from
+    the final ruling only a block empty by I1-4's test (air, cave air, void
+    air) takes one, so water and lava do not);
+    `agent.work` stays null (the task commands answer "The task layer is not
+    ready yet."), the error is logged, and the owner gets one `alert` line
+    (REQ-CHAT-1). She stays up and chats, with no tasks and no digging, until a
+    restart.
 - **REQ-REC-8 Restart-storm guard.** (retired: the step stall rule, REQ-RES-16,
   catches a crash loop, because its stall time is persisted and keeps counting
   across restarts; Mindcraft never restarts a process that lived under 10 s,
@@ -516,6 +531,51 @@ silently recording every pillar as `own`.
   low; upstream's literal is 500). The summariser
   prompt tells the model not to record coordinates, quantities or step progress;
   until S3 it keeps build origins, because construction still runs on `!goal`.
+  Reliability 2 (DECISIONS 2026-11-14, ledger `docs/audits/i1_audit.md`):
+  - *Decisions first* (I1-1). The backend serves one request at a time, so a
+    decision never waits behind a summary: no summary starts while a decision
+    is in flight (`prompter.decisions`, counted from `promptConvo`'s entry to
+    its return; the summary starts when the last one returns), a summary waits
+    one macrotask before its request so the decision `handleMessage` sends right
+    after the crossing line goes first, and a summary running when a decision
+    starts is aborted (`history.yieldSummary`, the request's abort signal) and
+    started again after it. An aborted summary publishes nothing and keeps every
+    turn (the carried history invariants, CHANGES), and sets no cooldown: the
+    abort puts the prompter's last prompt time back at once, so the decision
+    that aborted it does not wait out `cooldown` for a request that never ran.
+    *The bound* (fix wave 1): once history holds `max_messages` +
+    `summary_chunk_size` countable turns (`summaryOverdue`, 20), a summary
+    starts even beside a decision, is no longer aborted, and a decision that
+    starts then waits for it before its request. So back-to-back decisions (a
+    chain of queries, the goal loop) cannot grow history without limit.
+    *The wait's bound* (fix wave 2): a summary request has no SDK retry and its
+    own deadline, `work.summary_timeout_s` (120 s, the request's abort signal,
+    so a body that never arrives is cut too); a failed or cut summary keeps
+    every turn and runs again at the next line. With a decision in flight or
+    waiting, a summary run stops after one chunk (the rest runs after the
+    decision), and the decision waits at most `work.summary_timeout_s` in all,
+    then goes. A `!stop` or a newer message during the wait ends the decision
+    with no request (the stop epoch and the turn are captured at
+    `promptConvo`'s entry). *Final ruling* (build2 r3): the entry counter is
+    the supersession check throughout, so an older response still generating
+    is dropped once a newer turn entered (even one waiting behind a summary);
+    after a wait the decision sends the history as compacted; and during an
+    engine stall a summary cut by its deadline gets double the deadline at its
+    next attempt, capped by `work.model_timeout_s`, back to
+    `work.summary_timeout_s` once one completes (a decision's wait keeps
+    `work.summary_timeout_s`).
+  - *Summary params* (I1-2). A summary request carries
+    `work.request_params.summary` over the model's params (§14; default: the
+    reasoning switch `chat_template_kwargs: {enable_thinking: false}` and, from
+    fix wave 1, `reasoning_budget_tokens: 128`, which caps the reasoning if the
+    engine ignores the switch); a decision keeps the model's own params.
+  - *Code lines* (I1-5). The code's own lines (the tidy line, a re-posted
+    question, the restart line, `cleanKill`'s line and the behaviour log) enter
+    history as code lines: the model sees them, but they are not counted toward
+    the 15-turn threshold, a chunk takes 5 countable turns, and they are not
+    sent to the summariser; they leave history with their chunk. A worded
+    `!tidy`'s line handed back to the model is written again by the command
+    loop, still as a code line (`Work.codeResult`, fix wave 1).
 - **REQ-REC-12 Owner questions.** [I1 core, S2c; Surv consumers] The core below
   (the record field, `blocked(awaiting_owner)` with no model call, the
   interception, no timeout) is built in S2c for the clear step, whose questions
@@ -651,6 +711,15 @@ silently recording every pillar as `own`.
     classifiers (`afterInterruptedRun` and the self-heal tick's `by` fill) keep
     the step's `last_cause` for these two labels while still recording
     `interruptions.last.by` and counting the interruption.
+  - *Actions in place of the task* (Reliability 2, I1-13). A save charges no
+    time while an action other than the task's run, a mode or upkeep runs (the
+    owner's or the model's, `Work.inPlaceOfTask`); the task resumes after it
+    (§7.5), so a long walk of his no longer blocks the step. The clock is
+    settled at the action's start (a save charges the task's time up to it)
+    and at its end (the clock restarts, so the time between its last save and
+    its end is not charged; fix wave 1).
+  - *Unrounded* (Reliability 2, I1-17). `stalled_s` accumulates unrounded, so
+    writes less than 50 ms apart still add up.
 
 ### 7.3 Resume check
 
@@ -723,7 +792,7 @@ silently recording every pillar as `own`.
 | Owner `!stop` | change in `agent.stop_epoch` | `cancelled` | 0 |
 | Death | bot `death` event | `paused(died)`; the existing death prompt | 1 |
 | Replaced by another resumable action (e.g. `followPlayer`) | action label at the next idle | `paused(replaced)` | 0 |
-| Non-resumable owner action (e.g. `goToPlayer`) | action finishes, `idle` | runner resumes | 0 |
+| Non-resumable owner action (e.g. `goToPlayer`) | action finishes, `idle` (the stall clock is held while it runs, REQ-RES-16) | runner resumes | 0 |
 | Step stall: no metric improvement for `work.step_stall_s` (600 s), summed across restarts (REQ-RES-16); covers repeated interruptions, crash loops and a refusing resume check | record | step `blocked` with the last cause | 1 |
 | Search budget exhausted (REQ-FIND-10, I4) | record | step `blocked` with the final `not_found_within_budget` report | 1 |
 | Pending owner question (REQ-REC-12; I1 for the clear step, Surv for the rest) | record | `blocked(awaiting_owner)` | 0 |
@@ -792,9 +861,10 @@ telling the owner (ISSUES, cube analysis item 8).
     configuration (`work.model_timeout_s` 600, the SDK's own value, above the
     one observed 551 s request; `work.model_max_retries` 2, the SDK's). Each call
     has one retry owner: the decision requests that `promptConvo` retries pass
-    `maxRetries: 0` per request; every other call (coding, summary,
-    bot_responder, the probe) keeps the client's retries (main-seat ruling R8,
-    2026-11-11).
+    `maxRetries: 0` per request; every other call (coding, bot_responder, the
+    probe) keeps the client's retries (main-seat ruling R8, 2026-11-11). Since
+    Reliability 2 fix wave 2 a memory summary also passes `maxRetries: 0`, with
+    its own `work.summary_timeout_s`: the next line retries it (REQ-REC-11).
   - `promptConvo` waits through an outage with back-off (5 s, doubling to 60 s)
     for up to `work.model_outage_wait_s` (600) without spending its 3 tries; no
     request starts once that time has run out. It stops when a newer message
@@ -1274,8 +1344,13 @@ like the other walks (Q3). Built in the slice Reliability 1 (PLAN).
   catches the pathfinder error, logs "Pathfinding stopped: …" and returns
   false (a cut no longer throws into the ActionManager's catch, which cancelled
   the resume slot), and `modes.js execute()` swallows a mode function's error
-  only while `interrupt_code` is set (an interrupted mode action returns
-  normally; its own errors are thrown as before).
+  while `interrupt_code` is set (an interrupted mode action returns normally).
+  Since Reliability 2 (I1-9, narrowed by fix wave 1) it also logs and swallows
+  the mode's own error ("Mode <name> failed: …") when the action it cut is the
+  task run (`action:task`), so a failing `unstuck` or `self_preservation` move
+  does not cancel the task's resume (the stall rule bounds a task). Any other
+  cut keeps upstream's throw, which cancels the resume and asks the model once:
+  the only stop for a follow resumed again and again into a failing `unstuck`.
 - **REQ-TRV-2 Drops, bound and the alert.** [I1] No restart when something
   newer came (a start that is neither a mode nor upkeep, a new walk command:
   the held one then returns at once, or `!endGoal`, which stops the fight but
@@ -1384,7 +1459,9 @@ like the other walks (Q3). Built in the slice Reliability 1 (PLAN).
 - **The give step.** [I1] `giveToPlayer` checks both `goToPlayer` results
   and returns false before any toss when she cannot reach him (`Failed to give
   … could not reach them.`); the give step then fails at once instead of
-  waiting out its confirm window.
+  waiting out its confirm window. The confirm wait itself pauses `unstuck`
+  (Reliability 2, I1-10), as obtain's craft does: it is stationary by design,
+  and unstuck's 20 s cut the 30 s window; its unpause restarts unstuck's window.
 
 ## 8. Plan mode and validation
 
@@ -1559,7 +1636,13 @@ like the other walks (Q3). Built in the slice Reliability 1 (PLAN).
   (REQ-SAFE-3) patches `Movements.prototype.safeToBreak`, which both
   `collectBlock`'s target filter (its own `Movements`, skills.js:461, :488) and the
   collect plugin (node_modules/mineflayer-collectblock/lib/CollectBlock.js:70-72)
-  call. Protected blocks are therefore never selected as targets.
+  call. Protected blocks are therefore never selected as targets. A collect
+  that brings in none of the wanted item fails at once (one of the step's 3
+  attempts); since Reliability 2 (I1-6) its gain counts the target items she
+  placed during the call that still stand (the ledger's entries and pending
+  scaffold attempts, `Ledger.placedSince`), because dirt and cobblestone are
+  the pathfinder's scaffold. With the patch, a `Movements` with `canDig` false
+  refuses before the protection test (I1-8: no tree test on a no-dig search).
 - **REQ-OBT-10** [I5] Exposed ores are reached by path. Buried ores are reached by
   `collectBlock` or the pathfinder's own digging under the forced hazard flags
   (REQ-SAFE-3; lava is in the pathfinder's `blocksToAvoid`,
@@ -2578,9 +2661,13 @@ analysis).
   are not air or liquid, not `never_remove`, not an ungranted container, and
   have fewer than 2 hard failures.
   Order: the highest layer first, then nearest first; at most 16 digs per unit.
-  When only cells under the bot remain, it first moves to a cleared cell; with
+  When only cells under the bot remain, it first moves to a cleared cell (empty
+  at feet and head by the work layer's one empty-block test, `protect.js`
+  `isEmptyBlock`: air, cave air, void air; Reliability 2, I1-4); with
   none yet, those cells wait for a later unit (a soft refusal, never counted as
-  a failure; the stall rule bounds it). When
+  a failure; the stall rule bounds it, and the refusal records its cause, "only
+  cells under me are left and no cleared cell of the box to stand in", or
+  "could not step off the cells under me" after a step-off walk). When
   nothing held can harvest the next cell, it obtains a tool through an inline
   `obtain` sub-progress. The stall rule, resume with no model call, the run bound
   and the deadlines are inherited from S2 (§7). In another dimension than the
@@ -2970,8 +3057,10 @@ removing scaffold out of reach by walking to it is its own later slice (PLAN
   says nothing; several reasons are counted ("left 3 (2 next to water, 1 part
   of what I stand on)").
   - *Under `work.chat`* (S2c-fu, REQ-CHAT-1; `work.tidy.announce` is retired,
-    one switch): the line always goes into history through `postReport`, and to
-    chat as `detail` (shown in debug only).
+    one switch): the line always goes into history through `postReport`, as a
+    code line since Reliability 2 (I1-5: the model sees it, the memory summary
+    neither counts nor summarises it, REQ-REC-11), and to chat as `detail`
+    (shown in debug only).
   - *`!tidy`'s answer:* a `!tidy` in an owner turn, typed by him (shown as
     `reply`) or issued by the model for his words (the line comes back to the
     model, whose next response in his turn is shown; fix wave 1, G2), returns
@@ -3401,9 +3490,11 @@ About 13 tools in all.
 | `work.inventory.done_keep_min` | 30 | Minutes after a task finishes that its `obtain` items stay protected, even over the cap (REQ-OBT-11); 0: none. Gear slice. | owner (2026-11-13); gear design r5 |
 | `blocked_actions` (settings) | the deployment's existing blocked list (including any `!setMode` block); from S3 plus `!buildStructure` | Commands removed from the model's docs and from execution (REQ-TRN-13, OQ-20). | W3b |
 | `work.model_timeout_s` | 600 | OpenAI client timeout (REQ-RES-17). S2b. | clear council; main-seat ruling R7 (2026-11-11) |
-| `work.model_max_retries` | 2 | OpenAI client retries of every call except decisions, which pass 0 per request because `promptConvo` retries them: one retry owner per call (REQ-RES-17). S2b. | clear council; main-seat ruling R8 (2026-11-11) |
+| `work.model_max_retries` | 2 | OpenAI client retries of every call except decisions, which pass 0 per request because `promptConvo` retries them, and (Reliability 2 fix wave 2) memory summaries, which the next line retries: one retry owner per call (REQ-RES-17). S2b. | clear council; main-seat ruling R8 (2026-11-11) |
 | `work.model_outage_wait_s` | 600 | How long `promptConvo` waits through an outage (REQ-RES-17). S2b. | clear council |
 | `work.model_outage_probe_s` | 60 | Recovery probe interval for an outage-paused goal (REQ-RES-18). S2b. | clear council |
+| `work.summary_timeout_s` | 120 | A memory summary request's deadline (no SDK retry; the next line retries it, with double the deadline after each cut, capped by `work.model_timeout_s`, reset once one completes), and the longest a decision waits behind an overdue summary (REQ-REC-11). A value that is not a positive integer keeps the default (logged). Summaries took a median 19 s; 141 to 817 s only while the engine was slow overall. Reliability 2 fix wave 2. | build2 r2 rulings (Sol S2, adversary A) |
+| `work.request_params` | `{summary: {chat_template_kwargs: {enable_thinking: false}, reasoning_budget_tokens: 128}}` | Request body params per request kind (`decision`, `summary`, `coding`, `bot_responder`, `probe`), sent by the `openai_tools` provider over the model's params, each replacing the param it names; a profile value replaces the whole map. The default turns a memory summary's reasoning off with the Qwen chat-template switch, which llama.cpp and vLLM read, and caps it with the profile's own budget key in case the engine ignores the switch (fix wave 1: every logged summary reasoned more than 128 tokens, median about 380, and the largest, about 2,048, matches the profile's budget being enforced; a positive value avoids reading 0 as unlimited); one that rejects unknown body params fails every summary (then set `{}`). Decisions keep the model's params (REQ-REC-11). Reliability 2. | owner (2026-11-14, I1-2); main seat |
 | `work.clear.max_cells` | 32768 | Largest clear box (32 × 32 × 32; REQ-CLR-3). S2c. | owner (2026-11-08) |
 | `work.clear.max_distance` | 64 | Farthest clear box (REQ-CLR-3). S2c. | clear council |
 | `work.clear.marker_radius` | 32 | Marker search radius (REQ-CLR-2). S2c. | clear council |
@@ -3579,7 +3670,7 @@ agent log, and every dropped line is logged).
 |---|---|---|
 | `reply` | shown | a raw owner command's result and "Command … does not exist."; the model's text in every response of an owner turn (with or without a command); its text in a blocked-report turn; a model reply with no command in any turn; the model's next text before a command while the owner's answer is pending (below); the line of every task command (`!taskStart`, `!taskRevise`, `!taskPause`, `!taskResume`, `!taskCancel`) in the owner's turns and blocked-report turns (classified in `work/commands.js` `report()`, which keeps its falsy return); `!tidy`'s answer in an owner turn (REQ-OWN-10); the summary of a granted collect after his yes (REQ-SAFE-13); "OK, I'll leave them." after his no to the leftover-blocks question (travel slice, not recorded) |
 | `question` | shown | the work layer's owner questions (REQ-REC-12); the mining question of `!collectPlaced` (REQ-SAFE-13) |
-| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11); (travel) once per walk, "I stopped walking at x,y,z: interrupted N times on the way." and "I'm stuck near x,y,z and couldn't get out, so I stopped walking." (REQ-TRV-2, 3) |
+| `alert` | shown | a failed task; the goal loop giving up (self_prompter.js:141); the model outage notice and its recovery notice; a `markers=` clear's box statement, whoever started the task (REQ-CLR-4); a step blocked a second time (REQ-CHAT-2); her death (REQ-CHAT-2); (S2d) the bed left, lost (also broken by someone else) or kept by a full bag, once per obligation, and once per session the night that did not skip (REQ-SLP-8); (S2e) once per session each: the item list's error, the pass-cap hold and "My bag is full of things I keep: …" (REQ-OBT-11); (travel) once per walk, "I stopped walking at x,y,z: interrupted N times on the way." and "I'm stuck near x,y,z and couldn't get out, so I stopped walking." (REQ-TRV-2, 3); (Reliability 2, I1-14) "My task system failed to start, so tasks and digging are off until I restart." when `Work.init` throws (REQ-REC-7) |
 | `done` | shown | the done line of a task the owner asked for (below); the text before `!endGoal` |
 | `detail` | dropped | the `*<owner> used X*` echo; command syntax; the model's text before a command in her own turns (self-prompted, system and mode-interrupt turns); task command lines in her own turns; the tidy line; a done report for a task she started herself; the hello line; the public "Restarting."/"Exiting."; mode `say()`; "Shutting up." and "newAction is disabled" (the model relays the returned text); the bot-to-bot mirror; (S2d) the unconfirmed wake (REQ-SLP-8) |
 
@@ -3614,9 +3705,16 @@ agent log, and every dropped line is logged).
     clears it too (a reply with no command), as does the end of an owner turn
     that showed one (fix wave 2, A1).
   - *Work-layer lines* go through `deliver(report, { current, category, chat
-    = report })`: the report always enters history; its chat text is queued
+    = report, code })`: the report always enters history; its chat text is queued
     only when its category is shown, with no pacing wait for a dropped one;
-    `postReport` passes the options through.
+    `postReport` passes the options through. `code` (Reliability 2, I1-5): the
+    tidy line and every re-post of an open question (after a disarm, and after
+    a restart) enter history as code lines, which the model sees but the memory
+    summary neither counts nor summarises (REQ-REC-11); a question's first post
+    is an ordinary line. The task commands' lines (`work/commands.js`
+    `report()`) go through the same queue since Reliability 2 (I1-16), awaited
+    inside the turn, with `record: false` (their one history line is written
+    by `report()`).
   - *The done line.* A task the owner asked for ends with one short line,
     `Task done: "<objective>".` (`done`); a task with a clear step keeps its
     whole done report (anything left must show); debug shows the whole report
@@ -3718,10 +3816,9 @@ Recorded, not built:
   - occupancy is checked before the dig packet, not during a long hand dig: a
     player who steps onto a block mid-dig can fall (inherited from REQ-CLR-6;
     DECISIONS 2026-11-10, "even one the owner walks on");
-  - "0 model calls" for tidying means no decision calls: tidy lines
-    enter history and can contribute to memory-summary calls, counted
-    separately in the live trials (fewer lines since REQ-OWN-10's as-built
-    rule);
+  - "0 model calls" for tidying means no decision calls; since Reliability 2
+    (I1-5) tidy lines are code lines and no longer bring memory summaries
+    forward (REQ-REC-11);
   - S2c part 2 review round 2: when two actions interrupt one sweep, the last
     label started wins its remainder decision, and an idle resume
     (`resumeAction`, which bypasses `runAction`) is not recorded; both only
@@ -3830,7 +3927,9 @@ Recorded, not built:
     unreadable file (needs the folder unwritable at start and writable later,
     which does not happen on the deployment);
   - every re-post of an open question adds the whole question to the model's
-    history again, so a long question re-posted often brings summaries forward;
+    history again; since Reliability 2 (I1-5) a re-post is a code line, so it
+    no longer brings summaries forward, but a question re-posted often still
+    lengthens the history the model sees until its chunk is summarised;
   - red sand and concrete powder are not falling blocks to the pathfinder
     (movements.js:64-66; only suspicious sand and gravel are added): a clear
     never keeps them, so they fall rather than being lost; part 2's tidy sweep
@@ -4285,6 +4384,48 @@ Recorded, not built:
     plans again. The client's own click prediction (prismarine-windows)
     compares the item's nbt, not its components; merges stay within one
     component signature, so the prediction matches the server's.
+- Reliability 2, the I1 audit's fixes (DECISIONS 2026-11-14; ledger
+  `docs/audits/i1_audit.md`), recorded, not built:
+  - decisions first: an abort closes the summary's request on the client; a
+    backend that keeps computing a closed non-streaming request still holds
+    the slot until it ends (live check in `requests.jsonl`, PLAN "Reliability
+    2" acceptance 1);
+  - past the bound a decision waits for the overdue summary (one chunk's
+    summary, about 19 s today, less with I1-2, at most
+    `work.summary_timeout_s`), the price of a bounded history; a summary cut
+    at that deadline is lost work and runs again at the next line, with a
+    doubled deadline;
+  - LOW: a cut by the deadline and a yield both log "Request was aborted."
+    (PLAN "Reliability 2" acceptance 2 says how to tell them apart);
+  - LOW (mutant E3): the body-hang deadline (`AbortSignal.timeout` beside the
+    SDK's `timeout`) has no offline test; the fake client ignores it, and the
+    reviewers' probe with the installed SDK aborted a hanging body at 1 s;
+    below it back-to-back decisions hold summaries off, so history sits between
+    15 and about 20 turns; coding and bot-responder requests neither count as
+    decisions nor abort a summary;
+  - code lines alone never start a summary, so a long run of them (re-posts,
+    tidy lines) only leaves with the next chunk of countable turns;
+  - `work.request_params.summary`'s default is the Qwen chat-template switch;
+    a backend that rejects unknown body params fails every summary (memory
+    then stops being summarised; set `{}` in the profile);
+  - a task record written before Reliability 2 may still hold an automatic
+    recipe choice in `plan.choices`; it is read as before until the task ends;
+  - a failed task start-up (REQ-REC-7) leaves her unable to dig any block
+    until a restart (the pathfinder still scaffolds, as it does with the work
+    layer); generated code calling `bot.dig` directly is not covered, as with
+    the work layer; she says so once;
+  - LOW: under the start-up lock she can still place (pathfinder scaffold,
+    `!placeHere` into air); with no ledger running that scaffold is
+    unrecorded, never tidied, and after a restart counts as the owner's
+    (protected); `placeBlock`'s cheat-mode `/setblock` is not checked (as with
+    the work layer; cheats are off on the deployment);
+  - a mode's own error on a cut task run is logged and the task resumes; a
+    mode that keeps failing there is bounded only by the stall rule;
+  - a reply cut at `max_tokens` gets the stand-in reply ("My brain
+    disconnected, try again.") after one call, with no retry;
+  - I1-18 (SPEC line references into the carried files, about 130 of them, 39
+    into the files this slice changed) is not built: not a small item; the
+    references stay hints to verify against the code.
 - `!newAction` (generated code) is outside the task layer and refused while a
   task is non-terminal (REQ-RES-9); C08,
   C10, C14 and C17 limits remain on the text path.
@@ -4294,8 +4435,9 @@ Recorded, not built:
   decoration (`detail: full`),
   yaw-dependent blocks (stairs, beds, gables), multi-task queues, friends'
   ownership, `hunt`, trading, buckets, shearing, farming, fishing, schematic and
-  image import, explorer maps, boats, Nether/End, larger caps, a
-  request gate between summaries and decisions, a Pi swap.
+  image import, explorer maps, boats, Nether/End, larger caps, a Pi swap.
+  (The request gate between summaries and decisions is built: Reliability 2,
+  REQ-REC-11.)
 
 ## 17. Open questions (settled by experiment or a later ruling)
 
@@ -4318,7 +4460,7 @@ Recorded, not built:
 | OQ-15 | (closed by W1: the ledger persists in the task record, REQ-BLD-22; W3 kinds `permanent` and `station`, `scaffold` from I3. Superseded from S2c: its own file with kinds `station`, `scaffold`, `building` and `own`, REQ-OWN-1, 2.) | — |
 | OQ-16 | Plan quality of the quantized Qwen with the text DSL (I1) and the typed schema (I2); whether DX arm A (parts only) meets the bar. | S2/S3 trials, I2 trials, DX |
 | OQ-17 | Which entity types `mc.isHostile` (utils/mcdata.js:113-116) classifies as hostile on the deployed version; the resume check and `self_defense` rely on it. P11 ran: `allay` and `copper_golem` were classified hostile and are now excluded (§5.3); `hoglin`, which the function misses, is Nether-only and left as is. | S0-lite, probe P11 |
-| OQ-18 | Is a request gate between summaries and decisions needed on the single backend? | I2 (S4 measurement) |
+| OQ-18 | (closed by the I1 audit's measurement and the owner's ruling, 2026-11-14: yes; decisions go first, REQ-REC-11, Reliability 2.) | — |
 | OQ-19 | Is `descend_to` ever needed as a plan step, or only inside `obtain`? | Survival iteration |
 | OQ-20 | Which raw commands to block through `blocked_actions` beyond the I1 default (`!buildStructure`, from S3); `!collectBlocks`, `!collectPlaced` and `!craftRecipe` stay available for one-off requests (REQ-TRN-13). Blocking also removes them from the owner's typed commands. Also an open owner question: whether to block `!newAction` outright in I1 rather than guard it during tasks (REQ-RES-9). | S2/S3 trials: decide if Qwen bypasses `!taskStart` or `!build` |
 | OQ-21 | (closed by main-seat ruling, 2026-11-11: the four model keys live in the profile's `work` section, REQ-RES-17/18 and §14; the "foreground window" is `promptConvo`'s outage wait of up to `work.model_outage_wait_s`, after which the self-prompter pauses with the `outage` flag and the recovery probe starts.) | — |

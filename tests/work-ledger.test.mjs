@@ -76,6 +76,22 @@ test('a pathfinder placement is recorded as scaffold once the cell shows the exp
     assert.deepEqual(entries(agent)[1], [0, 65, 0, 'cobblestone', 'scaffold']);
 });
 
+// I1-6 / fix wave 2 (adversary mutant M9): placedSince counts only the
+// placements from `since` on, entries and pending attempts alike.
+test('I1-6 fix wave 2: placedSince counts only placements from its start time; an earlier scaffold still standing is not counted', async () => {
+    const c = F.clock();
+    const bot = pathfinderBot();
+    const agent = setup({ bot, now: c.now });
+    await pillarStep(bot, 0, 64, 0);
+    bot.setBlock(0, 64, 0, 'cobblestone');   // an earlier collect's scaffold, settled and standing
+    assert.deepEqual(entries(agent), [[0, 64, 0, 'cobblestone', 'scaffold']]);
+    c.advance(10);
+    const since = c.now();
+    assert.equal(agent.work.ledger.placedSince('cobblestone', since), 0);
+    await pillarStep(bot, 0, 65, 0);         // this call's: still a pending attempt
+    assert.equal(agent.work.ledger.placedSince('cobblestone', since), 1);
+});
+
 test('a scaffold attempt that settles to air, a liquid, predicted stone or another block writes nothing; a changed held item matches nothing', async () => {
     const bot = pathfinderBot();
     const agent = setup({ bot });

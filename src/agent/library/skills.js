@@ -5,7 +5,7 @@ import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { format } from 'node:util';
 import { isGuardedJunk } from "../work/inventory.js";
-import { isProtectedForBot, protectorFor, posKey } from "../work/protect.js";
+import { isEmptyBlock, isLockedBot, isProtectedForBot, protectorFor, posKey } from "../work/protect.js";
 import { findAllBlocks } from "../work/commands.js";
 import * as gear from "../work/gear.js";
 
@@ -778,10 +778,9 @@ export async function pickupNearbyItems(bot) {
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
     while (nearestItem) {
-        let movements = new pf.Movements(bot);
-        movements.canDig = false;
-        bot.pathfinder.setMovements(movements);
-        await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1));
+        // Fork carry (I1-12, DECISIONS 2026-11-14): goToGoal builds its own
+        // movements, so the no-dig setting goes in as its configure.
+        await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1), m => { m.canDig = false; });
         await new Promise(resolve => setTimeout(resolve, 200));
         let prev = nearestItem;
         nearestItem = getNearestItem(bot);
@@ -948,7 +947,15 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         return false;
     }
     const empty_blocks = ['air', 'water', 'lava', 'grass', 'short_grass', 'tall_grass', 'snow', 'dead_bush', 'fern'];
-    if (!empty_blocks.includes(targetBlock.name)) {
+    // Fork carry (I1-14 fix wave 2): after a failed task start-up every block is
+    // protected, so a plant or snow the placement would replace is refused too.
+    // The final ruling (build2 r3): I1-4's one empty test, so cave air takes a block and water does not.
+    const locked = isLockedBot(bot);
+    if (locked && !isEmptyBlock(targetBlock)) {
+        log(bot, `Cannot place ${blockType} at ${targetBlock.position}: ${targetBlock.name} there is protected (my task system is off).`);
+        return false;
+    }
+    if (!locked && !empty_blocks.includes(targetBlock.name)) {
         log(bot, `${targetBlock.name} in the way at ${targetBlock.position}.`);
         // Fork carry: never break a protected block in the way (REQ-SAFE-1/3).
         if (isProtectedForBot(bot, targetBlock)) {

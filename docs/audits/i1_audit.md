@@ -3,24 +3,24 @@
 ## Status
 | ID | Title | Sev | Status |
 |---|---|---|---|
-| I1-1 | A decision waits for a concurrent memory summary on the one backend | M | open |
-| I1-2 | Memory summaries spend about three quarters of their tokens on reasoning | M | open |
+| I1-1 | A decision waits for a concurrent memory summary on the one backend | M | fixed |
+| I1-2 | Memory summaries spend about three quarters of their tokens on reasoning | M | fixed |
 | I1-3 | The prompt cache is reused only to a message boundary; the decision's first message is the whole changing system prompt | M | open |
-| I1-4 | The clear step's stand cell accepts only `air`; a box in a cave stalls, then blocks with no cause | M | open |
-| I1-5 | The work layer's own history lines bring summaries forward | L | open |
-| I1-6 | Obtain's no-gain rule misfires when the target item is her scaffold block | L | open |
+| I1-4 | The clear step's stand cell accepts only `air`; a box in a cave stalls, then blocks with no cause | M | fixed |
+| I1-5 | The work layer's own history lines bring summaries forward | L | fixed |
+| I1-6 | Obtain's no-gain rule misfires when the target item is her scaffold block | L | fixed |
 | I1-7 | Outside a run the tree test runs uncached inside every path search | L | open |
-| I1-8 | With digging off the safeToBreak patch still runs the protection predicate first | L | open |
-| I1-9 | A mode that fails (not interrupted) while it cuts the task run clears the resume slot | L | open |
-| I1-10 | The give step's 30 s confirm window is cut at about 20 s by `unstuck` | L | open |
-| I1-11 | A persisted automatic recipe choice overrides the inventory (REQ-OBT-4 vs the code comment) | L | open |
-| I1-12 | `pickupNearbyItems`' no-dig movements are discarded by `goToGoal` | L | open |
-| I1-13 | The owner's long non-resumable action during a task runs into the stall rule | L | open |
-| I1-14 | An exception in `Work.init` exits 0, so the bot is not restarted | L | open |
-| I1-15 | A decision ending on `finish_reason` "length" is re-sent with one turn fewer, repeatedly | L | open |
-| I1-16 | Task-command lines bypass the owner-output queue | L | open |
-| I1-17 | The stall accumulator rounds every write to 0.1 s | L | open |
-| I1-18 | SPEC line references into the carried files are stale | L | open |
+| I1-8 | With digging off the safeToBreak patch still runs the protection predicate first | L | fixed |
+| I1-9 | A mode that fails (not interrupted) while it cuts the task run clears the resume slot | L | fixed |
+| I1-10 | The give step's 30 s confirm window is cut at about 20 s by `unstuck` | L | fixed |
+| I1-11 | A persisted automatic recipe choice overrides the inventory (REQ-OBT-4 vs the code comment) | L | fixed |
+| I1-12 | `pickupNearbyItems`' no-dig movements are discarded by `goToGoal` | L | fixed |
+| I1-13 | The owner's long non-resumable action during a task runs into the stall rule | L | fixed |
+| I1-14 | An exception in `Work.init` exits 0, so the bot is not restarted | L | fixed |
+| I1-15 | A decision ending on `finish_reason` "length" is re-sent with one turn fewer, repeatedly | L | fixed |
+| I1-16 | Task-command lines bypass the owner-output queue | L | fixed |
+| I1-17 | The stall accumulator rounds every write to 0.1 s | L | fixed |
+| I1-18 | SPEC line references into the carried files are stale | L | wontfix: about 131 references; a later doc pass |
 
 ## Runs
 ### 2026-11-14 — the I1 task layer (src/agent/work and the carried files it uses), standard
@@ -44,6 +44,9 @@ Stopped because: scope done. Findings are not exhaustive.
 - dismissed: I1-3's first stated cause (the task view early in the prompt) — reuse stops at message boundaries, so
   reordering inside the one system message gains about nothing; and "a summary between decisions evicts the
   cache" — 8 of 8 such cases still hit.
+- residual (fix review, 2026-11-14): during a long engine stall the doubled summary deadline resets after any
+  completed request, a failed stand-in reply included, so each publication first loses one cut at the base
+  deadline (~120 s); bounded and self-recovering.
 
 ## Findings
 

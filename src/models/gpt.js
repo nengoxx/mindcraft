@@ -48,8 +48,12 @@ export class GPT {
                     delete pack.stop;
                 }
                 let completion = await this.openai.chat.completions.create(pack, options);
+                // Fork carry (I1-15, DECISIONS 2026-11-14): `length` is a reply cut
+                // at max_tokens, not a context overflow, so it is never re-sent
+                // with a shorter context (that looped up to about 15 calls); it
+                // fails as this one call, with the stand-in reply below.
                 if (completion.choices[0].finish_reason == 'length')
-                    throw new Error('Context length exceeded'); 
+                    throw new Error('Reply cut at max_tokens');
                 console.log('Received.');
                 res = completion.choices[0].message.content;
             } 

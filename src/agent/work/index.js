@@ -198,7 +198,7 @@ export class Work {
         if (changed) this.write();
         // REQ-REC-12: an open question is not armed after a restart until it
         // is posted again, which also tells the owner it is still open.
-        if (record?.pending_question && record.status === 'blocked') setTimeout(() => this.postQuestion(), 0);
+        if (record?.pending_question && record.status === 'blocked') setTimeout(() => this.postQuestion({ repost: true }), 0);
         if (this.timers) {
             const timer = setInterval(() => this.tick(), TICK_MS);
             this.disposers.push(() => clearInterval(timer));
@@ -311,7 +311,16 @@ export class Work {
         const wrapped = function (label, fn, opts) {
             const start = (l, f, o) => {
                 work.onActionStart(l, f, o);
+                // I1-13 fix wave 1 (Sol S4): an action in place of the task
+                // settles the stall clock at its entry (the time before it was
+                // the task's) and at its end (none of its time is).
+                const inPlace = work.inPlaceLabel(l) && work.record?.status === 'active';
+                if (inPlace) work.save();
                 const promise = runAction.call(this, l, f, o);
+                if (inPlace) {
+                    const end = () => { work.stallClock = work.now(); };
+                    promise.then(end, end);
+                }
                 work.lastRun = { label: l, promise };
                 return promise;
             };
@@ -475,12 +484,13 @@ export class Work {
             return;
         }
         if (this.record?.pending_question) this.log(`asking the owner again (${this.record.pending_question.kind})`);
-        this.postQuestion();
+        this.postQuestion({ repost: true });
     }
 
     // Posts the open question, and arms it once every line is sent, if it is
     // still the current question and post and nothing disarmed it meanwhile.
-    async postQuestion() {
+    // A re-post goes into history as a code line (I1-5).
+    async postQuestion({ repost = false } = {}) {
         const record = this.record;
         const question = record?.pending_question;
         if (this.disposed || !question || record.status !== 'blocked') return;
@@ -495,7 +505,7 @@ export class Work {
         };
         let sent;
         try {
-            sent = await turns.run(QUESTION, () => this.deliver(question.text, { current, category: 'question' }));
+            sent = await turns.run(QUESTION, () => this.deliver(question.text, { current, category: 'question', code: repost }));
         } catch (err) {
             console.error('[work] could not post the owner question:', err?.message ?? err);
             return;
@@ -577,12 +587,26 @@ export class Work {
         this.stallClock = this.now();
     }
 
+    // I1-13: an action other than the task's run, a mode or upkeep is running.
+    inPlaceOfTask() {
+        const actions = this.agent.actions;
+        return this.inPlaceLabel(actions?.executing ? actions.currentActionLabel : null);
+    }
+
+    inPlaceLabel(label) {
+        return Boolean(label) && label !== 'action:task' && !label.startsWith('mode:') && !this.isUpkeep(label);
+    }
+
     // Every write of an active task adds the elapsed process time to the
     // current step's stalled_s, so it carries across restarts while time with
     // the process down does not count; at work.step_stall_s the step blocks
     // with its last recorded cause (REQ-RES-16).
     // `sample` (the self-heal timer's periodic save) measures the step first,
     // so a long call that keeps progressing is not counted as stalled.
+    // I1-17 (DECISIONS 2026-11-14): accumulated unrounded, so frequent writes
+    // add up. I1-13: no time is charged while an action runs in place of the
+    // task (the owner's or the model's: not the run, a mode or upkeep); the
+    // task resumes after it (§7.5).
     save({ sample = false } = {}) {
         const record = this.record;
         if (!record) return;
@@ -590,7 +614,7 @@ export class Work {
         const step = record.status === 'active' ? record.plan[record.cursor] : null;
         if (step?.progress) {
             if (sample && updateProgress(step, STEPS[step.skill].measure(this.runner.ctx(), step), now)) this.stallClock = now;
-            if (!this.stallHeld) step.progress.stalled_s = Math.round((step.progress.stalled_s + (now - this.stallClock) / 1000) * 10) / 10;
+            if (!this.stallHeld && !this.inPlaceOfTask()) step.progress.stalled_s += (now - this.stallClock) / 1000;
             this.stallClock = now;
             if (step.progress.stalled_s >= this.config.step_stall_s) {
                 const minutes = Math.round(this.config.step_stall_s / 60);
@@ -1086,7 +1110,7 @@ export class Work {
         const current = () => this.blockAsk === ask;
         let sent;
         try {
-            sent = await turns.run(QUESTION, () => this.deliver(ask.text, { current, category: 'question' }));
+            sent = await turns.run(QUESTION, () => this.deliver(ask.text, { current, category: 'question', code: repost }));
         } catch (err) {
             console.error('[work] could not post the mining question:', err?.message ?? err);
             return;
@@ -1213,6 +1237,20 @@ export class Work {
         this.postReport(report, { category: 'alert' });
     }
 
+    // Fix wave 1 (Sol S3, I1-5): a command result that is a code line (the
+    // worded !tidy's line) is marked here; agent.js's command loop asks
+    // isCodeResult when it writes the result, once.
+    codeResult(line) {
+        this.code_result = line;
+        return line;
+    }
+
+    isCodeResult(result) {
+        const hit = result != null && result === this.code_result;
+        this.code_result = null;
+        return hit;
+    }
+
     // A fact report needs no model call: it goes into history and to the
     // owner, whole, as chat lines (report.js chatLines).
     // `options` go to deliver; `then` runs once it is done.
@@ -1235,10 +1273,12 @@ export class Work {
     // by default the report) is queued only when its category is shown, with
     // no pacing wait for a dropped one. False when it was dropped or `current`
     // stopped it. `record` false leaves history to the caller (a hand-back
-    // to the model records it as its own message).
-    async deliver(report, { current = () => true, category = 'detail', chat = report, record = true } = {}) {
+    // to the model records it as its own message). `code` (I1-5, DECISIONS
+    // 2026-11-14): a code line of the work layer's own (the tidy line, a
+    // re-posted question), visible to the model but never summarised (history.js).
+    async deliver(report, { current = () => true, category = 'detail', chat = report, record = true, code = false } = {}) {
         if (record) {
-            await this.agent.history.add('system', report);
+            await this.agent.history.add('system', report, { code });
             await this.agent.history.save();
         }
         if (!chatShown(this.agent, category)) {
