@@ -76,6 +76,13 @@ ruled that everything be consistently reliable before S3 (DECISIONS
 and deployed (`86b9b59`); T5 passes; next: step 2, a reliability audit of
 the I1 code, then step 3, repeated uncoached trials, then S3.
 
+**Status (2026-11-14, evening):** step 2's fix slice (§3 "Reliability 2") is
+merged and deployed (`90cd720`); step 3 ran (ISSUES "Step 3 trials"): 15 of
+24 uncoached runs passed; its findings wait for the owner's rulings. The
+project pauses here (DECISIONS 2026-11-14 "Step 3 staged by the agent; a pause
+after it"): the owner uses the bot and compares backend models. Next, on his
+word: rulings on the step 3 findings, then S3.
+
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
 

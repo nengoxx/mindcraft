@@ -1,40 +1,29 @@
 # Handoff
 
-## 2026-11-14 (day) — reliability before S3: step 1 done and live; next is step 2, the audit
+## 2026-11-14 (evening) — paused before S3: the reliability steps are done
 
-- **The owner's plan (DECISIONS 2026-11-14 "Walks after sleeping; reliability before S3"):** everything consistently
-  reliable before S3, in three steps: (1) close the open findings and build the travel answers; (2) a reliability
-  audit of the I1 code (two Opus lanes by area, then an Opus adversary; ledger `docs/audits/i1_audit.md`); (3)
-  repeated uncoached trials in words, Qwen alone, measuring success, calls and latency. Commits are authorized by
-  that plan; push only on his word.
-- **Step 1 is merged and live** (`38d9c30`, merge `86b9b59`; deployed 12:37 by an agent-only restart; gate
-  650/650): split stacks are merged before drops; `!goToRememberedPlace` is a kept walk; a near-death flee's cut
-  restarts once safe; sleep may cut a held walk, which restarts once her bed is back. Reviews: Sol + an Opus
-  adversary, two fix waves, a ruled fix; record and residuals in `runtime/diagnostics/i1-build/reliability/`
-  (`STATE.md`, `build-r1-rulings.md`). Live trials (ISSUES "Reliability 1 live trials"): T5 passes;
-  `!goToRememberedPlace` passes; no merge seen live (no split in her bag); the flee and sleep parts are offline only.
-- **Step 2 is done** (ledger `docs/audits/i1_audit.md`, `9188967`): 18 findings, 4 M and 14 L, no H; the
-  orchestration core holds (no lost work, loop, hang or stale read). The M findings: decisions wait for memory
-  summaries (I1-1), summaries mostly reasoning (I1-2), the prompt cache is barely reused (I1-3), a clear in a cave
-  stalls (I1-4). The owner ruled (DECISIONS 2026-11-14 "The I1 audit's fixes"): fix slice "Reliability 2" for
-  I1-1, 2, 4, 5, 6, 8–17 and I1-11; I1-3 and I1-7 deferred.
-- **Reliability 2 is merged and deployed** (6516904, merge 90cd720; 2026-11-14 15:55). Live checks 1 and 2 pass,
-  the cave clear was not staged (ISSUES "Reliability 2 live checks"). Ledger: I1-1, 2, 4, 5, 6, 8–17 fixed; I1-18
-  wontfix (a later doc pass); I1-3 and I1-7 stay open (deferred by the owner's ruling).
-- **Next: step 3**, the repeated uncoached trials in words, Qwen alone: design the trial set (gather, craft, a
-  night walk, clear an area, mine an owner block), several runs each, measuring success, model calls and latency
-  (PLAN §2.3); then S3.
-- Step 2 records: `runtime/diagnostics/i1-build/reliability/` (`STATE.md`). Live state: the operator runs since 2026-11-13 17:53 (bot
-  log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); private profile unchanged (`work.combat.ranged` the
-  four skeletons, `travel_speed` 2, `work.inventory` gear best / cap stack / surplus 2, `min_free_slots` default).
-- **Travel trials** (ISSUES "Travel live trials, 2026-11-14 night"): T1–T6 pass (T5 in the reliability trials).
+- **Paused on the owner's word** (DECISIONS 2026-11-14 "Step 3 staged by the agent; a pause after it"): he uses the
+  bot day to day and compares backend models (a new one is due). S3 starts on his word; nothing is half-built.
+- **The owner's three reliability steps are done** (DECISIONS 2026-11-14 "Walks after sleeping; reliability before
+  S3"): step 1 (`38d9c30`, merge `86b9b59`); step 2, the audit (ledger `docs/audits/i1_audit.md`: I1-1, 2, 4, 5,
+  6, 8–17 fixed in "Reliability 2", `6516904`, merge `90cd720`; I1-3 and I1-7 deferred; I1-18 wontfix); step 3,
+  the uncoached trials (ISSUES "Step 3 trials": 15 of 24 runs passed).
+- **Next, on his word:** his rulings on the step 3 findings (ISSUES "Step 3 trials", the table; the most serious:
+  saved places are not looked up and do not survive a restart; a tool made for him dropped as junk), best made
+  with his model comparison in hand; then S3 (PLAN §3 "S3", built from its section).
+- **To compare models:** rerun the step 3 set (the per-trial criteria in
+  `runtime/diagnostics/i1-build/step3/trials-report.md`) on the new backend and compare success, calls and
+  latency with the table in ISSUES. A model change goes through the private profile (`live.mjs settings` / `set`).
+- **Live state:** the operator runs since 2026-11-14 17:39 (a full start after a power cut; bot log
+  `runtime/logs/mindcraft-2026-11-14T16-39-51-308Z.log`); her memory and saved places are empty since then. Private
+  profile unchanged (`work.combat.ranged` the four skeletons, `travel_speed` 2, `work.inventory` gear best / cap
+  stack / surplus 2, `min_free_slots` default, `modes.sleeping` false, `modes.cheat` false). She is not op.
+- **Records:** `runtime/diagnostics/i1-build/reliability/` (`STATE.md`), `runtime/diagnostics/i1-build/step3/`.
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
-- **Sleeping is off** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`; back on only on
-  his word. Phantoms come every night (about 430 fights since 01:25).
-- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow). Coming back
-  after a far respawn is not built. "Defend the owner" is a later slice (`goToPlayer` keeps upstream's pause of
-  `self_defense`).
+- **Sleeping is off** (the owner's ask: he wants night mobs to spawn): back on only on his word.
+- Later: coming back after a far respawn is not built. "Defend the owner" is a later slice (`goToPlayer` keeps
+  upstream's pause of `self_defense`).
 
 ## Waiting for the owner
 
@@ -68,8 +57,14 @@
 
 ## In the world
 
-- She stands idle in her dirt pit at -533,64,1733 (T5 clean: a 6-deep shaft at -532,66..71,1735 and about 40 dug dirt
-  around it; the pit is her saved place "pit"); the coral markers stand (T6).
+- She stands idle at about -439,105,1561 (step 3, the forest), no active task.
+- Step 3 left: her oak plank markers at -529,68,1727, -524,68,1732, -529,70,1732, -524,70,1727 and the cleared box
+  inside; cave clears near -370,58..62,1668 with scaffold at -367,61,1667 and -368,60,1665; cobblestone pillars at
+  -391,66..75,1648, -405,80..81,1645, -411,92..96,1604, -422,92,1595, -370,68..71,1667..1669 and 5 blocks at
+  -446..-447,102..104,1562..1563; dropped items near -530,69,1733 (flowers, a sapling, sand, phantom membrane, the
+  stone pickaxe); one of the owner's coral markers (-531,69,1733) mined on his yes (in her bag).
+- Her dirt pit at -533,64,1733 (T5 clean: a 6-deep shaft at -532,66..71,1735 and about 40 dug dirt
+  around it; it was her saved place "pit", lost at the full start); the coral markers stand (T6).
 - Travel trials: a 24-dirt pillar at -363,71..94,1684 (T3, residual R5); a 6-deep shaft at -487,65..70,1810 with a
   5-dirt tower (T5 night); an 8-deep shaft at -411,76..83,1727 with a 3-dirt, 2-cobblestone tower at
   -412,76..80,1727 and a filled shaft at -414,83..85,1727 (T5 reruns); her dropped surplus near both.

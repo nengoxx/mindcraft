@@ -117,6 +117,36 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Step 3 trials, 2026-11-14 evening (an Opus trial lane acting as the owner; Qwen alone)
+
+The owner's step 3 (DECISIONS 2026-11-14): requests in words, no coaching, several runs each, the agent staging the
+world. 15 of 24 runs passed (63 %). Full report and per-run tables:
+`runtime/diagnostics/i1-build/step3/trials-report.md`. A power cut at about 17:25 forced a full start (memory and
+saved places empty) before the last three gather runs.
+
+| Trial | Pass | Calls and time |
+|---|---|---|
+| 1 Gather | 3 of 6; 3 of 3 with trees in reach | 1–3 calls, about 1.5 min; 10 calls, 6 min when the tree runs out |
+| 2 Craft | 2 of 4 | 1 call, 13–30 s for a one-step craft |
+| 3 Night walk | 1 of 3 | 2 calls, 85 s for about 183 blocks by the exact name |
+| 4 Clear | 4 of 4 (one weak: the cave box was mostly air) | 1 call, 17–38 s |
+| 5 The owner's blocks | 2 of 3 | 1–3 calls; the question asked, his yes and no obeyed |
+| 6 Inventory | 3 of 3 answers right; the clean-up failed | 2 calls, about 25 s |
+
+54 decisions (median 13.8 s, max 62.1 s), 35 summaries (9 yielded), 1 intervention (a `!stop`), about 9 fight or
+unstuck cuts restarted with no call, no crash restart inside a run.
+
+| Finding | Effect | Idea |
+|---|---|---|
+| Saved places are not looked up: "go back to the pit" ran `!goToRememberedPlace("the pit")`, got "No location named "the pit" saved" and asked for coordinates; "walk to the meadow" asked without trying; after arriving by the exact name she said "No location named "pit" saved". | The owner's natural request fails; a false report on arrival. The most serious failure. | Match a saved name loosely in code (articles, case) and list the saved names where she sees them; the arrival line answers the turn. |
+| Saved places live only in the running process (`MemoryBank`, never saved), so every restart, a crash restart included, forgets them. Found by the main seat, read in the code. | `!goToRememberedPlace` (kept by the owner's Q3) loses its places at every restart. | Persist the places with the bot's other state. |
+| No search past 64 blocks: with no tree of the kind in reach she blocks and asks; after "keep walking" only `!taskResume`; a reply with `!taskCancel` and `!searchForBlock` ran only the first (a second command in a reply is dropped). | Gathering fails where trees are far. | A wider search inside the obtain step, or one autonomous `!searchForBlock` before asking. |
+| A tool made on the owner's request was dropped as junk: `gear: best` keeps only her best pickaxe, so the stone pickaxe of the last task went out in three junk drops. | His item lost. | An item a task obtained for the owner is kept until handed over or he says otherwise (a ruling first). |
+| Held-total counts: "make me a crafting table" while holding one ended "have 1 crafting_table (target 1, had 1 at the start)" with nothing made; "10 oak logs" became `count=12`. | A false "done"; a changed count. | A craft request means new items (SPEC REQ-OBT); the count as asked. |
+| A full bag needed the owner twice for one stone pickaxe ("3 free slots, 4 needed"), the second block after the crafted planks took the freed slot. | Two owner decisions for a one-item craft. | Count the slots the recipe frees, or plan the drop once for the whole task. |
+| A refusal carried to a new request: after his "no" to three coral blocks, a new "mine the one above you" got "you already said no". | A new request refused without asking. | A protection question's answer covers that request only. |
+| She is not op, so `/tp` and `/setblock` do nothing even in cheat mode; the lane staged with her own commands and two raw `!newAction` marker placements, which went into her history. | Staging is slow and leaves lines in her history. | Op for the bot, or a staging route outside her history, before the next trial set. |
+
 ### Reliability 2 live checks, 2026-11-14 (the main seat acting as the owner)
 
 Deployed 15:55 by an agent-only restart (no active task); six short questions in a row (arrows, time, cobblestone,
