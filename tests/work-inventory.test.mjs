@@ -128,19 +128,25 @@ test('S2e-fu §4: the new defaults: the best bow and crossbow, one slot of omino
     assert.match(policyOf({ inventory: { items: { arrow: 'slots' } } }).error, /^arrow: "slots"$/);
 });
 
-test('S2e-fu amendment C: one slot of the best: of ominous bottles of amplifiers 0, 2 and 4 only the amplifier-4 slot stays; of two banner stacks the larger', () => {
+test('S2e-fu amendment C: one slot of the best: of ominous bottles of amplifiers 0, 2 and 4 only the amplifier-4 slot stays; of two banner kinds the larger', () => {
     const bottle = (slot, amp, count = 1) => [slot, 'ominous_bottle', count, amp == null ? {} :
         { componentMap: new Map([['ominous_bottle_amplifier', { type: 'ominous_bottle_amplifier', data: amp }]]) }];
+    const patterned = { componentMap: new Map([['banner_patterns', { type: 'banner_patterns', data: [{ pattern: 'stripe_top', color: 'red' }] }]]) };
     // As Mineflayer holds them (componentMap from the 26.1 component; a bottle without it is amplifier 0).
-    const bot = slotted([bottle(9, 4, 1), bottle(10, null, 5), bottle(11, 2, 3), [12, 'white_banner', 2], [13, 'white_banner', 7], [14, 'red_banner', 1]]);
+    const bot = slotted([bottle(9, 4, 1), bottle(10, null, 5), bottle(11, 2, 3), [12, 'white_banner', 2, patterned], [13, 'white_banner', 7], [14, 'red_banner', 1]]);
     const plan = I.planRemoval(bot, policyOf());
     assert.deepEqual(ops(plan), [[10, 'ominous_bottle', 5], [11, 'ominous_bottle', 3], [12, 'white_banner', 2]], 'the amplifier beats the count; the larger banner stack stays');
     assert.equal(plan.freed, 3);
     // Ties: the existing order (the larger count, then the later slot stays).
-    const tie = slotted([[9, 'white_banner', 3], [10, 'white_banner', 3]]);
+    const tie = slotted([[9, 'white_banner', 3, patterned], [10, 'white_banner', 3]]);
     assert.deepEqual(ops(I.planRemoval(tie, policyOf())), [[9, 'white_banner', 3]]);
     // A task's needed item is never removed.
     assert.deepEqual(ops(I.planRemoval(bot, policyOf(), { needed: new Set(['ominous_bottle']) })), [[12, 'white_banner', 2]]);
+    // Reliability 1 (DECISIONS 2026-11-14): two stacks of the same banner stack together, so they are merged into one slot first.
+    const same = slotted([[12, 'white_banner', 2], [13, 'white_banner', 7]]);
+    const merged = I.planRemoval(same, policyOf());
+    assert.deepEqual(merged.map(o => [o.merge ?? false, o.slot, o.to, o.count]), [[true, 12, 13, 2]]);
+    assert.equal(merged.freed, 1);
 });
 
 // --- the planner (design §3) -------------------------------------------------------------------
@@ -1502,4 +1508,270 @@ test('!itemList with the gear rules: the rules, per kind the best and why, the s
     assert.match(text, /Keep 64: dirt, cobblestone, bone, string, phantom_membrane, arrow, flint, coal, gunpowder\./, 'the effective counts: gunpowder capped');
     assert.match(text, /\d+ free slots; I clean up below 4, or when more than 2 slots hold spares, extra stacks or junk \(now 4\)\. Idle cleanup: /, 'the junk slot and the three spares');
     assert.match(F.modules.commands.getCommand('!itemList').description, /the one-stack cap and the gear rule/);
+});
+
+// --- reliability 1: split stacks are merged (DECISIONS 2026-11-14; ISSUES T5 rerun) -----------
+
+const COBBLE = F.registry.itemsByName.cobblestone;
+const cobble = count => ({ name: 'cobblestone', count, type: COBBLE.id, stackSize: 64 });
+const moves = bot => bot.calls.filter(c => c[0] === 'move').map(c => [c[1], c[2]]);
+// Merges as ['merge', from, to, count], removals as [slot, name, count].
+const planned = plan => plan.map(o => (o.merge ? ['merge', o.slot, o.to, o.count] : [o.slot, o.name, o.count]));
+
+test('reliability 1 (T5 rerun): kept cobblestone split 62 + 2, one slot short of min_free_slots: the task merges the two stacks and goes on, with no toss', async () => {
+    const world = new F.World();
+    world.fill(-8, 63, -8, 8, 63, 8, 'stone');
+    F.tree(world, 3, 64, 0, 4);
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5] });
+    bot.inventory.slots[9] = cobble(62);
+    bot.inventory.slots[36] = cobble(2);   // in her hand, as after a tower
+    fill(bot, 3);
+    F.player(bot, F.OWNER, [8, 64, 8]);
+    const agent = F.makeAgent({ bot, name: `split${n++}`, replies: [''] });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    agent.work.startTask('a log', 'obtain item=oak_log count=1');
+    await F.until(() => agent.work.record.status !== 'active', { timeout: 8000 });
+    assert.equal(agent.work.record.status, 'done', agent.work.record.reason);
+    assert.deepEqual(moves(bot), [[36, 9]], 'the smaller stack onto the larger');
+    assert.equal(bot.inventory.slots[9]?.count, 64);
+    assert.equal(bot.count('cobblestone'), 64);
+    assert.deepEqual(tosses(bot), []);
+    assert.deepEqual([bot.count('oak_log'), bot.inventory.slots[36]?.name], [1, 'oak_log'], 'the log took the freed slot');
+});
+
+test('reliability 1: the planner merges a split kind before it removes, and leaves no fragment one merge avoids ([62, 5] over a 64 cap)', () => {
+    // [62, 5] keep 64: 2 onto the 62, then the 3 left go whole (today: 3 from the 5, leaving 62 + 2 in two slots).
+    const five = slotted([[9, 'cobblestone', 62], [10, 'cobblestone', 5]]);
+    const p5 = I.planRemoval(five, policyOf(), { minFree: 35 });
+    assert.deepEqual(planned(p5), [['merge', 10, 9, 2], [10, 'cobblestone', 3]]);
+    assert.deepEqual([p5.freed, p5.reaches], [1, true]);
+    // [62, 20] keep 64: the same (today: 18 from the 20, leaving 62 + 2).
+    assert.deepEqual(planned(I.planRemoval(slotted([[9, 'cobblestone', 62], [10, 'cobblestone', 20]]), policyOf())), [['merge', 10, 9, 2], [10, 'cobblestone', 18]]);
+    // Kept 62 + 2: a plan of one merge, which frees the slot.
+    const kept = slotted([[9, 'cobblestone', 62], [36, 'cobblestone', 2]]);
+    const pk = I.planRemoval(kept, policyOf(), { minFree: 35 });
+    assert.deepEqual(planned(pk), [['merge', 36, 9, 2]]);
+    assert.deepEqual([pk.freed, pk.reaches], [1, true]);
+    // Three partials of an unlisted item: the smallest into the largest non-full ones (as moveSlotItem moves them).
+    const three = slotted([[9, 'oak_planks', 40], [10, 'oak_planks', 30], [11, 'oak_planks', 20]]);
+    const p3 = I.planRemoval(three, policyOf());
+    assert.deepEqual(planned(p3), [['merge', 11, 9, 20], ['merge', 10, 9, 4]]);
+    assert.equal(p3.freed, 1, '90 planks need two slots');
+    // No merge where whole-stack removal already leaves the fewest slots, nor where the count needs every slot.
+    assert.deepEqual(planned(I.planRemoval(slotted([[36, 'dirt', 40], [9, 'dirt', 64], [10, 'dirt', 30]]), policyOf())), [[10, 'dirt', 30], [36, 'dirt', 40]]);
+    assert.deepEqual(planned(I.planRemoval(slotted([[9, 'oak_planks', 62], [10, 'oak_planks', 20]]), policyOf())), []);
+    // Merges are planned whatever the list says: also with removal off (a bad list) and for a needed item.
+    const bad = policyOf({ inventory: { items: { rotten_flesh: 'none' } } });
+    assert.deepEqual(planned(I.planRemoval(kept, bad, { minFree: 35 })), [['merge', 36, 9, 2]]);
+    assert.equal(I.planRemoval(kept, bad, { minFree: 35 }).reaches, true);
+    assert.deepEqual(planned(I.planRemoval(kept, policyOf(), { needed: new Set(['cobblestone']) })), [['merge', 36, 9, 2]]);
+    assert.deepEqual(planned(I.planRemoval(five, policyOf(), { needed: new Set(['cobblestone']) })), [], 'a needed 67 needs both slots');
+    // Junk goes whole: it is not merged first.
+    assert.deepEqual(planned(I.planRemoval(slotted([[9, 'rotten_flesh', 30], [10, 'rotten_flesh', 10]]), policyOf())), [[9, 'rotten_flesh', 30], [10, 'rotten_flesh', 10]]);
+});
+
+test('reliability 1: stacks of one name with different components are never merged', async () => {
+    const epic = count => F.realItem('cobblestone', [{ type: 'rarity', data: 'epic' }], { count });
+    const plain = count => F.realItem('cobblestone', [], { count });
+    const bot = F.makeBot();
+    bot.inventory.slots[9] = plain(30);
+    bot.inventory.slots[10] = epic(20);
+    bot.inventory.slots[11] = plain(5);
+    assert.deepEqual(planned(I.planRemoval(bot, policyOf())), [['merge', 11, 9, 5]], 'only the two plain stacks');
+    // A counted surplus with two kinds of one name: never merged across them.
+    const two = F.makeBot();
+    two.inventory.slots[9] = plain(30);
+    two.inventory.slots[10] = epic(20);
+    assert.deepEqual(planned(I.planRemoval(two, policyOf({ inventory: { items: { cobblestone: 40 } } }))), [[10, 'cobblestone', 10]]);
+    // The dropper re-checks both slots: a merge whose destination changed its components is skipped.
+    const swap = F.makeBot();
+    swap.inventory.slots[9] = plain(62);
+    swap.inventory.slots[10] = plain(2);
+    const plan = I.planRemoval(swap, policyOf());
+    assert.deepEqual(planned(plan), [['merge', 10, 9, 2]]);
+    swap.inventory.slots[9] = epic(62);
+    const result = await I.dropItems(swap, plan);
+    assert.deepEqual([result.outcome, result.merged, moves(swap)], ['done', undefined, []]);
+    assert.deepEqual([swap.inventory.slots[9].count, swap.inventory.slots[10].count], [62, 2]);
+});
+
+test('reliability 1: a plan of merges only, in a shaft with no free direction, frees the slot where she stands: no climb, no walk, no look', async () => {
+    const shaft = new F.World();
+    pit(shaft, 6);
+    const bot = F.makeBot({ world: shaft, position: [0.5, 64, 0.5] });
+    bot.inventory.slots[9] = cobble(62);
+    bot.inventory.slots[36] = cobble(2);
+    fill(bot, 3);
+    const plan = I.planRemoval(bot, policyOf(), { minFree: 4 });
+    assert.deepEqual([planned(plan), plan.reaches], [[['merge', 36, 9, 2]], true]);
+    const result = await I.dropItems(bot, plan, { walk: 'task', climb: true, replan: () => I.planRemoval(bot, policyOf(), { minFree: 4 }) });
+    assert.deepEqual([result.outcome, result.merged, result.climbed, result.removed], ['done', 1, undefined, {}]);
+    assert.deepEqual(bot.calls.map(c => c[0]), ['move']);
+    assert.equal(bot.inventory.emptySlotCount(), 4);
+    // Merges and a removal: the merges where she stands, then the climb for the removal.
+    const mixed = F.makeBot({ world: shaft, position: [0.5, 64, 0.5], inventory: { rotten_flesh: 5 } });
+    mixed.inventory.slots[20] = cobble(62);
+    mixed.inventory.slots[21] = cobble(2);
+    const r = await I.dropItems(mixed, I.planRemoval(mixed, policyOf()), { walk: 'task', climb: true, replan: () => I.planRemoval(mixed, policyOf()) });
+    assert.deepEqual([r.outcome, r.merged, r.climbed, r.removed], ['done', 1, true, { rotten_flesh: 5 }]);
+    assert.deepEqual(mixed.calls.map(c => c[0]).slice(0, 2), ['move', 'goto']);
+    // The guards: an item on the cursor ends the pass before a merge (unavailable); a stop before it, interrupted.
+    const cursor = F.makeBot({ world: shaft, position: [0.5, 64, 0.5] });
+    cursor.inventory.slots[9] = cobble(62);
+    cursor.inventory.slots[10] = cobble(2);
+    cursor.inventory.selectedItem = cobble(1);
+    const c = await I.dropItems(cursor, I.planRemoval(cursor, policyOf()));
+    assert.deepEqual([c.outcome, c.reason, moves(cursor)], ['unavailable', 'an item on the cursor', []]);
+    cursor.inventory.selectedItem = null;
+    const s = await I.dropItems(cursor, I.planRemoval(cursor, policyOf()), { current: () => false });
+    assert.deepEqual([s.outcome, moves(cursor)], ['interrupted', []]);
+});
+
+test('reliability 1: idle in a shaft, a bag of kept split stacks is admitted with no direction and merged by a pass that never walks; no hold', async () => {
+    const agent = setup({ inventory: {}, free: null, drive: false });
+    const { bot } = agent;
+    bot.entity.position = new F.Vec3(0.5, 64, 0.5);
+    pit(bot.world, 6);
+    bot.inventory.slots[9] = cobble(62);
+    bot.inventory.slots[36] = cobble(2);
+    fill(bot, 3);
+    const items = agent.work.items;
+    const admitted = items.admit();
+    assert.ok(admitted, `held: ${items.held()}`);
+    items.launch(admitted);
+    await quiet(agent);
+    assert.deepEqual(moves(bot), [[36, 9]]);
+    assert.equal(bot.inventory.emptySlotCount(), 4);
+    assert.equal(goals(bot).length, 0);
+    assert.equal(tosses(bot).length, 0);
+    assert.equal(items.idleHold, null, 'a pass that merged is not held as one that did nothing');
+});
+
+// --- reliability 1, fix wave 1 (build-r1-rulings.md) ------------------------------------------
+
+// A task's free-slot check on kept cobblestone split over slots 30 and 31 (62 + 2), `free` slots left.
+function splitTask({ world, cobbles = [[30, 62], [31, 2]], free = 3, inventory = {} } = {}) {
+    const bot = F.makeBot({ world, position: [0.5, 64, 0.5], inventory });
+    for (const [slot, count] of cobbles) bot.inventory.slots[slot] = cobble(count);
+    fill(bot, free);
+    const agent = F.makeAgent({ bot, name: `fw1-${n++}` });
+    F.clearRecord(agent);
+    F.startWork(agent);
+    agents.push(agent);
+    agent.work.record = F.modules.record.newRecord({ objective: 'obtain', steps: [], anchor: null });
+    return agent;
+}
+const obtainStep = () => ({ skill: 'obtain', progress: {} });
+// A merge whose second click throws: the source stack stays on the cursor.
+const throwingMove = bot => async src => {
+    bot.calls.push(['move', src]);
+    bot.inventory.selectedItem = bot.inventory.slots[src];
+    bot.inventory.slots[src] = null;
+    throw new Error('the click failed');
+};
+
+test('fix wave 1, S2: a merge whose click throws puts the cursor stack back and the step blocks on the slots; when it cannot, the drop fails and the step blocks', async () => {
+    const agent = splitTask();
+    const { bot } = agent;
+    bot.moveSlotItem = throwingMove(bot);
+    const r = await agent.work.runner.ensureFreeSlots(obtainStep());
+    assert.equal(bot.inventory.selectedItem ?? null, null, 'nothing left on the cursor');
+    assert.deepEqual([bot.inventory.slots[31]?.count, bot.count('cobblestone')], [2, 64], 'back on its slot');
+    assert.match(r.blocked ?? '', /^inventory full: 3 free slots, 4 needed/);
+    // The cursor cannot be emptied: a slot looks free, but the step does not go on.
+    const stuck = splitTask();
+    stuck.bot.moveSlotItem = throwingMove(stuck.bot);
+    stuck.bot.clickWindow = async () => { throw new Error('no click either'); };
+    const r2 = await stuck.work.runner.ensureFreeSlots(obtainStep());
+    assert.equal(stuck.bot.inventory.emptySlotCount(), 4);
+    assert.match(r2.blocked ?? '', /^inventory full: 4 free slots, 4 needed \(an item stayed on the cursor after a failed merge \(the click failed\)\)/);
+});
+
+test('fix wave 1, S5 and D-A1: a merge that does not take is not counted, so the idle pass is held as one that did nothing (not re-run every cooldown)', async () => {
+    const agent = setup({ inventory: {}, free: null, drive: false });
+    const { bot } = agent;
+    bot.inventory.slots[9] = cobble(62);
+    bot.inventory.slots[36] = cobble(2);
+    fill(bot, 3);
+    bot.moveSlotItem = async (a, b) => { bot.calls.push(['move', a, b]); };   // the server kept the split
+    const plan = I.planRemoval(bot, policyOf());
+    assert.equal((await I.dropItems(bot, plan)).merged, undefined);
+    const items = agent.work.items;
+    items.launch(items.admit());
+    await quiet(agent);
+    assert.equal(moves(bot).length, 2);
+    assert.equal(items.held(), 'waiting: nothing to drop from here');
+});
+
+test('fix wave 2, S2: a retry (!taskResume) with the stack still on the cursor blocks again; the fast path needs an empty cursor', async () => {
+    const agent = splitTask();
+    const { bot } = agent;
+    bot.moveSlotItem = throwingMove(bot);
+    bot.clickWindow = async () => { throw new Error('no click either'); };
+    const s = obtainStep();
+    assert.match((await agent.work.runner.ensureFreeSlots(s)).blocked ?? '', /^inventory full: 4 free slots, 4 needed/);
+    assert.ok(bot.inventory.selectedItem);
+    assert.match((await agent.work.runner.ensureFreeSlots(s)).blocked ?? '', /^inventory full: 4 free slots, 4 needed/, 'the retry blocks too');
+});
+
+test('fix wave 2, S5 and D-A1: a merge the server sets back (the client predicted it) holds the next admission, silently', async () => {
+    INV.retryMs = 5000;
+    const agent = setup({ inventory: {}, free: null, drive: false });
+    const { bot } = agent;
+    const split = () => {
+        bot.inventory.slots[9] = cobble(62);
+        bot.inventory.slots[36] = cobble(2);
+    };
+    split();
+    fill(bot, 3);
+    const items = agent.work.items;
+    items.launch(items.admit());
+    await quiet(agent);
+    assert.equal(moves(bot).length, 1, 'the real clicks merged');
+    assert.equal(bot.inventory.slots[36] ?? null, null);
+    split();   // the server's correction: the split is back
+    await F.sleep(INV.cooldownMs + 20);
+    assert.equal(items.admit(), null);
+    assert.equal(items.held(), 'waiting: nothing to drop from here');
+    assert.equal(moves(bot).length, 1);
+    assert.equal(agent.chats.length, 0, 'no owner line');
+});
+
+test('fix wave 1, D-A2: a drop attempt that only merged gives its attempt back: splits that recur in one step never use up its drops', async () => {
+    const agent = splitTask();
+    const { bot } = agent;
+    const s = obtainStep();
+    for (let k = 0; k < INV.maxReruns + 2; k++) {
+        bot.inventory.slots[30] = cobble(62);
+        bot.inventory.slots[31] = cobble(2);
+        assert.deepEqual(await agent.work.runner.ensureFreeSlots(s), {}, `split ${k + 1}`);
+        assert.equal(s.progress.junk_drops, 0, `split ${k + 1}`);
+    }
+});
+
+test('fix wave 1, G2: in a shaft, when the merges alone reach the free slots, the task drop does not climb; the junk waits', async () => {
+    const shaft = new F.World();
+    pit(shaft, 6);
+    const agent = splitTask({ world: shaft, inventory: { rotten_flesh: 5 } });
+    const { bot } = agent;
+    assert.deepEqual(await agent.work.runner.ensureFreeSlots(obtainStep()), {});
+    assert.equal(goals(bot).length, 0, 'no climb');
+    assert.deepEqual(moves(bot), [[31, 30]]);
+    assert.deepEqual([bot.count('rotten_flesh'), bot.inventory.emptySlotCount()], [5, 4]);
+});
+
+test('fix wave 1, G1: a step blocked "full of things I keep" logs her slot layout once, with no model call', async () => {
+    const agent = splitTask({ cobbles: [[30, 64]] });
+    const lines = [];
+    const log = agent.work.log.bind(agent.work);
+    agent.work.log = message => { lines.push(message); log(message); };
+    const r = await agent.work.runner.ensureFreeSlots(obtainStep());
+    assert.match(r.blocked, /^inventory full of things I keep: 3 free slots, 4 needed/);
+    const layout = lines.filter(l => l.startsWith('bag slots: '));
+    assert.equal(layout.length, 1);
+    assert.match(layout[0], /^bag slots: 9 oak_planks 64, 10 oak_planks 64, /);
+    assert.match(layout[0], /, 30 cobblestone 64, /);
+    assert.equal(agent.modelCalls, 0);
 });

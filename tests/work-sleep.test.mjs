@@ -307,8 +307,17 @@ test('next(): what sleep may cut, under always and idle (never a mode, tidy, the
         goal(false);
         running('action:collectBlocks', { start: { label: 'action:collectBlocks', voice: 'own', goal: false } });
         assert.equal(fires(), false, 'a one-off action with no goal');
+        // DECISIONS 2026-11-14 (Q1): a walk the keeper holds is cut (and restarted by it).
+        running('action:goToCoordinates');
+        agent.work.travel.walk = { held: true, label: 'action:goToCoordinates' };
+        assert.equal(fires(), true, 'a walk the keeper holds');
+        agent.work.travel.walk = null;
+        assert.equal(fires(), false, 'the same walk, not held');
         // work.sleep.when idle: nothing to do at all.
         agent.work.config.sleep = { when: 'idle' };
+        agent.work.travel.walk = { held: true, label: 'action:goToCoordinates' };
+        assert.equal(fires(), false, 'idle: a held walk is not cut');
+        agent.work.travel.walk = null;
         running(null);
         assert.equal(fires(), true, 'idle, nothing to do');
         running('action:task', { resume: true });
@@ -324,6 +333,7 @@ test('next(): what sleep may cut, under always and idle (never a mode, tidy, the
         assert.equal(fires(), false, 'idle: a task active');
     } finally {
         agent.work.record = null;
+        agent.work.travel.walk = null;
         goal(false);
         running(null);
     }
@@ -755,6 +765,209 @@ test('following at dusk: sleep cuts the follow and it resumes afterwards with no
     bot.interrupt_code = true;
 });
 
+// --- DECISIONS 2026-11-14 (Q1): a walk the keeper holds (travel.js) ------------------------------
+// (A task and a pending follow already resume after sleeping: 'mid-obtain at
+// dusk' and 'following at dusk' above; nothing changed there.)
+
+// The owner's typed !goToCoordinates to (20, 64, 0), whose walk blocks until
+// `released` or an interrupt; the bed server's own walks run as before.
+function heldWalk(agent) {
+    const { bot } = agent;
+    const w = { starts: 0, released: false };
+    const serve = bot.hooks.goto;
+    bot.hooks.goto = async goal => {
+        if (goal.x !== 20 || goal.constructor.name !== 'GoalNear') return serve(goal);
+        w.starts++;
+        await F.until(() => w.released || bot.interrupt_code, { timeout: 60000 });
+        return undefined;
+    };
+    w.typed = F.ownerSays(agent, '!goToCoordinates(20, 64, 0, 1)');
+    return w;
+}
+const reachedLine = agent => agent.chats.filter(c => /You have reached at 20, 64, 0/.test(c));
+
+test('Q1: under always, sleep cuts a walk the keeper holds, and the walk restarts once she is up and her bed is back; 0 model calls', async () => {
+    const agent = setup({ server: { time: DAY } });
+    const { bot } = agent;
+    const w = heldWalk(agent);
+    await F.until(() => w.starts === 1);
+    bot.time = { ...NIGHT };
+    await F.until(() => w.starts === 2, { timeout: 6000 });
+    assert.equal(night(agent).why, 'slept');
+    assert.equal(bot.count('black_bed'), 1, 'the bed is back before the walk goes on');
+    assert.equal(myBeds(agent).length, 0);
+    w.released = true;
+    await w.typed;
+    assert.match(reachedLine(agent)[0], /Resumed after 1 interruption\.$/);
+    assert.equal(agent.modelCalls, 0);
+    assert.equal(agent.turns.some(t => /AUTO MESSAGE/.test(t.content)), false);
+});
+
+test('fix wave 1, S4: a fight that cuts the night\'s sleep leaves the bed wanted: the walk waits, sleep lies down again, and the walk restarts only once her bed is back', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    const w = await fightCutSleep(agent);
+    F.hostile(bot, 'zombie', [3, 0, 0]);   // a fight cuts the sleep; the bed stays (wanted tonight)
+    await F.until(() => night(agent).modeCuts === 1, { timeout: 4000 });
+    await F.until(() => w.starts === 2, { timeout: 8000 });
+    assert.equal(bot.count('black_bed'), 1, 'her bed is back before the walk goes on');
+    assert.equal(myBeds(agent).length, 0);
+    assert.equal(calls(bot, 'sleep').length, 2, 'she lay down again in the same bed');
+    assert.equal(calls(bot, 'place').length, 1);
+    w.released = true;
+    await w.typed;
+    assert.match(reachedLine(agent)[0], /Resumed after 2 interruptions\.$/);
+    assert.equal(agent.modelCalls, 0);
+});
+
+// Fix wave 2: the night's sleep cut by a fight (a zombie at 3), the walk held before it.
+async function fightCutSleep(agent) {
+    const { bot } = agent;
+    const w = heldWalk(agent);
+    await F.until(() => w.starts === 1);
+    bot.time = { ...NIGHT };
+    await F.until(() => bot.isSleeping, { timeout: 4000 });
+    return w;
+}
+
+test('fix wave 2, S4: a night marked done with her bed still placed holds the walk until the pickup takes it', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, work: { sleep: { max_mode_cuts: 1 } }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    const w = await fightCutSleep(agent);
+    F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent).done, { timeout: 4000 });   // 1 mode cut: the night is done, the bed not wanted
+    await F.until(() => w.starts === 2, { timeout: 8000 });
+    assert.equal(bot.count('black_bed'), 1, 'the pickup took her bed before the walk went on');
+    assert.equal(myBeds(agent).length, 0);
+    assert.equal(calls(bot, 'sleep').length, 1);
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('fix wave 2, S4 and N1: when the pickup cannot run (one free slot), the walk goes on after safe_wait_s with the bed placed', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, work: { sleep: { max_mode_cuts: 1 }, travel: { safe_wait_s: 2 } }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    while (bot.inventory.emptySlotCount() > 0) bot.give('oak_planks', 64);   // the placed bed leaves one free slot
+    const w = await fightCutSleep(agent);
+    F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent).done, { timeout: 4000 });
+    const done = Date.now();
+    await F.until(() => w.starts === 2, { timeout: 6000 });
+    // The fight runs on ~0.8 s after the night is done; the wait is 2 s after it.
+    assert.ok(Date.now() - done >= 1800, `held for safe_wait_s first: ${Date.now() - done} ms`);
+    assert.equal(myBeds(agent).length, 1, 'the bed stays placed');
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('fix wave 2, N1: while sleep keeps refusing before a try, the bed wait ends after safe_wait_s', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, work: { travel: { safe_wait_s: 1 } }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    const w = await fightCutSleep(agent);
+    SLEEP.cooldownMs = 60000;   // the mode cut's cooldown: next() refuses for the rest of the test
+    F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent).modeCuts === 1, { timeout: 4000 });
+    const cut = Date.now();
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.ok(Date.now() - cut >= 800, `held for safe_wait_s first: ${Date.now() - cut} ms`);
+    assert.equal(myBeds(agent).length, 1);
+    assert.equal(calls(bot, 'sleep').length, 1, 'no second sleep');
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('final ruling, R3-1: an old bed of hers within 16 (not from this walk\'s sleep) never makes a restart wait', async () => {
+    const agent = setup({ inventory: {}, modes: { sleeping: true, self_defense: true }, work: { travel: { safe_wait_s: 2 } }, server: { time: DAY } });
+    const { bot } = agent;
+    while (bot.inventory.emptySlotCount() > 1) bot.give('oak_planks', 64);   // the pickup's two-slot gate refuses
+    placedBed(agent, 2, 64, 3);
+    const w = heldWalk(agent);
+    await F.until(() => w.starts === 1);
+    const spawned = Date.now();
+    F.hostile(bot, 'zombie', [3, 0, 0]);   // a fight cuts the walk
+    await F.until(() => w.starts === 2, { timeout: 6000 });
+    assert.ok(Date.now() - spawned < 1800, `restarted without the bed wait: ${Date.now() - spawned} ms`);
+    assert.equal(myBeds(agent).length, 1);
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('final ruling, Sol r3 MED-1: a pickup that keeps cutting the bed wait (a soft refusal: someone in her bed) still ends it at one safe_wait_s per walk', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, work: { sleep: { max_mode_cuts: 1 }, travel: { safe_wait_s: 1 } }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    const travel = agent.work.travel;
+    const seen = travel.onActionStart.bind(travel);
+    let bedCuts = 0;
+    travel.onActionStart = label => {
+        if (label === 'action:bed' && travel.walk) bedCuts++;
+        seen(label);
+    };
+    const w = await fightCutSleep(agent);
+    F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent).done, { timeout: 4000 });
+    F.player(bot, 'someone', [0.5, 64, 1.5]);   // in her bed's foot cell: each pickup refuses softly and retries
+    await F.until(() => w.starts === 2, { timeout: 6000 });
+    assert.ok(bedCuts >= 2, `the pickup cut the wait ${bedCuts} times`);
+    assert.equal(myBeds(agent).length, 1);
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('build r4, W1: two nights on one walk, each with a fight-cut sleep: the second night also waits for the bed', async () => {
+    const agent = setup({ modes: { sleeping: true, self_defense: true }, work: { sleep: { max_mode_cuts: 1 }, travel: { safe_wait_s: 2 } }, server: { time: DAY, skip: false } });
+    const { bot } = agent;
+    const w = await fightCutSleep(agent);
+    const z1 = F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent).done, { timeout: 4000 });
+    await F.until(() => w.starts === 2, { timeout: 8000 });   // night 1: the pickup took her bed, then the walk went on
+    assert.equal(bot.count('black_bed'), 1);
+    delete bot.entities[z1.id];
+    bot.time = { timeOfDay: 13000, day: 6 };   // night 2, the same walk
+    await F.until(() => bot.isSleeping, { timeout: 4000 });
+    F.hostile(bot, 'zombie', [3, 0, 0]);
+    await F.until(() => night(agent, 6).done, { timeout: 4000 });
+    const done = Date.now();
+    const foot = myBeds(agent)[0].pos;
+    F.player(bot, 'someone', [foot.x + 0.5, foot.y, foot.z + 0.5]);   // in her bed: the pickup refuses softly
+    await F.until(() => w.starts === 3, { timeout: 8000 });
+    // The fight runs on ~0.8 s after the night is done; the bed wait is 2 s after it.
+    assert.ok(Date.now() - done >= 1800, `night 2 waited for the bed: ${Date.now() - done} ms`);
+    w.released = true;
+    await w.typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('Q1: by day the bed pickup (action:bed) cuts a held walk too and the walk restarts after it; under idle neither sleep nor the pickup cuts it', async () => {
+    const agent = setup({ inventory: {}, server: { time: DAY }, drive: false });
+    const { bot } = agent;
+    const w = heldWalk(agent);
+    await F.until(() => w.starts === 1);
+    placedBed(agent, 2, 64, 3);
+    stops.push(F.drive(agent));
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.equal(bot.count('black_bed'), 1);
+    assert.equal(myBeds(agent).length, 0);
+    w.released = true;
+    await w.typed;
+    assert.match(reachedLine(agent)[0], /Resumed after 1 interruption\.$/);
+    assert.equal(agent.modelCalls, 0);
+    // work.sleep.when idle: nothing changes; the walk is waited out.
+    const idle = setup({ server: { time: DAY }, work: { sleep: { when: 'idle' } } });
+    const iw = heldWalk(idle);
+    await F.until(() => iw.starts === 1);
+    idle.bot.time = { ...NIGHT };
+    await F.sleep(300);
+    assert.deepEqual([iw.starts, calls(idle.bot, 'sleep').length, idle.bot.interrupt_code], [1, 0, false]);
+    iw.released = true;
+    await iw.typed;
+    assert.doesNotMatch(reachedLine(idle)[0], /Resumed/);
+});
+
 test('the task view says she sleeps', async () => {
     const world = ground();
     F.tree(world, 4, 64, -4, 4);
@@ -816,8 +1029,9 @@ test('by day the pickup waits out an owner\'s one-off action and follows once it
     const runs = timeouts(agent);
     placedBed(agent, 2, 64, 3);
     let release = false;
-    const errand = agent.actions.runAction('action:goToPlayer', async () => { while (!release && !bot.interrupt_code) await F.sleep(10); });
-    await F.until(() => agent.actions.currentActionLabel === 'action:goToPlayer');
+    // Not a walk (the keeper's walks are cut since DECISIONS 2026-11-14: the Q1 tests below).
+    const errand = agent.actions.runAction('action:collectBlocks', async () => { while (!release && !bot.interrupt_code) await F.sleep(10); });
+    await F.until(() => agent.actions.currentActionLabel === 'action:collectBlocks');
     stops.push(F.drive(agent));
     await F.sleep(200);
     assert.equal(runs.some(([label]) => label === 'action:bed'), false, 'not cut');

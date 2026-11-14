@@ -304,8 +304,11 @@ export class Sleeper {
     // `idle` (and `off`, for the pickup): only with nothing to do. `always`:
     // idle, unless a goal's model call is in flight; the task's run; the
     // pending resumable owner action unless a goal is ACTIVE (upstream would
-    // not resume it, action_manager.js:63); a goal's own action. Never a mode,
-    // tidy, the bed pickup or a one-off action, and nothing while a stop runs.
+    // not resume it, action_manager.js:63); a goal's own action; a walk the
+    // keeper holds (DECISIONS 2026-11-14: "she should continue the task after
+    // sleeping regardless of what it is"; travel.js restarts it once sleep and
+    // the bed pickup are over). Never a mode, tidy, the bed pickup or another
+    // one-off action, and nothing while a stop runs.
     mayCut(policy = this.when()) {
         const { agent } = this;
         const actions = agent.actions;
@@ -320,6 +323,7 @@ export class Sleeper {
         // The item cleanup (S2e) is cut by sleep; the bed pickup never meets
         // it: they share the maintenance latch (reconcile).
         if (label === 'action:task' || label === ITEMS_LABEL) return true;
+        if (this.work.travel?.holds(label)) return true;
         if (actions.resume_func && label === actions.resume_name) return !goal;
         const start = this.work.lastStart;
         return goal && start?.label === label && start.goal && start.voice === 'own';

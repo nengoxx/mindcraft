@@ -1,4 +1,7 @@
+import * as world from '../library/world.js';
+import * as mc from '../../utils/mcdata.js';
 import { climbOut, CLIMB } from './climb.js';
+import { SLEEP } from './sleep.js';
 
 // The walk keeper (SPEC §7.11, REQ-TRV-1 … 3; design
 // travel/recommended-design.md r4 §1, §2). DECISIONS 2026-11-13 (evening): "A
@@ -16,14 +19,19 @@ import { climbOut, CLIMB } from './climb.js';
 // never touched. The AUTO MESSAGE is held back through Work.isQuietAction.
 
 // The walks kept and the cuts they restart after; every other cutter keeps
-// today's behaviour (the AUTO MESSAGE). Design §11 Q1 and Q2 are open owner
-// questions: !goToRememberedPlace, self_preservation and sleeping stay out
-// until he answers (each a one-line change here).
-export const WALK_LABELS = Object.freeze(new Set(['action:goToCoordinates', 'action:goToPlayer', 'action:searchForBlock']));
-export const RESTART_AFTER = Object.freeze(new Set(['mode:self_defense', 'mode:unstuck']));
+// today's behaviour (the AUTO MESSAGE). The owner's answers to design §11
+// (DECISIONS 2026-11-14, "Walks after sleeping; reliability before S3"):
+// !goToRememberedPlace is kept like the other walks (Q3); a self_preservation
+// cut restarts once it is safe (Q2: the safety wait, `safeThen`); sleep, which
+// under work.sleep.when "always" may now cut a held walk (sleep.js mayCut),
+// and the bed pickup are cutters too (Q1: "she should continue the task after
+// sleeping regardless of what it is").
+export const WALK_LABELS = Object.freeze(new Set(['action:goToCoordinates', 'action:goToPlayer', 'action:searchForBlock', 'action:goToRememberedPlace']));
+export const RESTART_AFTER = Object.freeze(new Set(['mode:self_defense', 'mode:unstuck', 'mode:self_preservation', 'mode:sleeping', 'action:bed']));
 // Constants, not keys (SPEC §14): an unstuck cut this close to a spot where
-// the fallback already ran means it failed.
-export const TRAVEL = { stuckRadius: 8 };
+// the fallback already ran means it failed; the safety wait looks again this often.
+export const TRAVEL = { stuckRadius: 8, safePollMs: 500 };
+const UNSAFE = 'not safe';
 
 const dimOf = bot => bot.game?.dimension ?? 'overworld';
 const cell = pos => `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
@@ -64,12 +72,25 @@ export class Travel {
     onActionStart(label) {
         const walk = this.walk;
         if (!walk || walk.starting) return;
+        // A fight in the cut is a hostile near until it ends (the safety wait).
+        if (label === 'mode:self_defense') walk.fought = true;
+        // Sleep in the cut: the bed wait may follow (only this walk's own sleep; build r3 R3-1).
+        if (label === 'mode:sleeping') walk.slept = true;
         if (walk.cutter == null) {
             walk.cutter = label;
             if (!RESTART_AFTER.has(label)) walk.held = false;
             return;
         }
         if (!label?.startsWith('mode:') && !this.work.isUpkeep(label)) walk.newer = true;
+    }
+
+    // The modes.js carry, right before self_preservation's near-death flee
+    // (its moveAway(20), "I'm dying!"): a held walk it cuts, first or after a
+    // fight, waits until it is safe. Its fire, lava and falling-sand moves do
+    // not call this, so after them the walk restarts at once, hurt or not
+    // (DECISIONS 2026-11-14, Q2).
+    onNearDeath() {
+        if (this.walk?.held) this.walk.fled = true;
     }
 
     // A command that stops actions without starting one (!endGoal): the held
@@ -87,12 +108,14 @@ export class Travel {
         // A newer walk command: the held one returns at once (adversary O3).
         if (this.walk) this.walk.newer = true;
         const walk = { label, held: true, starting: false, cutter: null, newer: false, epoch: agent.stop_epoch,
-            deaths: this.deaths, dim: dimOf(bot), restarts: 0, stuck: [], climbing: false, gaveUp: false, told: false };
+            deaths: this.deaths, dim: dimOf(bot), restarts: 0, stuck: [], climbing: false, gaveUp: false, told: false,
+            fled: false, fought: false, waiting: false, waitSince: 0, hostileAt: -Infinity, slept: false, bedSince: 0 };
         this.walk = walk;
         let body = fn;
         try {
             for (;;) {
                 walk.cutter = null;
+                walk.fled = false;
                 walk.starting = true;
                 let running;
                 try {
@@ -114,6 +137,13 @@ export class Travel {
                 if (dropped) {
                     log(`${label} cut by ${walk.cutter}: not restarted (${dropped})`);
                     return result;
+                }
+                // The quiet clock starts when the cut ends: a fight in it was a
+                // hostile near until then, and a near-death flee is never quiet
+                // time (a hostile may chase her through it; build r1 S1, D-B1).
+                if (walk.fought || walk.fled) {
+                    walk.fought = false;
+                    walk.hostileAt = Date.now();
                 }
                 // The AUTO MESSAGE branch flushed it; its lines go to the console,
                 // on every exit from here (adversary G4; build r1 F2).
@@ -137,8 +167,25 @@ export class Travel {
                     // A fight cut the climb: climb again, no new stuck spot (§0c N1).
                     body = this.climbThenWalk(walk, fn);
                 }
+                const climbs = body !== fn;
+                // DECISIONS 2026-11-14 (Q2): after a flee the walk goes on only
+                // once it is safe; a cut of the wait waits again, its minute
+                // counted from the first flee.
+                if (walk.fled && !walk.waiting) {
+                    walk.waiting = true;
+                    walk.waitSince = Date.now();
+                }
+                // The bed wait (build r3 R3-1): only after a sleep that cut this
+                // walk, while that bed stands; its deadline is one per walk, so
+                // pickups that cut the wait do not restart it (Sol r3 MED-1).
+                const bed = walk.slept && this.bedStands();
+                walk.slept = bed;
+                if (!this.bedStands()) walk.bedSince = 0;   // the bed is back: a later night's sleep gets its own wait (build r4 W1)
+                if (bed && !walk.bedSince) walk.bedSince = Date.now();
+                if (walk.waiting || bed) body = this.safeThen(walk, body);
                 walk.restarts++;
-                log(`${label} cut by ${walk.cutter} at ${cell(at)}: restart ${walk.restarts}${body === fn ? '' : ', climbing out first'}`);
+                const first = [walk.waiting && 'once it is safe', bed && 'after my bed', climbs && 'climbing out first'].filter(Boolean).join(', ');
+                log(`${label} cut by ${walk.cutter} at ${cell(at)}: restart ${walk.restarts}${first ? `, ${first}` : ''}`);
             }
         } finally {
             walk.held = false;
@@ -194,6 +241,87 @@ export class Travel {
             }
             await fn();
         };
+    }
+
+    // A hostile within work.travel.safe_radius (the item cleanup's predicate).
+    hostileNear() {
+        return Boolean(world.getNearestEntityWhere(this.bot, e => mc.isHostile(e), this.work.config.travel.safe_radius));
+    }
+
+    // The safety wait before the body (DECISIONS 2026-11-14, Q2: "the cut walk
+    // restarts once her health is back above half and no hostile has been
+    // within 16 blocks for a few seconds; if that does not happen within about
+    // a minute she tells him she stopped"). It runs as the restarted walk, so
+    // nothing else starts meanwhile (the idle resume, the self-heal) and every
+    // cutter applies to it as to the walk: a fight cuts it (it waits again
+    // after), a newer command or !stop ends it at once; the drop reasons are
+    // checked at each look. The fire, lava and falling-sand moves start no
+    // safety wait (onNearDeath). The same wait also holds a walk that sleep
+    // cut while her bed still stands within 16 (bedStands; build r1 S4, r2 N1, r3 R3-1;
+    // DECISIONS 2026-11-14 Q1: she carries on "once she is up and her bed is
+    // back"): sleep cuts the wait and lies down again, or the pickup takes the
+    // bed; at most work.travel.safe_wait_s, then she walks on and the
+    // sleeper's "I left my bed" line tells him.
+    safeThen(walk, body) {
+        const bot = this.bot;
+        return async () => {
+            const why = await this.untilSafe(walk);
+            if (bot.interrupt_code) return;
+            if (why === UNSAFE) this.tell(walk, `I stopped walking at ${cell(bot.entity.position)}: it wasn't safe after I got away.`);
+            else if (why) log(`${walk.label}: not restarted (${why})`);
+            if (why) {
+                walk.gaveUp = true;
+                return;
+            }
+            walk.waiting = false;
+            await body();
+        };
+    }
+
+    // Her own bed (the sleep routine's ledger entry, `myBedNear(SLEEP.reuseRadius)`)
+    // still stands within 16, whatever `wanted()` says (build r2 S4: a night
+    // marked done leaves it placed until the pickup takes it). Only under
+    // work.sleep.when "always", where sleep and the pickup may cut the held
+    // wait (under "idle" neither does, so waiting would only delay her).
+    // Asked only for a walk whose own cut chain held `mode:sleeping`
+    // (`walk.slept`), so an older bed of hers never holds a walk (build r3 R3-1).
+    bedStands() {
+        const sleeper = this.work.sleeper;
+        return Boolean(sleeper && sleeper.when() === 'always' && sleeper.myBedNear(SLEEP.reuseRadius));
+    }
+
+    // null once safe and the bed is back or waited for safe_wait_s (or
+    // interrupted), else a drop reason or UNSAFE. Safe: her health above
+    // safe_health, no hostile near now and none for safe_quiet_s (build r1
+    // S3: 0 s still needs none now). `unstuck` is paused while she stands
+    // still on purpose (it would take the wait for a stuck walk).
+    async untilSafe(walk) {
+        const { bot } = this;
+        const t = this.work.config.travel;
+        bot.modes?.pause('unstuck');
+        try {
+            for (;;) {
+                if (bot.interrupt_code) return null;
+                const why = this.dropReason(walk);
+                if (why) return why;
+                const now = Date.now();
+                const near = this.hostileNear();
+                if (near) walk.hostileAt = now;
+                const safe = !walk.waiting || (!near && bot.health > t.safe_health && now - walk.hostileAt >= t.safe_quiet_s * 1000);
+                // Build r2 N1: the bed wait ends after safe_wait_s (sleep may keep refusing before a try).
+                const bed = walk.slept && this.bedStands();
+                if (safe && bed && now - walk.bedSince >= t.safe_wait_s * 1000) {
+                    log(`${walk.label}: my bed is still placed after ${t.safe_wait_s} s; walking on`);
+                    walk.slept = false;
+                    return null;
+                }
+                if (safe && !bed) return null;
+                if (!safe && now - walk.waitSince >= t.safe_wait_s * 1000) return UNSAFE;
+                await new Promise(resolve => setTimeout(resolve, TRAVEL.safePollMs));
+            }
+        } finally {
+            bot.modes?.unpause('unstuck');
+        }
     }
 
     // The walk is over: the result as an uncut walk's, with the count.

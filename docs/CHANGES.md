@@ -882,3 +882,23 @@ Two upstream carries:
     upstream's interrupted mode actions return normally.
 The kept walk's quiet check needs no change in `modes.js`: `should_reprompt`
 already asks `agent.work?.isQuietAction`.
+
+Reliability 1 (SPEC §7.11 REQ-TRV-2, §9.4 REQ-OBT-11; DECISIONS 2026-11-14
+"Walks after sleeping; reliability before S3"). Why: after a near-death flee
+a cut walk restarts only once it is safe, after the fire, lava and
+falling-sand moves at once; split stacks merge before anything is dropped.
+In our own files: the merges (`planMerges`, `mergeStill`, `mergeTook`, the
+cursor put back after a failed merge, `slotLayout`) in `work/inventory.js`;
+the merge-only give-back and the slot-layout line in `work/runner.js`; the
+safety wait and the bed wait (`onNearDeath`, `safeThen`, `untilSafe`,
+`bedStands`) in `work/travel.js`; the hold when the bag is back as before a
+merge (`mergedFrom`) in `work/inventory.js`; `work.travel.safe_*` in `work/config.js`.
+One upstream carry:
+- `agent/modes.js` (grown carry): `self_preservation`'s near-death branch
+  ("I'm dying!", its `moveAway(20)`) calls `agent.work?.travel?.onNearDeath()`
+  right before its `execute`. Why: only that flee starts the safety wait;
+  the mode's other branches (fire, lava, falling sand) share its label, so
+  the label alone cannot tell them apart. Reapply check:
+  `work-travel.test.mjs` "fix wave 1, S1 and D-B1: a hostile that chases her
+  through a real near-death flee …" (fails without the line). Retire when
+  upstream tells which branch a mode action ran.
