@@ -16,8 +16,12 @@
 - **Step 2 is done** (ledger `docs/audits/i1_audit.md`, `80680cf`): 18 findings, 4 M and 14 L, no H; the
   orchestration core holds (no lost work, loop, hang or stale read). The M findings: decisions wait for memory
   summaries (I1-1), summaries mostly reasoning (I1-2), the prompt cache is barely reused (I1-3), a clear in a cave
-  stalls (I1-4). **Next: the owner rules on what gets fixed** (a commissioned audit; the main seat's
-  recommendation went to him on 2026-11-14), then a fix slice, then step 3.
+  stalls (I1-4). The owner ruled (DECISIONS 2026-11-14 "The I1 audit's fixes"): fix slice "Reliability 2" for
+  I1-1, 2, 4, 5, 6, 8–17 and I1-11; I1-3 and I1-7 deferred.
+- **Reliability 2 is in review, not merged** (worktree `<scratch>/mindcraft-rel2`, branch
+  `reliability-2`; review r1 and fix wave 1 done; the confirm round's outputs land in
+  `runtime/diagnostics/i1-build/reliability/build2-r2-*.md`). **Next:** read them, rule, merge, deploy, the live
+  checks, the ledger Status; then step 3 (repeated uncoached trials). The exact steps are in `STATE.md` there.
 - Step 2 records: `runtime/diagnostics/i1-build/reliability/` (`STATE.md`). Live state: the operator runs since 2026-11-13 17:53 (bot
   log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); private profile unchanged (`work.combat.ranged` the
   four skeletons, `travel_speed` 2, `work.inventory` gear best / cap stack / surplus 2, `min_free_slots` default).
