@@ -410,3 +410,11 @@ The owner on the main seat's recommendation (ledger `docs/audits/i1_audit.md`): 
 - **I1-11:** follow SPEC REQ-OBT-2/4: a recipe step takes what her bag allows; only a material he named persists.
 - **I1-3 (the prompt cache):** deferred to I2's provider rebuild, starting with a short probe of the backend's
   reuse; I1-7 (the tree test outside runs): measured on a live forest walk before any fix.
+
+## 2026-11-14 — Step 3 staged by the agent; a pause after it
+
+- **Trials need no owner.** The agent running a trial stages the world itself (blocks, time, teleports, items; the
+  world allows commands), so the model is tested fairly with no one helping. Staging is never counted as an
+  intervention, and the bot's own cheat mode stays off in every measured run.
+- **A pause after step 3.** Once step 3 is recorded the project pauses with S3 ready to start: the owner uses the
+  bot day to day and compares backend models (a new one is due). S3 starts on his word.
