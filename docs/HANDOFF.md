@@ -52,6 +52,11 @@
   taste call); the operator as its own user service, with a retry after a server restart (ISSUES "Operator: the proxy
   after a server restart"); memory across full restarts (a full start begins with empty memory, `load_memory:
   false`).
+- Parked until the project resumes (the owner, 2026-11-14): an easy start for anyone trying the fork. Today one
+  command starts it once set up (`operator/mindcraft.sh start`; Windows `operator/Mindcraft.ps1`), but the setup
+  is manual and dense (Node 22 and Java 17+ into `runtime/tools`, `npm ci`, copy `operator/examples/` to
+  `runtime/config/` and edit three files, `mindcraft.sh update` for ViaProxy; operator/README.md). Wanted: a
+  plain quick start and, if lean, one setup command.
 - Parked until his word: S2e part B (the chest). Later slices: the clear's chest mode, walking back to tidy
   out-of-reach scaffold, task records, structures and memory per world (SPEC §16, PLAN §8).
 
