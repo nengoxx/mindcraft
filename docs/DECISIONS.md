@@ -397,3 +397,16 @@ evening"): "yes [...] pretty much let's go with your suggestions."
   seat's three steps, in order: (1) close the known open findings (the split-slot bag finding of T5, audited
   first; the message dropped at start-up; a clean T5); (2) a reliability audit of the I1 code (an audit lane and
   an adversary); (3) a repeated uncoached trial in words, Qwen alone, measuring success, calls and latency.
+
+## 2026-11-14 — The I1 audit's fixes (step 2 → a fix slice before step 3)
+
+The owner on the main seat's recommendation (ledger `docs/audits/i1_audit.md`): "okay i agree with your suggestions."
+- **Fix now, one slice ("Reliability 2"):** I1-1 (a decision never waits behind a memory summary started with it),
+  I1-2 (summaries run with little or no reasoning; the main seat checks live that her memory stays as good),
+  I1-4 (a clear in a cave), I1-6 (the false "got no dirt"), and the small L items I1-8, I1-9, I1-10, I1-12, I1-13,
+  I1-14, I1-15, I1-16, I1-17, I1-18.
+- **I1-5:** the work layer's own lines (tidy, restart, behaviour) stay out of what is summarised; they stay
+  visible to the model in the moment.
+- **I1-11:** follow SPEC REQ-OBT-2/4: a recipe step takes what her bag allows; only a material he named persists.
+- **I1-3 (the prompt cache):** deferred to I2's provider rebuild, starting with a short probe of the backend's
+  reuse; I1-7 (the tree test outside runs): measured on a live forest walk before any fix.
