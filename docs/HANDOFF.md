@@ -1,88 +1,36 @@
 # Handoff
 
-## 2026-11-14 (night) — the travel slice is live; T1 and T3 pass
+## 2026-11-14 (morning) — travel trials done except a clean T5; next is S3
 
-- **Live on develop, not pushed:** the travel slice (`229cddf`, merge `4bae59f`; DECISIONS 2026-11-13 (evening)
-  "Travel after the live trials"; council, reviews and two fix waves in `runtime/diagnostics/i1-build/travel/`,
-  `STATE.md` there is the trail). Gate 620/620. Deployed 2026-11-14 00:46 by an agent-only restart; the profile is
-  unchanged (`work.travel.resume_max` default 20). The worktree `<scratch>/mindcraft-travel` (branch
-  `travel`, merged) can be removed with `git worktree remove`.
-- **Trials** (ISSUES "Travel live trials, 2026-11-14 night"): T1 (fights cut a typed night walk: 4 restarts, 0
-  model calls) and T3 (the P19 cave trap: one climb out, then on to the goal, 0 calls) pass; T5 (the task's climb
-  to drop) seen in part. **Next, at night:** T2 (a walk asked in words: 1 call to start, 0 per fight, 1 at the
-  end), T4 (`!stop` during a fight on a kept walk: she stays), a clean T5 (a task down a shaft with real junk), T6
-  (a mining question answered "no": "OK, I'll leave them.").
-- **New open issue:** `runtime/diagnostics/requests.jsonl` has had no line since 2026-11-13 20:24 although model
-  calls run (ISSUES, same section). Quick audit first; until then count calls from the agent log's "Awaiting" lines.
-- **Open owner questions (design §11; defaults built = today's behaviour):** restart a walk after sleeping through
-  the night (recommended: yes, once the bed is back) or after `self_preservation` (recommended: no for the
-  near-death flee); keep `!goToRememberedPlace` the same way (recommended: yes). Each is a one-line constant.
-- In the world: a 24-dirt pillar at -363,71..94,1684 (the T3 climb, scaffold of `action:goToCoordinates`, not
-  tidied: residual R5); her 6-deep shaft at -487,65..70,1810 with a 5-dirt tower in it (T5). She stands on it,
-  idle, at -486.6,70,1810.4.
-
-## 2026-11-13 (evening) — blocks and combat live; trials pass; travel is the weak spot
-
-- **Live on develop, not pushed:** the blocks slice (`7e788a0`), the combat slice (`46e6cb4`) and a live-trial fix
-  (`21f63d0`: the carried pathfinder patch no longer drops every `diggingCompleted` listener; it made
-  `!collectBlocks` report a real dig as "changed"). Gate 583/583. Operator restarted 2026-11-13 17:53 (log
-  `runtime/logs/operator-start-20261113a.log`, bot log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`).
-  Private profile: `work.combat.ranged` the four skeletons, `travel_speed` 2 (backup
-  `~/.cache/tmp/combat-tmp/deploy/amaia.json.bak`).
-- **Trials by the main seat** (ISSUES "Live trials 2026-11-13 evening"): blocks acceptance 1–4 pass at his
-  obsidian (both blocks now mined, on his word in the trial); combat: a skeleton engaged at 11.7 on the aggressive
-  bit before its first arrow, about 30 fights within 0–9.5 of their anchors; a task cut by fights resumes by
-  itself. **Left for the owner:** combat while following (leash on him, the follow skip, travelling), armour trial 2.
-- The travel findings of these trials are fixed by the travel slice (block above). The recorder hook is removed
-  (`cmp` clean); its log is kept as `runtime/diagnostics/i1-build/combat/p19-trial-log.txt`.
+- **Live on develop, not pushed:** the blocks (`7e788a0`), combat (`46e6cb4`), live-trial fix (`21f63d0`) and
+  travel (`229cddf`, merge `4bae59f`) slices. Gate 620/620. The operator runs since 2026-11-13 17:53 (bot log
+  `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); travel deployed 2026-11-14 00:46 by an agent-only
+  restart. Private profile: `work.combat.ranged` the four skeletons, `travel_speed` 2, `work.inventory` gear
+  best / cap stack / surplus 2; `min_free_slots` at its default (staged and reverted today, checked).
+- **Travel trials** (ISSUES "Travel live trials, 2026-11-14 night"; logs `runtime/diagnostics/i1-build/travel/trials/`):
+  T1, T2, T3, T4 and T6 pass. T5 (a task's climb out of a shaft to drop, then back to work) is still partial: the
+  climb and the drop are seen three times, the return and the task's end never, because each staging blocked on
+  free slots. One new open finding from it (30 kinds in 31 slots after the drop, ISSUES). The request-log issue is
+  dismissed: no call had completed; `requests.jsonl` counts calls again.
+- **Next:** the owner's word on what follows. Recommended: S3 (the terrain-fitting shelter, PLAN §3 "S3"), the last
+  I1 slice, starting with its design check; a clean T5 only if the slot finding is looked at first (check her
+  slots, not counts).
+- **Open owner questions on travel (design §11; defaults built = today's behaviour):** restart a walk after
+  sleeping through the night (recommended: yes, once the bed is back) or after `self_preservation` (recommended: no
+  for the near-death flee); keep `!goToRememberedPlace` the same way (recommended: yes). Each is a one-line constant.
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
-- `goToPlayer`'s pause of `self_defense`: kept (DECISIONS 2026-11-13 (evening)); "defend the owner" is a later slice.
-
-## 2026-11-13 — the gear slice is deployed; its trials mostly pass
-
-- **Gear slice merged and live** (`6e699b6`; design council r5 approved by the owner, DECISIONS 2026-11-12 night and
-  2026-11-13; probe P17; review Sol + Opus adversary, one fix wave, both confirms closed; record
-  `runtime/diagnostics/i1-build/gear/`). The private profile sets `work.inventory` to `gear: "best"`, `cap: "stack"`,
-  `surplus_slots: 2` (the interim `"stack"` entries are gone; backup `~/.cache/tmp/gear-tmp/deploy/amaia.json.bak`).
-  `mineflayer-armor-manager` is removed from `node_modules` (`npm prune`); `npm ls` is clean apart from canvas.
-- **Live trials** (ISSUES "Gear live trials"): fight, stone, surplus, `!itemList` and a finished task's goods pass;
-  nothing of his was dropped or replaced. Trial 2 (armour thrown to her) waits for the owner. Trial 4 (obsidian through
-  `!collectBlocks`) failed by protection, not gear: his blocks are protected, and collectblock silently skips them, so
-  "Completed 2 … net change: none" (a pre-existing defect, ISSUES). Mining obsidian with the copy is proven by P17.
-- **The owner answered (DECISIONS 2026-11-13, "His blocks on request [...]"):** fix the false `!collectBlocks`
-  count; she mines a block of his only when he asks; better armour is worn whoever gave it (G1 closed, already
-  built); her false obsidian lesson is corrected in `runtime/bots/amaia/memory.json` (backup in the session scratch).
-- **Two council designs are ready for the owner, not yet approved or built:**
-  - *His blocks on request + the truthful count:* `runtime/diagnostics/i1-build/ownblocks/recommended-design.md` r4
-    (proposals: main seat, Sol, Opus; adversary r1–r3 and a Sol review closed; nothing above LOW open). A new
-    `!collectPlaced(type, num)`: typed by him it mines at once; run by the model in his turn, code asks him a yes/no
-    question listing the exact blocks. Four owner questions in its §8 (recommendations: yes to all).
-  - *Combat start + leash:* `runtime/diagnostics/i1-build/combat/recommended-design.md` r4 (proposals: main seat
-    plus addendum, Sol, Opus; adversary r1–r3 and a Sol review; r4 applies adversary r3's last HIGH, the admission
-    bound; **first step next session: a confirm of r4** by a fresh Opus adversary given `adversary-r3.md` and r4).
-    Skeleton family engaged on the
-    aggressive bit (P18: about 1 s before the first arrow) or a hit, within 16, with an easy path (walk, at most 3
-    natural digs, no placing, no doors); leash 16 on her position around the first fight's spot, walk back inside
-    the fight action; `isClearPath` fixed (it replaced her walking path, and placed blocks). Five owner questions in
-    its §10.
-  - P18 (passive recorder, 2026-11-13 night) reproduced the owner's report: one skeleton hit her 5 times from 8-16
-    blocks over 19 s; lines in `runtime/diagnostics/i1-build/combat/p18-lines.txt`. The mineflayer hook is removed
-    (`cmp` clean).
-- **Next:** the owner's answers on both designs; then a builder brief per slice (the blocks slice first: smaller),
-  review (Sol + Opus adversary), deploy, live trials where he put her (combat at night).
-- The gear worktree `<scratch>/mindcraft-gear` (branch `gear`, merged) can be removed with
-  `git worktree remove` once nothing more is needed from it.
-- **Sleeping is off for now** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`. Back on
-  only on his word.
-- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow); then the S3 design
-  check. Coming back after a far respawn is not built.
-- The operator is running (started 2026-11-12 evening as a background job of the persistent session, log
-  `runtime/logs/operator-start-20261112c.log`; bot log `runtime/logs/mindcraft-2026-11-12T18-08-07-621Z.log`).
+- **Sleeping is off** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`; back on only on
+  his word. Phantoms come every night (about 430 fights since 01:25).
+- Later: trial 6 of S2e-fu (bottles of different strengths, two banner stacks, an enchanted bow). Coming back
+  after a far respawn is not built. "Defend the owner" is a later slice (`goToPlayer` keeps upstream's pause of
+  `self_defense`).
 
 ## Waiting for the owner
 
-- Trials only he can run: following him at dusk (S2d) and the cleanup while following (S2e); watch a night once
+- Trials only he can run: combat while following him (the leash on him, the follow skip, passing mobs while he
+  travels); `goToPlayer` while he moves; armour thrown to her (gear trial 2); following him at dusk (S2d) and the
+  cleanup while following (S2e); watch a night once
   sleeping is back on (she places her bed, sleeps, the night skips, she takes it back; any "I lost my bed" / "I left
   my bed" line).
 - Open questions: U1 (keep "yes, chests too" in the clear's leftovers question); the death line naming its cause (a
@@ -94,9 +42,12 @@
 
 ## In the world
 
-- Gear trials: two owner obsidian blocks stand at -490 71..72 1813 (one mined in P17 at -497 71 1808; its item may lie
-  near -495.6 71 1807.6); stone dug on the shore near -517 64 1786 (her tunnel; some of her scaffold dirt left
-  underground). She stands there, idle.
+- She stands idle at -520,71,1731, by the coral markers (T6; the coral stands).
+- Travel trials: a 24-dirt pillar at -363,71..94,1684 (T3, residual R5); a 6-deep shaft at -487,65..70,1810 with a
+  5-dirt tower (T5 night); an 8-deep shaft at -411,76..83,1727 with a 3-dirt, 2-cobblestone tower at
+  -412,76..80,1727 and a filled shaft at -414,83..85,1727 (T5 reruns); her dropped surplus near both.
+- Gear trials: the owner's obsidian at -490 71..72 1813 is mined (blocks slice trials); stone dug on the shore near
+  -517 64 1786 (her tunnel; some of her scaffold dirt left underground).
 - From the S2e and S2e-fu trials and P16: a one-deep pit at -480 69 1815, a two-deep hole at -473 68..69 1814, the
   3x3 pit at x -475..-473, y 69, z 1808..1810, about 13 dug cells of dirt and grass (S2e trial report).
 - Older: about 110 dug dirt near x -480..-496, z 1740..1750; a cobblestone pit fill at -529 66..68 1743 (recorded)

@@ -68,6 +68,10 @@ combat slices the owner ruled on travel (DECISIONS 2026-11-13 (evening)
 "Travel after the live trials"). The travel slice (§3 "Travel") is built
 offline and goes to review; then its live trials, then S3.
 
+**Status (2026-11-14):** the travel slice is merged and deployed (`4bae59f`). Its
+live trials T1–T4 and T6 pass; T5 (back to work after the climb to drop) is
+partial (ISSUES "Travel live trials, 2026-11-14 night"). Next: S3.
+
 The slice names S0 … S6 are kept; iterations group them. The full requirement
 text of every later iteration stays in SPEC, tagged with its iteration.
 

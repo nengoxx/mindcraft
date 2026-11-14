@@ -382,3 +382,13 @@ evening"): "yes [...] pretty much let's go with your suggestions."
 - **`goToPlayer`'s pause of `self_defense`:** kept as upstream has it; "defend the owner" is a later slice.
 - **His trials:** "I can't really do the tests that require me [...] please do all you can by yourself." The main
   seat runs what it can as the owner (`live.mjs say`); what needs his player moving is recorded as untested.
+
+## 2026-11-14 — Walks after sleeping; reliability before S3
+
+- **After sleeping through the night** (travel design §11 Q1): "if automatically sleeping is on, she should continue
+  the task after sleeping regardless of what it is." Whatever sleeping cut (a walk, a task) carries on once she is
+  up and her bed is back. Not built yet; sleeping itself stays off until his word.
+- **After a near-death flee** (Q2): "I'm guessing yes, but only when it's safe." Open: what counts as safe is to be
+  settled with him.
+- **`!goToRememberedPlace`** (Q3): open, he asked for it to be explained again.
+- **Before S3:** "before S3 I want to be sure that everything is consistently reliable."

@@ -130,12 +130,32 @@ After the deploy of the travel slice (develop `4bae59f`; `work.travel.resume_max
   reverted): the task's junk drop found no spot, towered 5 dirt to one below the rim and dropped over the lip.
   The step then blocked "full of things I keep" (the staging asked for more free slots than junk could give); the
   return to work and the task's end were not seen. Task cancelled; the shaft and its 5-dirt tower stay.
-- Not run: T2 (a walk asked in words), T4 (`!stop` in a fight on a kept walk), T6 (the "no" reply): day came;
-  the offline tests cover them. `goToPlayer` while the owner moves: needs his player.
+- Not run that night: T2, T4, T6 (day came). Run on 2026-11-14 morning (logs `t2-log.txt`, `t4-log.txt`,
+  `t5-rerun-log.txt`, `t6-log.txt`; calls counted from `requests.jsonl`):
+- T2 pass (seen): "amaia, please walk to -352 71 1675" in words: 1 decision (`!goToCoordinates`), 3 fight cuts and
+  3 restarts with no call, arrived, 1 decision after arrival ("There."); plus 1 memory summary.
+- T4 pass (seen): a typed `!goToCoordinates` toward -488,72,1811 (the cave trap repeated at -368,71,1688: one more
+  climb out, as T3); `!stop` at the first skeleton engagement: "not restarted (!stop)"; she stayed at
+  -413,87,1725 for a minute, fighting in place; 0 calls.
+- T5 still partial (seen, staged twice with a live `min_free_slots`, reverted and checked): in an 8-deep shaft
+  (`!digDown(8)` at -411,76..83,1727) with 5 free slots and 1 surplus slot, `min_free_slots` 6: the task's junk
+  drop (5 cobblestone) climbed (a tower of 3 dirt and 2 cobblestone, -412,76..80,1727) and dropped, then blocked
+  "5 free slots, 6 needed". Her bag afterwards: 30 kinds in 31 slots, nothing over its cap (finding below). An
+  earlier run asked for 8 (a staging mistake: 3 free, not 6). Neither run reached the return to work and the
+  task's end. Both tasks cancelled.
+- T6 pass (seen): "please mine the dead fire coral blocks near you" → a clarifying question, `!blockPositions`,
+  then `!collectPlaced(dead_fire_coral_block, 8)` → the code asked "May I mine 4 protected
+  dead_fire_coral_block at [...]? Answer yes or no." (4 within `placed_radius` 8); "no" → "[protect] the owner
+  answered the mining question: no", 0 calls; the fixed reply goes by whisper (not logged on the host; its branch
+  logged no error). The coral stands.
+- Also seen: a typed walk to -524,70,1731: 2 fight cuts, 2 restarts, arrived, 0 calls.
+- Not testable by the main seat: `goToPlayer` while the owner moves.
 
 | Finding | Evidence | Effect | Status |
 |---|---|---|---|
-| `runtime/diagnostics/requests.jsonl` has had no new line since 2026-11-13 20:24, although model calls ran (the agent log shows them; the profile's api is `openai_tools`, `MINDCRAFT_RUNTIME_DIR` is right, no "Request log write failed" line). | seen | Model calls and latency cannot be measured from the request log (PLAN §2.3). | Open; cause not looked at. A quick audit first. |
+| `runtime/diagnostics/requests.jsonl` has had no new line since 2026-11-13 20:24, although model calls ran (the agent log shows them; the profile's api is `openai_tools`, `MINDCRAFT_RUNTIME_DIR` is right, no "Request log write failed" line). | seen | Model calls and latency cannot be measured from the request log (PLAN §2.3). | Dismissed 2026-11-14: not a defect. No call had completed since that line: after it the agent log shows only two "Awaiting" lines (a summary and a decision on the T5 staging task), with neither "Received." nor an error, and the agent restart cut them. A question on 2026-11-14 09:05 UTC wrote its three lines (summary, decision 28 s, summary). Count calls from `requests.jsonl` again. |
+| T5 rerun: after the junk drop and the climb her bag held 30 item kinds in 31 slots (`stacksUsed` 31; armour worn) with nothing over its cap, so one kept kind likely sat in two part stacks; the free-slot check then blocked "5 free slots, 6 needed; full of things I keep". | seen once (staged `min_free_slots`) | A split stack of a kept item may cost a slot that neither the drop plan nor the block message accounts for. | Open; cause not established (the live state shows counts, not slots). Check the slots before a fix. |
+| A chat message sent right after an agent restart, before she finished starting, was dropped: `TypeError: this.agent.respondFunc is not a function` at `src/agent/mindserver_proxy.js:66`. | seen once (`live.mjs say` within a second of "logged in") | An owner message in that window is lost silently. | Open; low. Waiting for "amaia spawned." before speaking avoids it in trials. |
 
 ### Live trials 2026-11-13 evening: collect, combat, a long walk (main seat acting as the owner)
 
