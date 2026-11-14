@@ -117,6 +117,22 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Reliability 1 live trials, 2026-11-14 (the main seat acting as the owner)
+
+After the deploy of the reliability 1 slice (develop `f8efe7d`, 12:37 by an agent-only restart; profile unchanged).
+Logs: `runtime/diagnostics/i1-build/reliability/t5-clean-log.txt`, `remembered-place-log.txt`.
+- T5 pass (seen, staged `min_free_slots` 5, reverted and checked): in a shaft at -532,67,1735 with 4 free slots,
+  `!taskStart` 40 dirt: junk drop 1 (6 cobblestone, 35 phantom_membrane: over their caps) → a 2-dirt climb → drop
+  → back to work → "have 40 dirt" → done; the tidy removed the 2 scaffold blocks; 0 decisions (1 memory summary).
+- No merge seen live: her bag held no split stack by then (32 slots for 30 kinds were two over-cap stacks, 70
+  cobblestone and 99 phantom_membrane). The merges are proven offline only.
+- `!goToRememberedPlace` pass (seen): saved at the pit (-533,64,1733), walked to -352,71,1675 by day (an unstuck cut
+  in the pit: climb; a creeper fight: restart), then at night back by the saved name: the cave trap at
+  -368,72,1688 cut it (unstuck: climb, restart), one planning retry, arrived, 0 calls. A fight cut of this walk
+  was not seen (the restart path is the keeper's, the same as for the fight cuts of T1 and T2).
+- Not testable live now: the safety wait after a near-death flee (damage off), the walk after sleeping (sleeping
+  off).
+
 ### Travel live trials, 2026-11-14 night (the main seat acting as the owner)
 
 After the deploy of the travel slice (develop `4bae59f`; `work.travel.resume_max` default 20). Logs:
@@ -154,7 +170,7 @@ After the deploy of the travel slice (develop `4bae59f`; `work.travel.resume_max
 | Finding | Evidence | Effect | Status |
 |---|---|---|---|
 | `runtime/diagnostics/requests.jsonl` has had no new line since 2026-11-13 20:24, although model calls ran (the agent log shows them; the profile's api is `openai_tools`, `MINDCRAFT_RUNTIME_DIR` is right, no "Request log write failed" line). | seen | Model calls and latency cannot be measured from the request log (PLAN §2.3). | Dismissed 2026-11-14: not a defect. No call had completed since that line: after it the agent log shows only two "Awaiting" lines (a summary and a decision on the T5 staging task), with neither "Received." nor an error, and the agent restart cut them. A question on 2026-11-14 09:05 UTC wrote its three lines (summary, decision 28 s, summary). Count calls from `requests.jsonl` again. |
-| T5 rerun: after the junk drop and the climb her bag held 30 item kinds in 31 slots (`stacksUsed` 31; armour worn) with nothing over its cap, so one kept kind likely sat in two part stacks; the free-slot check then blocked "5 free slots, 6 needed; full of things I keep". | seen once (staged `min_free_slots`) | A split stack of a kept item may cost a slot that neither the drop plan nor the block message accounts for. | Open; cause not established (the live state shows counts, not slots). Check the slots before a fix. |
+| T5 rerun: after the junk drop and the climb her bag held 30 item kinds in 31 slots (`stacksUsed` 31; armour worn) with nothing over its cap, so one kept kind likely sat in two part stacks; the free-slot check then blocked "5 free slots, 6 needed; full of things I keep". | seen once (staged `min_free_slots`) | A split stack of a kept item may cost a slot that neither the drop plan nor the block message accounts for. | Fixed by the reliability 1 slice (`52c477b`): the planner left avoidable fragments and nothing merged partial stacks; merges now come first, and a "full of things I keep" block logs the slot layout. |
 | A chat message sent right after an agent restart, before she finished starting, was dropped: `TypeError: this.agent.respondFunc is not a function` at `src/agent/mindserver_proxy.js:66`. | seen once (`live.mjs say` within a second of "logged in") | An owner message in that window is lost silently. | Residual (LOW, 2026-11-14): only the MindServer `send-message` path (`live.mjs say`, the web UI) can arrive before the bot spawns; in-game chat needs a spawned bot. In trials, wait for "amaia spawned." before speaking. |
 
 ### Live trials 2026-11-13 evening: collect, combat, a long walk (main seat acting as the owner)

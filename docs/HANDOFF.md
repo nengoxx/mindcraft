@@ -1,23 +1,23 @@
 # Handoff
 
-## 2026-11-14 (morning) — travel trials done except a clean T5; next is S3
+## 2026-11-14 (day) — reliability before S3: step 1 done and live; next is step 2, the audit
 
-- **Live on develop, not pushed:** the blocks (`7e788a0`), combat (`46e6cb4`), live-trial fix (`21f63d0`) and
-  travel (`229cddf`, merge `4bae59f`) slices. Gate 620/620. The operator runs since 2026-11-13 17:53 (bot log
-  `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); travel deployed 2026-11-14 00:46 by an agent-only
-  restart. Private profile: `work.combat.ranged` the four skeletons, `travel_speed` 2, `work.inventory` gear
-  best / cap stack / surplus 2; `min_free_slots` at its default (staged and reverted today, checked).
-- **Travel trials** (ISSUES "Travel live trials, 2026-11-14 night"; logs `runtime/diagnostics/i1-build/travel/trials/`):
-  T1, T2, T3, T4 and T6 pass. T5 (a task's climb out of a shaft to drop, then back to work) is still partial: the
-  climb and the drop are seen three times, the return and the task's end never, because each staging blocked on
-  free slots. One new open finding from it (30 kinds in 31 slots after the drop, ISSUES). The request-log issue is
-  dismissed: no call had completed; `requests.jsonl` counts calls again.
-- **Next:** the owner's word on what follows. Recommended: S3 (the terrain-fitting shelter, PLAN §3 "S3"), the last
-  I1 slice, starting with its design check; a clean T5 only if the slot finding is looked at first (check her
-  slots, not counts).
-- **Open owner questions on travel (design §11; defaults built = today's behaviour):** restart a walk after
-  sleeping through the night (recommended: yes, once the bed is back) or after `self_preservation` (recommended: no
-  for the near-death flee); keep `!goToRememberedPlace` the same way (recommended: yes). Each is a one-line constant.
+- **The owner's plan (DECISIONS 2026-11-14 "Walks after sleeping; reliability before S3"):** everything consistently
+  reliable before S3, in three steps: (1) close the open findings and build the travel answers; (2) a reliability
+  audit of the I1 code (two Opus lanes by area, then an Opus adversary; ledger `docs/audits/i1_audit.md`); (3)
+  repeated uncoached trials in words, Qwen alone, measuring success, calls and latency. Commits are authorized by
+  that plan; push only on his word.
+- **Step 1 is merged and live** (`52c477b`, merge `f8efe7d`; deployed 12:37 by an agent-only restart; gate
+  650/650): split stacks are merged before drops; `!goToRememberedPlace` is a kept walk; a near-death flee's cut
+  restarts once safe; sleep may cut a held walk, which restarts once her bed is back. Reviews: Sol + an Opus
+  adversary, two fix waves, a ruled fix; record and residuals in `runtime/diagnostics/i1-build/reliability/`
+  (`STATE.md`, `build-r1-rulings.md`). Live trials (ISSUES "Reliability 1 live trials"): T5 passes;
+  `!goToRememberedPlace` passes; no merge seen live (no split in her bag); the flee and sleep parts are offline only.
+- **Next:** step 2 (`STATE.md` there has the lane split). Live state: the operator runs since 2026-11-13 17:53 (bot
+  log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); private profile unchanged (`work.combat.ranged` the
+  four skeletons, `travel_speed` 2, `work.inventory` gear best / cap stack / surplus 2, `min_free_slots` default).
+  The worktree `<scratch>/mindcraft-rel1` (branch `reliability`, merged) can be removed.
+- **Travel trials** (ISSUES "Travel live trials, 2026-11-14 night"): T1–T6 pass (T5 in the reliability trials).
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
 - **Sleeping is off** (the owner's ask: he wants night mobs to spawn): `modes.sleeping` is `false`; back on only on
@@ -42,7 +42,8 @@
 
 ## In the world
 
-- She stands idle at -520,71,1731, by the coral markers (T6; the coral stands).
+- She stands idle in her dirt pit at -533,64,1733 (T5 clean: a 6-deep shaft at -532,66..71,1735 and about 40 dug dirt
+  around it; the pit is her saved place "pit"); the coral markers stand (T6).
 - Travel trials: a 24-dirt pillar at -363,71..94,1684 (T3, residual R5); a 6-deep shaft at -487,65..70,1810 with a
   5-dirt tower (T5 night); an 8-deep shaft at -411,76..83,1727 with a 3-dirt, 2-cobblestone tower at
   -412,76..80,1727 and a filled shaft at -414,83..85,1727 (T5 reruns); her dropped surplus near both.
