@@ -1,5 +1,26 @@
 # Handoff
 
+## 2026-11-14 (night) — the travel slice is live; T1 and T3 pass
+
+- **Live on develop, not pushed:** the travel slice (`229cddf`, merge `4bae59f`; DECISIONS 2026-11-13 (evening)
+  "Travel after the live trials"; council, reviews and two fix waves in `runtime/diagnostics/i1-build/travel/`,
+  `STATE.md` there is the trail). Gate 620/620. Deployed 2026-11-14 00:46 by an agent-only restart; the profile is
+  unchanged (`work.travel.resume_max` default 20). The worktree `<scratch>/mindcraft-travel` (branch
+  `travel`, merged) can be removed with `git worktree remove`.
+- **Trials** (ISSUES "Travel live trials, 2026-11-14 night"): T1 (fights cut a typed night walk: 4 restarts, 0
+  model calls) and T3 (the P19 cave trap: one climb out, then on to the goal, 0 calls) pass; T5 (the task's climb
+  to drop) seen in part. **Next, at night:** T2 (a walk asked in words: 1 call to start, 0 per fight, 1 at the
+  end), T4 (`!stop` during a fight on a kept walk: she stays), a clean T5 (a task down a shaft with real junk), T6
+  (a mining question answered "no": "OK, I'll leave them.").
+- **New open issue:** `runtime/diagnostics/requests.jsonl` has had no line since 2026-11-13 20:24 although model
+  calls run (ISSUES, same section). Quick audit first; until then count calls from the agent log's "Awaiting" lines.
+- **Open owner questions (design §11; defaults built = today's behaviour):** restart a walk after sleeping through
+  the night (recommended: yes, once the bed is back) or after `self_preservation` (recommended: no for the
+  near-death flee); keep `!goToRememberedPlace` the same way (recommended: yes). Each is a one-line constant.
+- In the world: a 24-dirt pillar at -363,71..94,1684 (the T3 climb, scaffold of `action:goToCoordinates`, not
+  tidied: residual R5); her 6-deep shaft at -487,65..70,1810 with a 5-dirt tower in it (T5). She stands on it,
+  idle, at -486.6,70,1810.4.
+
 ## 2026-11-13 (evening) — blocks and combat live; trials pass; travel is the weak spot
 
 - **Live on develop, not pushed:** the blocks slice (`7e788a0`), the combat slice (`46e6cb4`) and a live-trial fix
@@ -12,16 +33,11 @@
   obsidian (both blocks now mined, on his word in the trial); combat: a skeleton engaged at 11.7 on the aggressive
   bit before its first arrow, about 30 fights within 0–9.5 of their anchors; a task cut by fights resumes by
   itself. **Left for the owner:** combat while following (leash on him, the follow skip, travelling), armour trial 2.
-- **Open findings for the owner (ISSUES, same section), the travel ones first:** a fight ends a typed walk and the
-  AUTO MESSAGE wastes a model call (the ~700-block walk took 22 re-sends and 29 idle calls); a cave stuck-loop
-  (the pathfinder's step-up under a low ceiling) until `!goToSurface`; a planning timeout; the cleanup cannot drop
-  underground ("no free direction"), so a task blocks on a full bag. Each needs his ruling before a design.
-- She stands at the shore near his former obsidian (-534,63,1784), idle. The recorder hook is removed (`cmp`
-  clean); its log is kept as `runtime/diagnostics/i1-build/combat/p19-trial-log.txt`.
+- The travel findings of these trials are fixed by the travel slice (block above). The recorder hook is removed
+  (`cmp` clean); its log is kept as `runtime/diagnostics/i1-build/combat/p19-trial-log.txt`.
 - **Owner preference (2026-11-13):** label every review finding by its evidence: seen in game, the real code in a
   staged situation, or theoretical; theoretical findings with small consequences are recorded, not fixed.
-- Open owner question: `goToPlayer`'s pause of `self_defense` (he is unsure, DECISIONS "Both designs
-  answered"; the main seat recommended keeping it, with a later "defend the owner" slice).
+- `goToPlayer`'s pause of `self_defense`: kept (DECISIONS 2026-11-13 (evening)); "defend the owner" is a later slice.
 
 ## 2026-11-13 — the gear slice is deployed; its trials mostly pass
 
