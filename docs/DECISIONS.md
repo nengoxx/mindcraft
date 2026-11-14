@@ -418,3 +418,5 @@ The owner on the main seat's recommendation (ledger `docs/audits/i1_audit.md`): 
   intervention, and the bot's own cheat mode stays off in every measured run.
 - **A pause after step 3.** Once step 3 is recorded the project pauses with S3 ready to start: the owner uses the
   bot day to day and compares backend models (a new one is due). S3 starts on his word.
+- **Step 3's held crafting table (ISSUES "Step 3 trials"):** fine as it is. When she already holds the item asked
+  for, she can give him that one; no change.
