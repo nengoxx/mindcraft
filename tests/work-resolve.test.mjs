@@ -52,6 +52,25 @@ test('the first recipe the inventory allows wins; otherwise the wood in view', (
     assert.match(resolve.resolveObtain(empty, 'stick', 4).nodes.at(-1).via, /oak_planks/);
 });
 
+// I1-11 (DECISIONS 2026-11-14): REQ-OBT-2/4: only a material the owner named persists.
+test('I1-11: an automatic wood choice is not persisted: a later unit takes what her bag allows', async () => {
+    const world = new F.World();
+    F.tree(world, 4, 64, 0, 5, 'birch_log');                // only birch in view
+    const bot = F.makeBot({ world });
+    const OBTAIN = F.modules.plan.STEPS.obtain;
+    const step = { args: { item: 'stick', count: 8 }, progress: {} };
+    const ctx = { bot, call: (label, fn) => fn(), checkpoint: () => {} };
+    assert.match(show(resolve.resolveObtain(bot, 'stick', 8).nodes)[0], /from birch_log/);
+    await OBTAIN.unit(ctx, step);                            // collects birch logs
+    assert.deepEqual(step.progress.choices ?? {}, {}, 'no automatic choice persisted');
+    // Later: the birch is gone and oak planks are in her bag.
+    world.fill(4, 64, 0, 4, 68, 0, 'air');
+    bot.take('birch_log', bot.count('birch_log'));
+    bot.give('oak_planks', 4);
+    assert.deepEqual(show(resolve.resolveObtain(bot, 'stick', 8, { choices: step.progress.choices }).nodes), ['craft stick 8 x2']);
+    assert.match(resolve.resolveObtain(bot, 'stick', 8, { choices: step.progress.choices }).nodes[0].via, /oak_planks/);
+});
+
 test("leftovers follow mcdata's batch arithmetic (runs = ceil(need / yield), the excess carried)", () => {
     const bot = F.makeBot({ world: landscape() });
     assert.deepEqual(show(resolve.resolveObtain(bot, 'stick', 5).nodes), ['collect oak_log 1 from oak_log', 'craft oak_planks 4 x1', 'craft stick 5 x2']);
@@ -179,6 +198,18 @@ test('pickupNearbyItems skips junk near a drop point, still picks up other items
     bot.junk_guard.drops[0].at -= 5 * 60 * 1000;
     await skills.pickupNearbyItems(bot);
     assert.equal(bot.entities[junk.id], undefined);
+    assert.ok(agent);
+});
+
+// I1-12 (DECISIONS 2026-11-14): its no-dig movements reach the walk (goToGoal's configure).
+test('I1-12: a pickupNearbyItems chase walks with canDig false', async () => {
+    const bot = F.makeBot();
+    const agent = F.makeAgent({ bot, name: 'picker2' });
+    const canDig = [];
+    bot.hooks.goto = goal => { canDig.push(bot.pathfinder.movements.canDig); if (goal.entity) delete bot.entities[goal.entity.id]; };
+    dropped(bot, 'diamond', [1, 0, 3]);
+    await skills.pickupNearbyItems(bot);
+    assert.deepEqual(canDig, [false]);
     assert.ok(agent);
 });
 

@@ -3,6 +3,7 @@ import Vec3 from 'vec3';
 import * as skills from '../library/skills.js';
 import * as mc from '../../utils/mcdata.js';
 import { digCell, eyeDistance, REACH } from './dig.js';
+import { isEmptyBlock } from './protect.js';
 import { fullCube } from './tidy.js';
 import { bedLine } from './report.js';
 import { ITEMS_LABEL } from './inventory.js';
@@ -45,7 +46,6 @@ export const SLEEP_LABELS = Object.freeze(new Set([SLEEP_LABEL, BED_LABEL]));
 export const SLEEP_WHEN = Object.freeze(['always', 'idle', 'off']);
 
 const FACING = Object.freeze({ south: [0, 0, 1], west: [-1, 0, 0], north: [0, 0, -1], east: [1, 0, 0] });
-const AIR = ['air', 'cave_air'];
 const LIQUIDS = ['water', 'lava', 'bubble_column'];
 const falls = name => ['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'].includes(name) || Boolean(name?.endsWith('_concrete_powder'));
 const BESIDE = [[0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]];
@@ -62,7 +62,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const vec = p => new Vec3(p.x, p.y, p.z);
 const fmt = p => `${p.x} ${p.y} ${p.z}`;
 const isBed = name => typeof name === 'string' && name.endsWith('_bed');
-const isAir = block => Boolean(block) && AIR.includes(block.name);
+const isAir = isEmptyBlock; // I1-4: the shared test (void air too)
 const props = block => block?.getProperties?.() ?? {};
 const overworld = bot => bot.game?.dimension === 'overworld';
 const inWindow = bot => {

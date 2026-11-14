@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import path from 'path';
 import Vec3 from 'vec3';
 import { botDataPath } from '../../utils/runtime_paths.js';
+import { isEmptyBlock } from './protect.js';
 
 // The placements ledger (SPEC §11.10, REQ-OWN-1 … 6): one versioned file per
 // bot with the blocks the bot placed, by kind. Recording takes the context at
@@ -22,7 +23,6 @@ const WARN_ENTRIES = 10000;     // log warning for the never-evicted kinds
 // synchronously just before it calls bot.placeBlock, and no other caller places
 // into stone (pathfinder index.js:571 -> :575; probe P13).
 const PREDICTED_STATE = 1;
-const EMPTY = ['air', 'cave_air', 'void_air'];
 
 const ledgers = new WeakMap(); // bot -> Ledger (the dig seam finds it here)
 export const ledgerFor = bot => ledgers.get(bot) ?? null;
@@ -225,6 +225,15 @@ export class Ledger {
 
     list() {
         return [...this.entries.values()];
+    }
+
+    // I1-6 (DECISIONS 2026-11-14): how many blocks of `name` she placed at or
+    // after `since` that still stand: live entries and pending scaffold
+    // attempts (obtain's gain counts its own scaffold).
+    placedSince(name, since) {
+        const live = this.list().filter(e => e.block === name && e.at >= since && !e.removed_at && e.dim === this.dim()).length;
+        const pending = [...this.attempts.values()].filter(a => a.expected === name && a.at >= since).length;
+        return live + pending;
     }
 
     // REQ-OWN-9: an owner !stop keeps a sweep's rest for good: its candidates
@@ -531,7 +540,7 @@ export class Ledger {
         const key = cellKey(this.dim(), newBlock.position);
         const attempt = this.placing.get(key);
         if (!attempt || attempt.recorded) return;
-        if (EMPTY.includes(newBlock.name)) return; // nothing there to record; endAttempt logs it
+        if (isEmptyBlock(newBlock)) return; // nothing there to record; endAttempt logs it
         attempt.recorded = true;
         const entry = { pos: attempt.pos, block: newBlock.name, kind: attempt.source, by: attempt.by, dim: attempt.dim, at: attempt.at };
         if (attempt.build_id) entry.build_id = attempt.build_id;

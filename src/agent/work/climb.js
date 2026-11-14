@@ -1,6 +1,7 @@
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as skills from '../library/skills.js';
+import { isEmptyBlock } from './protect.js';
 
 // Climbing out (SPEC §7.11, REQ-TRV-5; design travel/recommended-design.md r4
 // §2): one helper for the walk keeper's stuck fallback (REQ-TRV-3) and the
@@ -14,7 +15,6 @@ export const CLIMB = {
     walkMs: 90000,     // the walk keeper's climb bound (seen: a 24-block climb took 28 s)
 };
 
-const AIR = new Set(['air', 'cave_air', 'void_air']);
 export const LIQUIDS = ['water', 'lava', 'bubble_column'];
 // The four cardinals, in the order used when nothing is preferred.
 const CARDINALS = Object.freeze([[0, 1], [-1, 0], [0, -1], [1, 0]]);
@@ -44,7 +44,7 @@ export function climbTarget(bot) {
     for (let y = p.y + 2; y <= limit; y++) {
         const block = bot.blockAt(new Vec3(p.x, y, p.z));
         if (!block) return null;
-        if (!AIR.has(block.name) && !block.name.endsWith('_leaves')) top = y;
+        if (!isEmptyBlock(block) && !block.name.endsWith('_leaves')) top = y;
     }
     if (top != null) return top - p.y <= CLIMB.maxRise ? { pos: new Vec3(p.x, top + 1, p.z), rim: false } : null;
     let rim = Infinity;

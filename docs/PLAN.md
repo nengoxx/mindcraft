@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → Travel → Reliability 1 → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → Travel → Reliability 1 → Reliability 2 → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -140,7 +140,8 @@ nothing the owner can see is retired.
     task) are folded into S2 and S3, and its live trial runs during an S3 build.
 - **I2.** S1 native tool calls (P1 runs first; provider, the #769 adapter copy,
   prompt layout arm A, the "use tools" correction). The rest of S4: measure
-  summary-versus-decision contention (OQ-18).
+  summary-versus-decision contention (OQ-18; closed by the I1 audit's
+  measurement and built in Reliability 2: decisions go first).
 - **I3 — structures.** DX, narrowed (§5). S5A: in-game designs through
   `build{source: new, parts}`, the design library, offline design, owner templates
   with `!saveTemplate`, the `enclosure` region type and the layer-row front end.
@@ -1215,6 +1216,76 @@ add the protected-block diff. Interventions: target 0.
 - **Exit.** All trials pass; then step 2 (the reliability audit of the I1
   code) and step 3 (the repeated uncoached trial), then S3.
 
+#### Reliability 2 — the I1 audit's fixes
+
+- **Goal.** Step 2's fixes (ledger `docs/audits/i1_audit.md`; owner rulings
+  DECISIONS 2026-11-14 "The I1 audit's fixes"): a decision never waits behind
+  a memory summary (I1-1); summaries run with little or no reasoning (I1-2);
+  the code's own lines stay out of what is summarised (I1-5); a clear box in a
+  cave completes, and its soft refusal records a cause (I1-4); obtain's false
+  "got no" (I1-6); a recipe step takes what her bag allows (I1-11); the small
+  L items I1-8, 9, 10, 12, 13, 14, 15, 16, 17. I1-3 (the prompt cache) and
+  I1-7 (the tree test outside runs) are deferred by the ruling; I1-18 (SPEC
+  line references) was stopped as not small (builder report).
+- **SPEC.** §6.6 REQ-REC-11 (decisions first, summary params, code lines);
+  REQ-REC-7 (a failed start-up); §7.2 REQ-RES-16 (actions in place of the
+  task, unrounded); §7.5; §7.11 (the mode error, the give wait); §9.3
+  REQ-OBT-9; §11.9 REQ-CLR-7; §11.10 REQ-OWN-10; §15.1 REQ-CHAT-1; §14
+  (`work.request_params`); §16; OQ-18 closed.
+- **Files.** Carries: `agent/history.js` (`countable`, `chunkEnd`, the
+  decision gate, `yieldSummary`, the code flag), `models/prompter.js`
+  (`decisions`, `kind_params`, the summary's signal), `models/gpt.js` (a
+  `length` stop is not a context overflow), `agent/agent.js` (`startWork`,
+  the code lines), `agent/modes.js` (a mode's own error), `library/skills.js`
+  (`pickupNearbyItems`' configure). Fork files: `models/openai_tools.js`
+  (`kind_params` into the body), `work/config.js` (`request_params`),
+  `work/protect.js` (`isEmptyBlock`, the no-dig short cut), `work/climb.js`,
+  `sleep.js`, `dig.js`, `tidy.js`, `ledger.js` (the shared test;
+  `placedSince`), `steps/clear.js`, `steps/obtain.js`, `steps/give.js`,
+  `work/index.js` (the stall rule, `deliver`'s `code`, re-posts),
+  `work/commands.js`, `work/resolve.js` (comment).
+- **Offline tests.** `work-s0` (decision first; abort and re-send; no summary
+  during a decision; the summary params; one request on a `length` stop; from
+  fix wave 1 40 back-to-back query decisions keep history bounded, and an
+  aborted summary sets no cooldown; from fix wave 2 a hanging summary holds a
+  decision at most `work.summary_timeout_s`, a 95-turn backlog lets it go after
+  one chunk, and a `!stop` during the wait sends nothing; from the final
+  ruling an older response still generating is dropped once a newer turn
+  entered, the decision sends the compacted history, and summaries slower than
+  the first deadline publish on a doubled one); `work-ledger`
+  (`placedSince` counts only from its start); `work-protect` (under the
+  start-up lock no plant or snow is replaced);
+  `work-record` (code lines in History and at their sources; the two stall
+  fixes, and the clock settled at an owner action's entry and end; a throwing
+  `Work.init` leaves every block protected); `work-clear` (the cave box; the recorded
+  cause; the paced task line); `work-runner` (the scaffold gain, both paths;
+  the give wait); `work-resolve` (no persisted automatic choice; the pickup's
+  no-dig walk); `work-protect` (no protection test on a no-dig search);
+  `work-travel` (a mode's own error keeps a task's resume; on a follow it is
+  thrown as upstream); `work-tidy` (the tidy line is a code line, also when the
+  worded `!tidy` hands it back).
+- **Live acceptance** (the main seat runs them):
+  1. `requests.jsonl`, a decision's wait behind a summary (fix wave 1): for
+     each decision that started while a summary was sent or just aborted, its
+     duration against the median decision alone (14.2 s at the audit); a
+     decision that took about alone plus the summary's remaining time means
+     the engine kept computing the aborted request (then the abort only wastes
+     the summary: rule on dropping it). Also: summaries sent (aborted plus
+     completed) per published memory, and the largest history length in a
+     session (the bound keeps it under `max_messages` + 5, plus a turn or two).
+  2. Every completed summary line (not the aborted ones, whose error reads
+     "Request was aborted.", nor one cut by `work.summary_timeout_s`) has
+     `error` null and `reasoning_chars` near zero (at most the 128-token
+     budget, about 500 characters), and her memory text stays sound over a
+     session. A summary that fails on the params (a 400) means the engine
+     rejects them: set `work.request_params` to `{}` in the profile. A cut by
+     the deadline and a yield both log "Request was aborted.": a cut lasts the
+     deadline (`work.summary_timeout_s`, doubled after each cut) and the
+     console says "Error summarizing history"; a yield is short and the
+     console says "Memory summary yielded to a decision".
+  3. A clear box in a cave completes, if one can be staged.
+- **Exit.** The trials pass; then step 3 (the repeated uncoached trial), then S3.
+
 #### S3 — Terrain-fitting shelter
 
 - **Goal.** "Build a small shelter here" works on open ground, among trees and
@@ -1349,6 +1420,8 @@ add the protected-block diff. Interventions: target 0.
   overlap measured.
 - **Metrics.** Summary requests overlapping decision requests; added latency.
 - **Exit.** The request-gate decision (OQ-18) is recorded with its numbers.
+  (Done early: the I1 audit measured the overlap, 61 of 132 decisions, and
+  Reliability 2 built the gate; only a re-measure on the tool path remains.)
 
 ### I3 — structures
 

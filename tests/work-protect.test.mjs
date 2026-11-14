@@ -78,6 +78,48 @@ test('the prototype patch covers a Movements never passed to setMovements, and t
     assert.equal(bot.collectBlock.movements.safeToBreak(bot.blockAt(at(4, 65, 0))), true);
 });
 
+// I1-8 (DECISIONS 2026-11-14): with digging off the base check refuses at once.
+// I1-14 fix wave 2 (build2 r2 rulings, Sol S1): under the start-up lock a
+// placement never replaces a plant or snow; into air it still places.
+test('I1-14 fix wave 2: under lockBot placeBlock refuses to replace short grass, snow or a fern; air still takes a block', async () => {
+    const world = new F.World();
+    world.fill(-8, 63, -8, 8, 63, 8, 'dirt');
+    world.set(3, 64, 0, 'short_grass');
+    world.set(3, 64, 2, 'snow');
+    world.set(3, 64, -2, 'fern');
+    const agent = setup({ world, inventory: { oak_planks: 4 } });
+    const { bot } = agent;
+    agent.work.dispose();
+    protect.lockBot(bot);
+    world.set(3, 64, 4, 'water');
+    world.set(5, 64, 2, 'cave_air');
+    for (const [z, name] of [[0, 'short_grass'], [2, 'snow'], [-2, 'fern'], [4, 'water']]) {
+        assert.equal(await skills.placeBlock(bot, 'oak_planks', 3, 64, z), false, name);
+        assert.equal(bot.blockAt(at(3, 64, z)).name, name);
+    }
+    assert.equal(await skills.placeBlock(bot, 'oak_planks', 5, 64, 0), true);
+    // Final ruling (build2 r3): the lock uses I1-4's empty test, so cave air takes a block too.
+    assert.equal(await skills.placeBlock(bot, 'oak_planks', 5, 64, 2), true);
+});
+
+test('I1-8: a no-dig Movements refuses without the protection test (no tree test on a no-dig search)', () => {
+    const world = new F.World();
+    cabin(world);
+    F.tree(world, 4, 64, 0);
+    const agent = setup({ world });
+    const { bot } = agent;
+    let calls = 0;
+    const isProtected = agent.work.protector.isProtected.bind(agent.work.protector);
+    agent.work.protector.isProtected = block => { calls++; return isProtected(block); };
+    const noDig = new pf.Movements(bot);
+    noDig.canDig = false;
+    assert.equal(noDig.safeToBreak(bot.blockAt(at(4, 65, 0))), false);
+    assert.equal(noDig.safeToBreak(bot.blockAt(at(-3, 65, 0))), false);
+    assert.equal(calls, 0);
+    assert.equal(new pf.Movements(bot).safeToBreak(bot.blockAt(at(-3, 65, 0))), false);   // digging on: still protected
+    assert.equal(calls, 1);
+});
+
 test('while a task runs, safeToBreak forces dontCreateFlow and dontMineUnderFallingBlock for every block, even after collect set them false', async () => {
     const world = new F.World();
     world.set(0, 60, 0, 'stone'); world.set(1, 60, 0, 'water');   // next to water

@@ -64,10 +64,17 @@ const DSL_HELP = 'Steps: one string, steps separated by ";", each "skill key=val
 
 // REQ-CHAT-1: the line follows the turn (shown in the owner's turns, a raw
 // owner command included, and in blocked-report turns; `detail` in her own);
-// a markers= clear's box statement is an `alert` line of its own.
+// a markers= clear's box statement is an `alert` line of its own. I1-16
+// (DECISIONS 2026-11-14): both go through the one owner-output queue
+// (Work.deliver, REQ-REC-12), paced with the lines after them, and awaited,
+// so they are still said inside the turn (its voice and shown count, guardTurns);
+// history is written here, once, for both.
 async function report(agent, result) {
-    agent.openChat(result.message, turnCategory(agent));
-    if (result.statement) agent.openChat(result.statement, 'alert');
+    const work = agent.work;
+    const send = (line, category) => work.deliver(line, { category, record: false })
+        .catch(err => console.error('[work] could not send a task command line:', err?.message ?? err));
+    await send(result.message, turnCategory(agent));
+    if (result.statement) await send(result.statement, 'alert');
     const line = result.statement ? `${result.message} ${result.statement}` : result.message;
     await agent.history.add('system', line);
     await agent.history.save();

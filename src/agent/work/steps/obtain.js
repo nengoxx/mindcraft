@@ -1,6 +1,7 @@
 import * as skills from '../../library/skills.js';
 import * as world from '../../library/world.js';
 import { resolveObtain, remainingWork, collectTarget } from '../resolve.js';
+import { ledgerFor } from '../ledger.js';
 
 // obtain{item, count}: have at least `count` of `item` (SPEC §8.2, §9).
 // Each unit is one bounded actuator call (REQ-RES-7); the graph is recomputed
@@ -10,11 +11,11 @@ const COLLECT_CHUNK = 8;
 // so a unit stays short and the runner re-observes between units.
 const CRAFT_RUNS = 4;
 
+// I1-11 (DECISIONS 2026-11-14, SPEC REQ-OBT-2/4): the resolver's automatic
+// recipe choices are never persisted, so every unit takes the first recipe her
+// bag allows; progress.choices holds only explicit material choices.
 function graph(ctx, step) {
-    const progress = step.progress;
-    const plan = resolveObtain(ctx.bot, step.args.item, step.args.count, { choices: progress?.choices });
-    if (progress && Object.keys(plan.choices).length) progress.choices = { ...progress.choices, ...plan.choices };
-    return plan;
+    return resolveObtain(ctx.bot, step.args.item, step.args.count, { choices: step.progress?.choices });
 }
 
 export default {
@@ -80,9 +81,14 @@ export default {
         const chunk = Math.min(node.n, COLLECT_CHUNK);
         const before = bot.output.length;
         const held = world.getInventoryCounts(bot)[node.have] || 0;
+        const ledger = ledgerFor(bot);
+        const since = ledger?.now() ?? 0;
         const ok = await ctx.call(`collect ${target}`, () => skills.collectBlock(bot, target, chunk));
+        // I1-6 (DECISIONS 2026-11-14): the target items she placed during the
+        // call (dirt and cobblestone are the pathfinder's scaffold) count as gained.
+        const gained = (world.getInventoryCounts(bot)[node.have] || 0) + (ledger?.placedSince(node.have, since) ?? 0) > held;
         // Digging that brings in none of the wanted item fails at once (a silk-touch tool once dug 195 stone for cobblestone).
-        if (ok && (world.getInventoryCounts(bot)[node.have] || 0) > held) return {};
+        if (gained) return {};
         if (ok) return { failed: `collected ${target} but got no ${node.have}` };
         const output = bot.output.slice(before);
         // Also the blocks of the type that she may not mine (rulings r1 S7): not reachable either.

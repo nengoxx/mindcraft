@@ -234,6 +234,77 @@ test('stall rule: resets on improvement, carries across a restart, ignores downt
     assert.equal(again.work.record.reason, 'no progress for 10 min; last: zombie interruption');
 });
 
+// I1-17 (DECISIONS 2026-11-14): frequent writes accumulate; nothing rounds an increment away.
+test('I1-17: stall rule: 100 writes 10 ms apart add about 1 s', async () => {
+    const c = F.clock();
+    const agent = setup({ name: 'stallfine', now: c.now });
+    hang(agent);
+    agent.work.startTask('walk', 'go_to target=40,64,0');
+    await F.until(() => agent.work.runner.executing);
+    const before = agent.work.record.plan[0].progress.stalled_s;
+    for (let i = 0; i < 100; i++) {
+        c.advance(0.01);
+        agent.work.save();
+    }
+    assert.ok(Math.abs(agent.work.record.plan[0].progress.stalled_s - before - 1) < 1e-6, String(agent.work.record.plan[0].progress.stalled_s));
+});
+
+// I1-13 (DECISIONS 2026-11-14): an action in place of the task (the owner's or
+// the model's) holds the stall clock; the task resumes after it (§7.5).
+test('I1-13: stall rule: a long non-resumable owner action during a task holds the stall clock', async () => {
+    const c = F.clock();
+    const agent = setup({ name: 'stallowner', now: c.now });
+    hang(agent);
+    const w = agent.work;
+    w.startTask('walk', 'go_to target=40,64,0');
+    await F.until(() => w.runner.executing);
+    const step = () => w.record.plan[0];
+    c.advance(100);
+    w.save();
+    assert.equal(step().progress.stalled_s, 100);
+    let release;
+    const owner = agent.actions.runAction('action:collectBlocks', () => new Promise(resolve => { release = resolve; }));
+    await F.until(() => agent.actions.currentActionLabel === 'action:collectBlocks');
+    try {
+        for (let i = 0; i < 70; i++) {
+            c.advance(10);
+            w.save();
+        }
+        assert.deepEqual([w.record.status, step().progress.stalled_s], ['active', 100]);   // 700 s of his walk: not charged
+    } finally {
+        release();
+        await owner;
+    }
+    c.advance(10);
+    w.save();
+    assert.equal(step().progress.stalled_s, 110);   // charged again once it ends
+});
+
+// Fix wave 1 (Sol S4): the clock is settled at the owner action's entry and end.
+test('I1-13 fix wave 1: an owner action that ends between periodic saves charges none of its time; the time before it is charged', async () => {
+    const c = F.clock();
+    const agent = setup({ name: 'stallends', now: c.now });
+    hang(agent);
+    const w = agent.work;
+    w.startTask('walk', 'go_to target=40,64,0');
+    await F.until(() => w.runner.executing);
+    const step = () => w.record.plan[0];
+    step().progress.stalled_s = 590;
+    w.save();   // the clock starts here
+    c.advance(4);   // 4 s of the task (the fixture clock counts seconds), then his action starts (no save in between)
+    let release;
+    const owner = agent.actions.runAction('action:collectBlocks', () => new Promise(resolve => { release = resolve; }));
+    await F.until(() => agent.actions.currentActionLabel === 'action:collectBlocks');
+    c.advance(10);
+    w.save();   // a periodic save during it: nothing charged
+    assert.equal(step().progress.stalled_s, 594);
+    c.advance(8);   // it ends 8 s after that save
+    release();
+    await owner;
+    w.save();   // the next save after it: none of the 8 s
+    assert.deepEqual([w.record.status, step().progress.stalled_s], ['active', 594]);
+});
+
 test('stall rule: constant combat with progress never blocks; a crash loop blocks', async () => {
     const c = F.clock();
     const fighter = setup({ name: 'fighter', now: c.now });
@@ -317,6 +388,95 @@ test('summary cap honours memory_max_chars (default 1000)', async () => {
     };
     assert.equal(await summarize(null), 1000);
     assert.equal(await summarize(1200), 1200);
+});
+
+// I1-5 (DECISIONS 2026-11-14): the code's own lines stay visible to the model
+// but are not counted toward the summary threshold and not summarised.
+test('I1-5: code lines are visible to the model, not counted toward the threshold, not summarised, and leave with their chunk', async () => {
+    const { History } = await import('../src/agent/history.js');
+    const summarised = [];
+    const agent = { name: 'codelines', task: {}, last_sender: null,
+        self_prompter: { state: 0, prompt: null, outage: false, isStopped: () => true },
+        prompter: { promptMemSaving: async turns => { summarised.push(turns.map(t => t.content)); return 'memory'; } } };
+    const history = new History(agent);
+    history.max_messages = 15;
+    history.summary_chunk_size = 5;
+    await history.add('system', 'Removed 2 scaffold blocks of mine here.', { code: true });
+    for (let i = 0; i < 14; i++) await history.add('owner', `line ${i}`);
+    await history.add('system', 'Agent process restarted.', { code: true });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.deepEqual([summarised.length, history.turns.length], [0, 16], '14 countable lines: no summary');
+    assert.deepEqual(history.getHistory()[0], { role: 'system', content: 'Removed 2 scaffold blocks of mine here.' }); // seen, flag never sent
+    await history.add('owner', 'line 14');
+    await F.until(() => history.memory === 'memory');
+    assert.deepEqual(summarised, [['owner: line 0', 'owner: line 1', 'owner: line 2', 'owner: line 3', 'owner: line 4']]);
+    assert.deepEqual(history.turns.map(t => t.content).slice(0, 2), ['owner: line 5', 'owner: line 6']);   // the tidy line left with its chunk
+    assert.equal(history.turns.at(-2).code, true);   // the restart line stays, still a code line
+});
+
+test('I1-5: agent.js writes the behaviour log, the restart line and cleanKill\'s line as code lines; other lines are not', async () => {
+    const agent = setup();
+    agent.bot.modes.behavior_log = "I'm stuck!";
+    await agent.handleMessage('system', 'Agent process restarted.');
+    await agent.handleMessage('system', 'You died at position 0, 64, 0.');
+    const exit = process.exit;
+    process.exit = () => {};
+    try {
+        F.modules.Agent.prototype.cleanKill.call(agent, 'Got stuck and couldn\'t get unstuck');
+    } finally {
+        process.exit = exit;
+    }
+    assert.deepEqual(agent.turns.map(t => [t.content.split('\n')[0].trim(), t.code ?? false]), [
+        ['Recent behaviors log:', true], ['Agent process restarted.', true], ['You died at position 0, 64, 0.', false],
+        ["Got stuck and couldn't get unstuck", true]]);
+});
+
+// I1-14 (DECISIONS 2026-11-14): a throw in Work.init exited 0 (never restarted).
+// Fix wave 1 (build2 r1 rulings): she stays up with every block protected.
+test('I1-14: a throw in the task layer\'s start-up keeps her up without it: its hooks undone, every block protected, the owner told, its commands not ready', async t => {
+    const { WORK_FAILED } = await import('../src/agent/agent.js');
+    const bot = F.makeBot();
+    bot.world.set(3, 64, 0, 'dirt');   // natural: diggable with a work layer
+    F.player(bot, F.OWNER, [0, 64, 0]);
+    const agent = F.makeAgent({ bot, name: 'initfail' });
+    F.clearRecord(agent);
+    agents.push(agent);
+    t.mock.method(W.Work.prototype, 'adopt', () => { throw new Error('disk on fire'); });   // after the hooks are installed
+    const errors = t.mock.method(console, 'error', () => {});
+    const exit = t.mock.method(process, 'exit', () => {});
+    F.modules.Agent.prototype.startWork.call(agent, null);
+    assert.equal(agent.work, null);
+    assert.equal(exit.mock.callCount(), 0);
+    assert.deepEqual(agent.chats, [WORK_FAILED]);
+    assert.ok(errors.mock.calls.some(c => /task layer failed to start/.test(c.arguments[0])));
+    assert.equal(agent.handleMessage, F.modules.Agent.prototype.handleMessage);   // guardTurns undone
+    assert.equal(F.modules.protect.protectorFor(bot), null);                         // no half-built protector
+    // Digging is refused: the pathfinder, the collect plugin's own Movements and every protection check.
+    const dirt = bot.blockAt(new F.Vec3(3, 64, 0));
+    assert.equal(dirt.name, 'dirt');
+    const check = () => {
+        assert.equal(new F.modules.pf.Movements(bot).safeToBreak(dirt), false);
+        assert.equal(F.modules.protect.isProtectedForBot(bot, dirt), true);
+    };
+    check();
+    assert.equal(await F.modules.skills.breakBlockAt(bot, 3, 64, 0), false);
+    assert.equal(bot.blockAt(new F.Vec3(3, 64, 0)).name, 'dirt');
+    // A throw before Work.init installed the pathfinder patch: the lock installs it.
+    F.modules.protect.uninstallSafeToBreakPatch();
+    t.mock.method(W.Work.prototype, 'init', () => { throw new Error('config unreadable'); });
+    F.modules.Agent.prototype.startWork.call(agent, null);
+    check();
+    assert.deepEqual(agent.chats, [WORK_FAILED, WORK_FAILED]);
+    assert.equal(await F.modules.commands.getCommand('!taskStart').perform(agent, 'x', 'go_to target=here'), 'The task layer is not ready yet.');
+});
+
+test('I1-5: a re-posted question is a code line; its first post is not', async () => {
+    const agent = setup();
+    agent.work.lineGapMs = 0;
+    agent.work.record = { id: 'q', status: 'blocked', pending_question: { id: 'q1', kind: 'leftovers', text: 'Remove them too?' } };
+    await agent.work.postQuestion();
+    await agent.work.postQuestion({ repost: true });
+    assert.deepEqual(agent.turns.map(t => [t.content, t.code ?? false]), [['Remove them too?', false], ['Remove them too?', true]]);
 });
 
 test('$SELF_PROMPT shows the task view while a record exists, else the upstream text', async () => {

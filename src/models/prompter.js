@@ -51,6 +51,7 @@ export class Prompter {
         let name = this.profile.name;
         this.cooldown = this.profile.cooldown ? this.profile.cooldown : 0;
         this.last_prompt_time = 0;
+        this.decisions = 0; // fork carry (I1-1): decisions in flight (promptConvo)
         this.awaiting_coding = false;
         this.coding_abort_controller = null;
 
@@ -221,8 +222,12 @@ export class Prompter {
     // in sendRequest's options. REQ-RES-17: so does an `outcome` object, which
     // the openai_tools provider marks `unreachable` (with the cause) when the
     // model could not be reached; other providers ignore it.
+    // I1-2 (DECISIONS 2026-11-14): `kind_params`, the profile's request body
+    // params for this kind (work.request_params[kind]), which the openai_tools
+    // provider sends over the model's own params; a kind with none keeps them.
     requestOptions(kind, extra = {}) {
-        return { outcome: {}, ...extra, kind, task_id: this.agent.work?.taskId() ?? null };
+        const kind_params = this.work_config?.request_params?.[kind];
+        return { outcome: {}, ...extra, kind, task_id: this.agent.work?.taskId() ?? null, ...(kind_params ? { kind_params } : {}) };
     }
 
     // REQ-RES-17: every call reports to the shared outage state, which tells the
@@ -244,6 +249,20 @@ export class Prompter {
         return this.reachable(options.outcome);
     }
 
+    summaryTimeoutMs() {
+        return (this.work_config?.summary_timeout_s ?? 120) * 1000;
+    }
+
+    // Final ruling (build2 r3): during an engine stall a summary cut by its
+    // deadline gets double the deadline at its next attempt, capped by
+    // work.model_timeout_s, and back to work.summary_timeout_s after one
+    // completes, so slow summaries still publish. A decision's wait stays
+    // summaryTimeoutMs.
+    summaryRequestMs() {
+        const cap = (this.work_config?.model_timeout_s ?? 600) * 1000;
+        return Math.min(this.summaryTimeoutMs() * 2 ** (this.summary_cuts ?? 0), Math.max(cap, this.summaryTimeoutMs()));
+    }
+
     async checkCooldown() {
         let elapsed = Date.now() - this.last_prompt_time;
         if (elapsed < this.cooldown && this.cooldown > 0) {
@@ -256,25 +275,55 @@ export class Prompter {
     // await, until it ends, so the recovery probe never resumes a goal over a
     // turn still running or waiting. `self_prompt` (handleMessage's flag): only
     // such a turn ending inside its wait marks wait_ended for the self-prompter.
+    // Fork carry (I1-1, DECISIONS 2026-11-14): the backend serves one request
+    // at a time, so a decision goes first: from entry to return it is counted
+    // in `decisions`, a running memory summary yields to it (history.js), and
+    // the summary starts again when the last decision in flight returns. A
+    // summary a chunk overdue is not aborted: the decision waits for it (fix
+    // wave 1, history.js summaryOverdue). Fix wave 2 (build2 r2 rulings): the
+    // wait is for one chunk (history.js stops after it) and at most
+    // work.summary_timeout_s; a !stop or a newer message during it ends the
+    // turn with no request. Final ruling (build2 r3): the entry counter is the
+    // supersession check throughout (promptConvoTurn's `stale`), so an older
+    // response still generating is dropped once a newer turn entered, and after
+    // a wait the decision sends the history as compacted.
     async promptConvo(messages, self_prompt = false) {
-        const turn = { outage_wait: this.agent.model_outage?.waiter(), self_prompt };
+        const entry = this.convo_entries = (this.convo_entries ?? 0) + 1;
+        const turn = { outage_wait: this.agent.model_outage?.waiter(), self_prompt, entry };
+        this.decisions = (this.decisions ?? 0) + 1;
+        const stop_epoch = this.agent.stop_epoch;
         try {
+            const deadline = Date.now() + this.summaryTimeoutMs();
+            let waited = false;
+            for (let overdue; Date.now() < deadline && (overdue = this.agent.history?.yieldSummary?.()); ) {
+                waited = true;
+                let timer;
+                await Promise.race([overdue, new Promise(resolve => { timer = setTimeout(resolve, deadline - Date.now()); })]);
+                clearTimeout(timer);
+            }
+            if (waited && (this.agent.stop_epoch !== stop_epoch || this.convo_entries !== entry)) return '';
+            if (waited) messages = this.agent.history?.getHistory?.() ?? messages;
             return await this.promptConvoTurn(messages, turn);
         } finally {
             turn.outage_wait?.end();
+            if (--this.decisions === 0) this.agent.history?.startSummary?.();
         }
     }
 
     async promptConvoTurn(messages, turn) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
+        // Final ruling (build2 r3): a newer promptConvo entry supersedes this
+        // turn, even one still waiting behind a summary (it has not reached here).
+        const stale = () => current_msg_time !== this.most_recent_msg_time ||
+            (turn.entry !== undefined && this.convo_entries !== turn.entry);
         // The outage wait stops for a newer message or the owner's !stop.
         const stop_epoch = this.agent.stop_epoch;
-        const superseded = () => current_msg_time !== this.most_recent_msg_time || this.agent.stop_epoch !== stop_epoch;
+        const superseded = () => stale() || this.agent.stop_epoch !== stop_epoch;
 
         for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
             await this.checkCooldown();
-            if (current_msg_time !== this.most_recent_msg_time) {
+            if (stale()) {
                 return '';
             }
 
@@ -318,7 +367,7 @@ export class Prompter {
                 continue;
             }
 
-            if (current_msg_time !== this.most_recent_msg_time) {
+            if (stale()) {
                 console.warn(`${this.agent.name} received new message while generating, discarding old response.`);
                 return '';
             }
@@ -367,14 +416,40 @@ export class Prompter {
         }
     }
 
-    async promptMemSaving(to_summarize) {
+    // Fork carry (I1-1): `signal` (history.js) aborts the summary when a decision starts.
+    // An aborted summary sets no cooldown (fix wave 1): the abort puts the
+    // prompt time back at once, before the decision's own cooldown check reads it.
+    async promptMemSaving(to_summarize, signal = null) {
+        const before = this.last_prompt_time;
         await this.checkCooldown();
-        let prompt = this.profile.saving_memory;
-        prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        const options = this.requestOptions('summary');
-        let resp = await this.chat_model.sendRequest([], prompt, undefined, options);
-        this.reachable(options.outcome); // history.js already rejects the stand-in reply
-        await this._saveLog(prompt, to_summarize, resp, 'memSaving');
+        const sent_at = this.last_prompt_time;
+        const unset = () => { if (this.last_prompt_time === sent_at) this.last_prompt_time = before; };
+        if (signal?.aborted) unset();
+        signal?.throwIfAborted();
+        signal?.addEventListener('abort', unset, { once: true });
+        let resp;
+        try {
+            let prompt = this.profile.saving_memory;
+            prompt = await this.replaceStrings(prompt, null, null, to_summarize);
+            signal?.throwIfAborted();
+            // Fix wave 2: no SDK retry and its own deadline, which also covers
+            // a body that never arrives (the SDK's timeout ends at the headers).
+            const timeout = this.summaryRequestMs();
+            const deadline = AbortSignal.timeout(timeout);
+            const options = this.requestOptions('summary', { maxRetries: 0, timeout,
+                signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
+            try {
+                resp = await this.chat_model.sendRequest([], prompt, undefined, options);
+            } catch (err) {
+                if (deadline.aborted && !signal?.aborted) this.summary_cuts = (this.summary_cuts ?? 0) + 1;
+                throw err;
+            }
+            this.summary_cuts = 0;
+            this.reachable(options.outcome); // history.js already rejects the stand-in reply
+            await this._saveLog(prompt, to_summarize, resp, 'memSaving');
+        } finally {
+            signal?.removeEventListener('abort', unset);
+        }
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
             resp = afterThink;

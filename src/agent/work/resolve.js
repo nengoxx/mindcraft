@@ -156,7 +156,9 @@ const isOak = key => /(^|\+)oak_/.test(key);
 
 // The first recipe the inventory (plus earlier nodes) allows wins; otherwise
 // the cheapest by remaining collect work, ties by recipe order. A choice made
-// for an item is kept for the rest of the step (persisted in step progress).
+// for an item holds for the rest of this resolve (`chosen`); only an explicit
+// material choice (`choices`, persisted in step progress) is kept across units
+// (REQ-OBT-2/4; I1-11, DECISIONS 2026-11-14: obtain persists no automatic one).
 function craft(ctx, item, n, recipes) {
     if (!recipes.length) return `no method for ${item}`;
     const keyed = recipes.map(recipe => ({ recipe, key: recipeKey(ctx.bot, recipe) }));

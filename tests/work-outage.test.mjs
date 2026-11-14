@@ -265,7 +265,9 @@ test('a recovery while a turn\'s request is still in flight does not skip that t
     assert.deepEqual(time.slept, [5000]);
 });
 
-test('decision requests pass maxRetries 0 (promptConvo retries them); every other call keeps the client default (R8)', async () => {
+// Reliability 2 fix wave 2 (build2 r2 rulings): a summary also passes
+// maxRetries 0 and its own timeout (the next line retries it).
+test('decision and summary requests pass maxRetries 0 (promptConvo, and the next line, retry them); every other call keeps the client default (R8)', async () => {
     const agent = stubAgent();
     const seen = {};
     const prompter = prompterFor(agent, { async sendRequest(t, s, stop, options) { seen[options.kind] = options; return 'OK'; } });
@@ -275,7 +277,8 @@ test('decision requests pass maxRetries 0 (promptConvo retries them); every othe
     await prompter.promptCoding(turns());
     await prompter.probeModel();
     assert.equal(seen.decision.maxRetries, 0);
-    for (const kind of ['summary', 'bot_responder', 'coding', 'probe']) assert.equal('maxRetries' in seen[kind], false, kind);
+    assert.deepEqual([seen.summary.maxRetries, seen.summary.timeout], [0, 120000]);
+    for (const kind of ['bot_responder', 'coding', 'probe']) assert.equal('maxRetries' in seen[kind], false, kind);
 });
 
 test('the waiter: no sleep when already stopped; the real sleep ends early on stop, and recovery wakes it', async () => {

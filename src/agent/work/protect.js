@@ -16,7 +16,13 @@ const TREE_COMPONENT_MAX = 64;   // REQ-SAFE-4: the component cap (dark oaks rea
 // search, 160 blocks 110 ms). A constant, not a key.
 const SCAFFOLD_COMPONENT_MAX = 64;
 const GUARD_MEMO_MS = 50;        // a guard verdict holds until a block or entry change, or one game tick
-const EMPTY_OR_LIQUID = ['air', 'cave_air', 'void_air', 'water', 'lava', 'bubble_column'];
+
+// I1-4 (DECISIONS 2026-11-14): the work layer's one empty-block test (air,
+// cave air, void air), shared by climb, sleep, protect, ledger, dig, tidy and
+// the clear step; a cave's cave_air is as empty as air.
+export const EMPTY_BLOCKS = Object.freeze(['air', 'cave_air', 'void_air']);
+export const isEmptyBlock = block => Boolean(block) && EMPTY_BLOCKS.includes(block.name);
+const EMPTY_OR_LIQUID = [...EMPTY_BLOCKS, 'water', 'lava', 'bubble_column'];
 
 export function isLogName(name) {
     return name.endsWith('_log') && !name.startsWith('stripped_');
@@ -40,7 +46,7 @@ function naturalLeaves(block) {
     return block && isLeavesName(block.name) && block.getProperties?.().persistent === false;
 }
 
-const OPEN = ['air', 'cave_air', 'void_air', 'water'];
+const OPEN = [...EMPTY_BLOCKS, 'water'];
 // Blocks world generation puts against a natural trunk besides terrain and
 // leaves, including the farmed plants left off the natural list (REQ-SAFE-1):
 // accepted beside a tree, never collectable themselves.
@@ -362,7 +368,7 @@ function* around(pos) {
 // (placeBlock's break-in-the-way, skills.js). False when no work layer runs.
 export function isProtectedForBot(bot, block) {
     const guard = guards.get(bot);
-    return Boolean(guard && block && guard.protector.isProtected(block));
+    return Boolean(guard && block && (guard.locked || guard.protector.isProtected(block)));
 }
 
 // The bot's Protector, or null when no work layer runs (the tidy sweep's guard).
@@ -397,7 +403,10 @@ export function installSafeToBreakPatch() {
     const base = original;
     pf.Movements.prototype.safeToBreak = function (block) {
         const guard = guards.get(this.bot);
-        if (!guard) return base.call(this, block);
+        // I1-8 (DECISIONS 2026-11-14): with digging off the base check refuses
+        // at once, so a no-dig search spends no protection test (tree tests).
+        if (!guard || !this.canDig) return base.call(this, block);
+        if (guard.locked) return false;
         knowFallingBlocks(this);
         if (guard.protector.isProtected(block)) return false;
         if (!guard.taskRunning()) return base.call(this, block);
@@ -428,6 +437,20 @@ export function guardBot(bot, protector, taskRunning) {
 
 export function unguardBot(bot) {
     guards.delete(bot);
+}
+
+// I1-14 fix wave 1 (build2 r1 rulings): the task layer failed to start, so no
+// Protector knows the owner's blocks; every block is protected instead (no dig,
+// no break of a block in a placement's way) until a restart. protectorFor
+// stays null, so the work-only callers keep their "no work layer" path.
+export function lockBot(bot) {
+    installSafeToBreakPatch();
+    guards.set(bot, { protector: null, locked: true, taskRunning: () => false });
+}
+
+// Fix wave 2: placeBlock's replaceable targets (plants, snow) are refused under the lock.
+export function isLockedBot(bot) {
+    return Boolean(guards.get(bot)?.locked);
 }
 
 // --- SIGINT clean_stop (REQ-REC-7) -------------------------------------------

@@ -950,6 +950,8 @@ test('quiet: an automatic sweep\'s line goes to history only; work.tidy.announce
     await F.until(() => agent.turns.some(t => t.content === 'Removed 1 scaffold block of mine here.'));
     await F.sleep(50);
     assert.ok(!agent.chats.some(c => c.startsWith('Removed')), agent.chats.join('\n'));
+    // I1-5: a code line, visible to the model, never summarised.
+    assert.equal(agent.turns.find(t => t.content === 'Removed 1 scaffold block of mine here.').code, true);
 });
 
 test('quiet: the owner\'s raw !tidy is answered with its line (one history entry); the model\'s !tidy returns nothing in her own turn, its line in the owner\'s (G2)', async () => {
@@ -981,4 +983,10 @@ test('quiet: the owner\'s raw !tidy is answered with its line (one history entry
     await F.ownerSays(worded, 'please tidy up your blocks');
     assert.equal(worded.modelCalls, 2);
     assert.ok(worded.chats.includes('Done: one block of mine removed.'), worded.chats.join('\n'));
+    // Fix wave 1 (Sol S3): the returned line's write by agent.js keeps the code
+    // flag, so the memory summary's input (the turns without it) never holds it.
+    const lines = worded.turns.filter(t => t.content === 'Removed 1 scaffold block of mine here.');
+    assert.ok(lines.length >= 1);
+    assert.deepEqual(lines.map(t => t.code ?? false), lines.map(() => true));
+    assert.ok(!worded.turns.filter(t => !t.code).some(t => /Removed 1 scaffold block/.test(t.content)));
 });

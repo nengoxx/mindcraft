@@ -347,12 +347,17 @@ async function execute(mode, agent, func, timeout=-1) {
     let code_return = await agent.actions.runAction(`mode:${mode.name}`, async () => {
         // Fork carry (REQ-TRV-1, design travel r4 §0b S4): a mode action cut
         // by another action returns normally, so the ActionManager's catch
-        // never cancels a pending resume (a task's or a follow's); any other
-        // error is thrown as before.
+        // never cancels a pending resume (a task's or a follow's). I1-9
+        // (DECISIONS 2026-11-14): so does the mode's own error, logged here,
+        // but only when the cut action is the task run (fix wave 1, build2 r1
+        // rulings: the stall rule bounds a task; for any other cut upstream's
+        // throw cancels the resume, the only stop for a failing unstuck on a follow).
         try {
             await func();
         } catch (err) {
-            if (!agent.bot.interrupt_code) throw err;
+            if (agent.bot.interrupt_code) return;
+            if (interrupted_action !== 'action:task') throw err;
+            console.error(`Mode ${mode.name} failed:`, err);
         }
     }, { timeout });
     mode.active = false;

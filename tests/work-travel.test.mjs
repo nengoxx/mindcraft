@@ -888,18 +888,42 @@ test('§3 (S4, build r1 M8): the execute() catch covers every mode: self_preserv
     agent.actions.cancelResume();
 });
 
-test('§3 (S4): a mode action\'s own error (not an interrupt) is still thrown: the ActionManager reports it and cancels the resume, as before', async () => {
-    const world = flat();
-    world.set(0, 65, 0, 'sand');   // falling sand at her head: self_preservation moves away
-    const { agent, bot } = setup({ world, modes: { self_preservation: true } });
+// I1-9 (DECISIONS 2026-11-14) as narrowed by fix wave 1 (build2 r1 rulings):
+// only a cut task run keeps its resume over a mode's own error; any other cut
+// keeps upstream's cancel-and-ask (the only stop for a failing unstuck on a follow).
+async function failingUnstuck(t, label) {
+    const { agent, bot } = setup({ modes: { unstuck: true } });
+    const clock = fastClock();
     const lines = logs();
-    agent.actions.resume_func = async () => {};
-    agent.actions.resume_name = FOLLOW;
-    bot.hooks.goto = () => { world.set(0, 65, 0, 'air'); throw new Error('boom'); };
-    await bot.modes.update();
-    await F.until(() => lines.some(l => l.startsWith('Mode self_preservation finished')));
-    assert.ok(lines.some(l => /Mode self_preservation finished executing, code_return: Action output:[\s\S]*!!Code threw exception!![\s\S]*boom/.test(l)), lines.join('\n'));
-    assert.equal(agent.actions.resume_func, null);
+    const errors = t.mock.method(console, 'error', () => {});
+    const resume = async () => {};
+    agent.actions.resume_func = resume;
+    agent.actions.resume_name = label;
+    bot.hooks.goto = async goal => {
+        if (goal.goal) throw new Error('no path');   // GoalInvert: unstuck's moveAway fails at once
+    };
+    const cut = cutBy(agent, label);   // the follow or the task run, standing still
+    await F.until(() => agent.actions.currentActionLabel === label);
+    await clock.stuck(agent);
+    await F.until(() => lines.some(l => l.startsWith('Mode unstuck finished')));
+    await F.sleep(20);
+    const kept = agent.actions.resume_func === resume;
+    agent.actions.cancelResume();
+    await cut.end();
+    return { kept, lines, errors };
+}
+
+test('I1-9 fix wave 1: unstuck failing on a follow is thrown as upstream: the follow\'s resume is cancelled', async t => {
+    const { kept, lines } = await failingUnstuck(t, FOLLOW);
+    assert.equal(kept, false, `the follow is not resumed into the same failure\n${lines.join('\n')}`);
+    assert.ok(lines.some(l => /Mode unstuck finished executing, code_return: Action output:[\s\S]*!!Code threw exception!![\s\S]*no path/.test(l)), lines.join('\n'));
+});
+
+test('I1-9: unstuck failing on a task run is logged and keeps the task\'s resume (the stall rule bounds it)', async t => {
+    const { kept, lines, errors } = await failingUnstuck(t, 'action:task');
+    assert.equal(kept, true, 'the task resume stays');
+    assert.ok(errors.mock.calls.some(c => c.arguments[0] === 'Mode unstuck failed:' && /no path/.test(String(c.arguments[1]))));
+    assert.ok(!lines.some(l => /!!Code threw exception!!/.test(l)), lines.join('\n'));
 });
 
 test('§3 (REQ-TRV-3, G1): an interrupted moveAway in unstuck clears its 10 s kill timer', async () => {
