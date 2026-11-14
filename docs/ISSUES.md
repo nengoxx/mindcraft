@@ -117,6 +117,22 @@ and later, not yet scheduled.
 | A pickaxe wears out inside a long `!newAction`; `breakBlockAt` then skips stone ("Don't have right tools") while the code counts on. Mid-goal the model crafted tools with `!craftRecipe` instead of `!taskStart`. | Silent skips, slow manual crafting. | Profile now says to get tools with `!taskStart` (worked live) and to set the goal first (a task without a goal left the bot idle after the pickaxe; fix not yet seen live). |
 | `breakBlockAt` had no protection check, so generated code could dig the owner's builds. | Safety gap. | Fixed in the working tree (protection in `breakBlockAt`, air skipped first). |
 
+### Reliability 2 live checks, 2026-11-14 (the main seat acting as the owner)
+
+Deployed 15:55 by an agent-only restart (no active task); six short questions in a row (arrows, time, cobblestone,
+hunger, health, bed), all answered correctly. From `requests.jsonl` (PLAN "Reliability 2", live acceptance):
+- **1, decisions go first: pass.** Four of six decisions started while a summary ran; each summary was aborted
+  about 5 s in and the decision took 10.1–10.6 s, against 10.0 s for the first one with no summary around it. The
+  engine stops an aborted request (a decision kept waiting would have taken the summary's remaining time on top).
+  Seven summaries sent, three completed. These were short query turns, so the 10 s is not comparable with the
+  audit's 14.2 s median for all decisions. The largest history length over a session was not measured.
+- **2, cheap summaries: pass.** The three completed summaries: error null, 0 reasoning characters, 212–244
+  output tokens, 5.1–7.4 s (the audit measured summaries at about 76 % reasoning). Her memory after them (one
+  read, 982 characters) keeps the standing rules, the owner, the ended tasks and the scaffold history, in fewer
+  words than before. Its line "40 dirt (previously cancelled by system; subsequently restarted and completed)" was
+  not checked against the logs. The params were accepted (no 400), so `work.request_params` stays at its default.
+- **3, a clear box in a cave:** not staged; offline tests only.
+
 ### Reliability 1 live trials, 2026-11-14 (the main seat acting as the owner)
 
 After the deploy of the reliability 1 slice (develop `f8efe7d`, 12:37 by an agent-only restart; profile unchanged).
