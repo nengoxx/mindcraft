@@ -7,18 +7,18 @@
   audit of the I1 code (two Opus lanes by area, then an Opus adversary; ledger `docs/audits/i1_audit.md`); (3)
   repeated uncoached trials in words, Qwen alone, measuring success, calls and latency. Commits are authorized by
   that plan; push only on his word.
-- **Step 1 is merged and live** (`52c477b`, merge `f8efe7d`; deployed 12:37 by an agent-only restart; gate
+- **Step 1 is merged and live** (`38d9c30`, merge `86b9b59`; deployed 12:37 by an agent-only restart; gate
   650/650): split stacks are merged before drops; `!goToRememberedPlace` is a kept walk; a near-death flee's cut
   restarts once safe; sleep may cut a held walk, which restarts once her bed is back. Reviews: Sol + an Opus
   adversary, two fix waves, a ruled fix; record and residuals in `runtime/diagnostics/i1-build/reliability/`
   (`STATE.md`, `build-r1-rulings.md`). Live trials (ISSUES "Reliability 1 live trials"): T5 passes;
   `!goToRememberedPlace` passes; no merge seen live (no split in her bag); the flee and sleep parts are offline only.
-- **Step 2 is done** (ledger `docs/audits/i1_audit.md`, `80680cf`): 18 findings, 4 M and 14 L, no H; the
+- **Step 2 is done** (ledger `docs/audits/i1_audit.md`, `9188967`): 18 findings, 4 M and 14 L, no H; the
   orchestration core holds (no lost work, loop, hang or stale read). The M findings: decisions wait for memory
   summaries (I1-1), summaries mostly reasoning (I1-2), the prompt cache is barely reused (I1-3), a clear in a cave
   stalls (I1-4). The owner ruled (DECISIONS 2026-11-14 "The I1 audit's fixes"): fix slice "Reliability 2" for
   I1-1, 2, 4, 5, 6, 8–17 and I1-11; I1-3 and I1-7 deferred.
-- **Reliability 2 is merged and deployed** (b178eeb, merge 946a196; 2026-11-14 15:55). Live checks 1 and 2 pass,
+- **Reliability 2 is merged and deployed** (6516904, merge 90cd720; 2026-11-14 15:55). Live checks 1 and 2 pass,
   the cave clear was not staged (ISSUES "Reliability 2 live checks"). Ledger: I1-1, 2, 4, 5, 6, 8–17 fixed; I1-18
   wontfix (a later doc pass); I1-3 and I1-7 stay open (deferred by the owner's ruling).
 - **Next: step 3**, the repeated uncoached trials in words, Qwen alone: design the trial set (gather, craft, a

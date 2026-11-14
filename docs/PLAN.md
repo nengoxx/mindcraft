@@ -68,12 +68,12 @@ combat slices the owner ruled on travel (DECISIONS 2026-11-13 (evening)
 "Travel after the live trials"). The travel slice (§3 "Travel") is built
 offline and goes to review; then its live trials, then S3.
 
-**Status (2026-11-14):** the travel slice is merged and deployed (`4bae59f`). Its
+**Status (2026-11-14):** the travel slice is merged and deployed (`d2a6d82`). Its
 live trials T1–T4 and T6 pass; T5 (back to work after the climb to drop) is
 partial (ISSUES "Travel live trials, 2026-11-14 night"). The owner then
 ruled that everything be consistently reliable before S3 (DECISIONS
 2026-11-14): step 1, the reliability 1 slice (§3 "Reliability 1"), is merged
-and deployed (`f8efe7d`); T5 passes; next: step 2, a reliability audit of
+and deployed (`86b9b59`); T5 passes; next: step 2, a reliability audit of
 the I1 code, then step 3, repeated uncoached trials, then S3.
 
 The slice names S0 … S6 are kept; iterations group them. The full requirement

@@ -26,7 +26,7 @@
 ### 2026-11-14 — the I1 task layer (src/agent/work and the carried files it uses), standard
 Scope: the task layer as built through the reliability 1 slice; the operator, the template builder and S3+ are
 out. Commissioned by the owner: "before S3 I want to be sure that everything is consistently reliable."
-Baseline: develop `9c9746d`, clean; gate 650/650. Lanes: two Opus audit lanes split by area (A orchestration,
+Baseline: develop `1a7714e`, clean; gate 650/650. Lanes: two Opus audit lanes split by area (A orchestration,
 state and timing; B world interaction), then one Opus adversary on both reports and the main seat's draft; the
 main seat verified every H/M card (reproductions against the request log for I1-1/2/3, the code for I1-4/7).
 Lane reports, the adversary's report and the rulings: kept in the ignored runtime diagnostics (reliability/).
