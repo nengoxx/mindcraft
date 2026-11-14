@@ -180,6 +180,7 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
     bot.output = '';
     bot.interrupt_code = false;
     bot.entity = { id: 1, position: new Vec3(...position), height: 1.8, eyeHeight: 1.62, isInLava: false, onGround: true, type: 'player', username: 'fixture' };
+    bot.health = 20;        // mineflayer health.js: full after spawn
     bot.quickBarSlot = 0;   // the selected hotbar slot: inventory slot 36
     bot.setQuickBarSlot = i => { bot.calls.push(['hotbar', i]); bot.quickBarSlot = i; };   // mineflayer inventory.js: the held_item_slot packet
     bot.players = {};
@@ -299,6 +300,35 @@ export function makeBot({ world = new World(), position = [0, 64, 0], inventory 
         const at = bot.looking ? new Vec3(bot.looking.x, bot.entity.position.y, bot.looking.z) : bot.entity.position.offset(1, 0, 0);
         bot.entities[id] = { id, name: 'item', type: 'object', position: at, getDroppedItem: () => ({ name, count }) };
         if (bot.hooks.toss) bot.hooks.toss(name, count, bot.entities[id]);
+    };
+    // Mineflayer's moveSlotItem (inventory.js:727-736): a left click on the
+    // source picks its stack up, a left click on the destination stacks it
+    // onto the same item up to its stack size (any other item is swapped onto
+    // the cursor), and whatever the cursor still holds goes back on the
+    // source. "The same item" is the server's: the same name and components.
+    const click = slot => {
+        const item = slots[slot];
+        const held = bot.inventory.selectedItem ?? null;
+        if (item && held && item.name === held.name && modules.gear.signature(item) === modules.gear.signature(held)) {
+            const n = Math.min(held.count, stackSize(item.name) - item.count);
+            item.count += n;
+            held.count -= n;
+            if (!held.count) bot.inventory.selectedItem = null;
+        } else {
+            slots[slot] = held;
+            bot.inventory.selectedItem = item ?? null;
+        }
+    };
+    // Mineflayer's clickWindow(slot, 0, 0): one left click (prismarine-windows mouseClick).
+    bot.clickWindow = async (slot, button, mode) => {
+        bot.calls.push(['click', slot, button, mode]);
+        click(slot);
+    };
+    bot.moveSlotItem = async (sourceSlot, destSlot) => {
+        bot.calls.push(['move', sourceSlot, destSlot]);
+        click(sourceSlot);
+        click(destSlot);
+        if (bot.inventory.selectedItem) click(sourceSlot);
     };
     bot.toss = async (type, meta, count) => {
         const name = registry.items[type].name;

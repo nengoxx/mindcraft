@@ -14,7 +14,7 @@ Contents: 1 Iterations and order · 2 Rules for every slice · 3 Slices · 4 Pro
 ## 1. Iterations and order
 
 ```
-I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → Travel → S3
+I1  usable for play     S0-lite → S2 → S2b → S2c → S2c-fu → S2d → S2e → S2e-fu → Gear → Ownblocks → Combat → Travel → Reliability 1 → S3
 I2  native tools        S1 → S4 (rest)
 I3  structures          DX → S5A
 I4  discovery           S5B
@@ -1155,8 +1155,61 @@ add the protected-block diff. Interventions: target 0.
 - **Exit.** All trials pass; CHANGES.md is current.
 - **Not in the travel slice** (design §6, §11): residuals R1–R9 (SPEC §16);
   restarts after `self_preservation` or sleeping and `!goToRememberedPlace`
-  (the owner's open questions, today's behaviour until he answers);
-  `goToPlayer`'s pause of `self_defense`; the idle cleanup underground.
+  (the owner's open questions then; answered 2026-11-14, built in
+  Reliability 1); `goToPlayer`'s pause of `self_defense`; the idle cleanup
+  underground.
+
+#### Reliability 1 — split stacks merged; the travel answers
+
+- **Goal.** Step 1 of the owner's reliability steps before S3: split
+  partial stacks of a kept item are merged before anything is dropped or a
+  step blocks (the T5 finding: 30 kinds in 31 slots, "5 free slots, 6
+  needed"); and the travel answers: after sleeping (under `when: always`)
+  and after a near-death flee (once it is safe) a cut walk restarts, and
+  `!goToRememberedPlace` is kept. (Owner rulings: DECISIONS 2026-11-14 "Walks
+  after sleeping; reliability before S3".)
+- **SPEC.** §9.4 REQ-OBT-11 (the merges before drops); §7.11 REQ-TRV-1 … 3
+  (the walks, the cutters, the safety wait); §7.9 REQ-SLP-2 (sleep may cut a
+  held walk); §7.7; §5.2; §14 (four `work.travel` keys); §16.
+- **Files.** `work/inventory.js` (`planMerges`, the planner's merges and
+  compaction, `mergeStill`, the merges first in `dropItems`, the idle
+  admission and pass, a failed merge's cursor put back, `slotLayout`);
+  `work/runner.js` (the log line, the merge-only give-back, no climb when
+  the merges suffice, the slot-layout line); `work/travel.js`
+  (`WALK_LABELS`, `RESTART_AFTER`, `onNearDeath`, `safeThen`, `untilSafe`,
+  `bedStands`); `work/sleep.js` (`mayCut`); `work/config.js`
+  (`work.travel.safe_*`); `agent/modes.js` (one carried line: the
+  near-death branch calls `onNearDeath`).
+- **Offline tests.** `tests/work-inventory.test.mjs` (the T5 bag in a task,
+  seen failing on the old code; the planner's merges and no avoidable
+  fragment; mixed signatures; merges only in a shaft, with no climb; the
+  idle merge with no direction; from fix wave 1 a throwing merge, a merge
+  not taken, the merge-only give-back, no climb when merges suffice, the
+  slot-layout line; from fix wave 2 a retry with the cursor loaded, a merge
+  the server sets back); `tests/work-travel.test.mjs` (the safety wait: hurt and
+  a hostile near, a hostile chasing her through the flee, no hostile now with
+  `safe_quiet_s` 0, never safe, a fire cut at once even hurt, a newer
+  command, `!stop` and another dimension during the wait, a fight during
+  it; `!goToRememberedPlace` cut by a fight; the keys);
+  `tests/work-sleep.test.mjs` (under `always` sleep and the bed pickup cut a
+  held walk and it restarts; under `idle` not; a fight-cut sleep: the walk
+  waits for the bed; a night marked done with the bed placed, the pickup
+  that cannot run, a sleep that keeps refusing and a pickup that keeps
+  cutting the wait: the bed wait ends at one `safe_wait_s` per walk; an old
+  bed holds no walk; `mayCut`). The work fixture gains `moveSlotItem` and
+  `clickWindow` (mineflayer's clicks) and `health`.
+- **Live acceptance** (the main seat runs them as the owner):
+  1. A clean T5: a task that digs down with a nearly full bag climbs, drops,
+     returns to work and finishes with 0 calls.
+  2. A merge seen live: a kept item in two partial stacks, one slot short of
+     `min_free_slots`, merged by a task step or the idle cleanup (console
+     `[items]`/`junk drop … merge` lines), no toss of a kept item.
+  3. A typed `!goToRememberedPlace` cut by a fight: restarted, 0 calls, one
+     arrival reply with the count.
+  - Not testable live now: Q1 (sleeping is off in his profile) and Q2's
+    near-death case (damage is off): offline only.
+- **Exit.** All trials pass; then step 2 (the reliability audit of the I1
+  code) and step 3 (the repeated uncoached trial), then S3.
 
 #### S3 — Terrain-fitting shelter
 

@@ -56,11 +56,13 @@ export const FOLLOW_LABEL = 'action:followPlayer';
 const CARDINALS = Object.freeze([[0, 1], [-1, 0], [0, -1], [1, 0]]);
 // The dropper's reason, and the idle hold's, when no direction is free (F5).
 const NO_DIRECTION = 'no free direction nearby';
+const NOTHING_HERE = 'nothing to drop from here';
 
 const dimOf = bot => bot.game?.dimension ?? 'overworld';
 const range = bot => ({ start: bot.inventory.inventoryStart ?? 9, end: bot.inventory.inventoryEnd ?? 45 });
 // The selected hotbar slot's inventory slot (the main hand), or null.
 const heldSlot = bot => Number.isInteger(bot.quickBarSlot) ? range(bot).end - 9 + bot.quickBarSlot : null;
+const stackSize = (bot, name) => bot.registry?.itemsByName?.[name]?.stackSize ?? 64;
 const summary = removed => Object.entries(removed).map(([name, n]) => `${n} ${name}`).join(', ');
 const total = removed => Object.values(removed).reduce((n, c) => n + c, 0);
 
@@ -75,7 +77,7 @@ const total = removed => Object.values(removed).reduce((n, c) => n + c, 0);
 // (tools, weapons, armour, the bed) are outside the cap.
 export function keepOf(bot, policy, name) {
     const listed = policy?.items?.[name];
-    const size = bot.registry?.itemsByName?.[name]?.stackSize ?? 64;
+    const size = stackSize(bot, name);
     let keep = listed;
     if (listed === 'all') keep = Infinity;
     else if (listed === 'stack') keep = size;
@@ -124,8 +126,47 @@ function gearSpares(bot, policy, needed) {
     return gear.spares(bot).filter(e => !needed.has(e.item.name) && policy.items[e.item.name] === undefined);
 }
 
-// Slot operations [{slot, name, count, have, whole, sig}]: what to remove, never
-// where. Sources are the 36 main slots, the selected hotbar slot included
+// The merges of one item's partial stacks (DECISIONS 2026-11-14, before S3:
+// the split-slot finding of trial T5), per component signature (only the same
+// item stacks: gear.signature), simulated on `list`, whose counts they change:
+// the smallest into the largest non-full ones, as bot.moveSlotItem moves them
+// (it puts any remainder back on the source). A signature group is merged when
+// it holds more slots than its count needs, or with `all` (a counted surplus
+// follows) down to one partial stack. Operations {merge, slot (from), to,
+// name, count, have, toHave, sig}; emptied stacks leave `list`.
+function planMerges(bot, name, list, all = false) {
+    const size = stackSize(bot, name);
+    const merges = [];
+    if (size <= 1 || list.length < 2) return merges;
+    const groups = new Map();
+    for (const s of list) {
+        const sig = gear.signature(s.item);
+        if (!groups.has(sig)) groups.set(sig, []);
+        groups.get(sig).push(s);
+    }
+    for (const [sig, group] of groups) {
+        if (!all && group.length <= Math.ceil(group.reduce((n, s) => n + s.count, 0) / size)) continue;
+        const parts = group.filter(s => s.count < size).sort((a, b) => b.count - a.count || a.slot - b.slot);
+        for (let i = 0, j = parts.length - 1; i < j;) {
+            const to = parts[i], from = parts[j];
+            const count = Math.min(from.count, size - to.count);
+            merges.push({ merge: true, slot: from.slot, to: to.slot, name, count, have: from.count, toHave: to.count, sig });
+            to.count += count;
+            from.count -= count;
+            if (!from.count) j--;
+            if (to.count === size) i++;
+        }
+    }
+    for (let k = list.length - 1; k >= 0; k--) if (!list[k].count) list.splice(k, 1);
+    return merges;
+}
+
+// Slot operations: what to remove, never where, after the merges that free
+// slots (planMerges). Merges come first, as operations of their own kind
+// ({merge: true, ...}), planned for every item whatever the list says (they
+// remove nothing; DECISIONS 2026-11-14), except junk, which goes whole; the
+// removals [{slot, name, count, have, whole, sig}] are planned on the bag as
+// it will be after them. Sources are the 36 main slots, the selected hotbar slot included
 // (DECISIONS 2026-11-12: junk in her hand is junk; the dropper switches her
 // hand off it); armour and offhand are outside them. Never an unlisted, "all"
 // or needed item (with `cap` "stack" an unlisted or "all" stackable keeps one
@@ -138,15 +179,18 @@ function gearSpares(bot, policy, needed) {
 // for a counted one its surplus as whole stacks smallest first, then lowest worth, then slot, within
 // its budget (DECISIONS 2026-11-12 "best one, period": the best stays), and a
 // remainder below a whole stack from the first stack left in that order (it may
-// free no slot, so it never counts toward minFree). Each operation carries the
-// item's component signature (`sig`), which the dropper re-checks. `freed`
-// (every whole slot the plan empties) and `reaches` are the simulation; the
+// free no slot, so it never counts toward minFree); when that remainder would
+// leave the item in more slots than its kept count needs, its stacks are
+// merged first and the surplus planned again, so no fragment stays that one
+// merge avoids. Each operation carries the item's component signature
+// (`sig`), which the dropper re-checks. `freed` (every slot the plan empties:
+// a merge's source, a whole removal) and `reaches` are the simulation; the
 // caller re-reads the real free slots afterwards.
 export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {}) {
+    const merges = [];
     const ops = [];
-    ops.freed = 0;
-    ops.reaches = bot.inventory.emptySlotCount() >= minFree;
-    if (!removalEnabled(policy)) return ops;
+    let freed = 0;
+    const enabled = removalEnabled(policy);
     const { start, end } = range(bot);
     const totals = new Map();
     const stacks = new Map();
@@ -157,44 +201,67 @@ export function planRemoval(bot, policy, { needed = new Set(), minFree = 0 } = {
         if (!stacks.has(item.name)) stacks.set(item.name, []);
         stacks.get(item.name).push({ slot, count: item.count, item });
     }
+    const merge = (name, list, all) => {
+        const before = list.length;
+        merges.push(...planMerges(bot, name, list, all));
+        freed += before - list.length;
+    };
     const op = (s, count, whole) => ({ slot: s.slot, name: s.item.name, count, have: s.count, whole, sig: gear.signature(s.item) });
     const limited = [];
     for (const [name, list] of stacks) {
-        const keep = keepOf(bot, policy, name);
-        if (keep === undefined || keep === Infinity || needed.has(name)) continue;
+        const keep = enabled && !needed.has(name) ? keepOf(bot, policy, name) : undefined;
         if (keep === 0) for (const s of list) ops.push(op(s, s.count, true));
+        else if (keep === undefined || keep === Infinity || (keep !== 'slot' && totals.get(name) <= keep)) merge(name, list, false);
         else limited.push({ name, list, keep });
     }
-    // DECISIONS 2026-11-12 (night), "Gear: the best one, period": her
-    // placeholder diamond pickaxe and axe and her diamond sword go as spares.
-    for (const e of gearSpares(bot, policy, needed)) ops.push(op({ ...e, count: e.item.count }, e.item.count, false));
-    ops.freed = ops.length;
+    if (enabled) {
+        // DECISIONS 2026-11-12 (night), "Gear: the best one, period": her
+        // placeholder diamond pickaxe and axe and her diamond sword go as spares.
+        for (const e of gearSpares(bot, policy, needed)) ops.push(op({ ...e, count: e.item.count }, e.item.count, false));
+        freed += ops.length;
+    }
+    // A counted item's surplus [{s, count}]: whole stacks smallest first while
+    // they fit, then a remainder from the first stack left.
+    const surplus = (list, left) => {
+        const sorted = [...list].sort((a, b) => a.count - b.count || byWorth(a, b) || a.slot - b.slot);
+        const out = [];
+        for (const s of sorted) {
+            if (s.count > left) break;
+            out.push({ s, count: s.count });
+            left -= s.count;
+        }
+        const rest = sorted[out.length];
+        if (left > 0 && rest) out.push({ s: rest, count: left });
+        return out;
+    };
     for (const { name, list, keep } of limited) {
         for (const s of list) s.worth = rankOf(bot, s.item);
         if (keep === 'slot') {
             // One slot of the best (DECISIONS 2026-11-12: bottles of different
             // strengths do not stack together): every other slot goes whole,
             // lowest worth first, then the smaller count, then by slot.
+            merge(name, list, false);
             const sorted = [...list].sort((a, b) => byWorth(a, b) || a.count - b.count || a.slot - b.slot);
             for (const s of sorted.slice(0, -1)) ops.push(op(s, s.count, false));
-            ops.freed += sorted.length - 1;
+            freed += sorted.length - 1;
             continue;
         }
-        let left = totals.get(name) - keep;
-        const sorted = [...list].sort((a, b) => a.count - b.count || byWorth(a, b) || a.slot - b.slot);
-        const taken = new Set();
-        for (const s of sorted) {
-            if (s.count > left) break;
-            ops.push(op(s, s.count, false));
-            taken.add(s.slot);
-            left -= s.count;
-            ops.freed++;
+        const left = totals.get(name) - keep;
+        let out = surplus(list, left);
+        const wholes = out => out.filter(({ s, count }) => count === s.count).length;
+        // DECISIONS 2026-11-14: no partial removal leaves a fragment that one
+        // merge avoids ([62, 5] over a 64 cap: 2 onto the 62, then the 3 left go).
+        if (list.length - wholes(out) > Math.ceil(keep / stackSize(bot, name))) {
+            merge(name, list, true);
+            out = surplus(list, left);
         }
-        const rest = sorted.find(s => !taken.has(s.slot));
-        if (left > 0 && rest) ops.push(op(rest, left, false));
+        for (const { s, count } of out) ops.push(op(s, count, false));
+        freed += wholes(out);
     }
-    ops.reaches = bot.inventory.emptySlotCount() + ops.freed >= minFree;
-    return ops;
+    const plan = [...merges, ...ops];
+    plan.freed = freed;
+    plan.reaches = bot.inventory.emptySlotCount() + freed >= minFree;
+    return plan;
 }
 
 // --- the re-pickup guard (design §3) -------------------------------------------------
@@ -367,6 +434,47 @@ function stillThere(bot, op, item) {
     return op.whole ? item.count >= op.count : item.count === op.have;
 }
 
+// A merge's two slots still hold what it planned: the same item with the
+// same component signature and the planned counts. The held hotbar slot may
+// be either end: a merge stays inside her inventory and throws nothing.
+function mergeStill(bot, op) {
+    const from = bot.inventory.slots[op.slot];
+    const to = bot.inventory.slots[op.to];
+    return Boolean(from && to) && from.name === op.name && to.name === op.name && from.count === op.have && to.count === op.toHave
+        && gear.signature(from) === op.sig && gear.signature(to) === op.sig;
+}
+
+// The merge took (build r1 S5, D-A1): the destination holds the planned sum,
+// the source the planned rest (or nothing), and the cursor is empty. A move
+// that changed nothing is not counted, so the idle pass is held as one that did nothing.
+function mergeTook(bot, op) {
+    const from = bot.inventory.slots[op.slot];
+    const to = bot.inventory.slots[op.to];
+    const rest = op.have - op.count;
+    return !bot.inventory.selectedItem && to?.name === op.name && to.count === op.toHave + op.count
+        && (rest ? from?.name === op.name && from.count === rest : !from);
+}
+
+const CURSOR_LEFT = 'an item stayed on the cursor after a failed merge';
+
+// After a merge's click threw (build r1 S2): an item left on the cursor goes
+// back on the merge's source slot when it is empty, else on the first empty
+// slot of the 36 (one left click, as moveSlotItem's own). True when the
+// cursor is empty afterwards; never throws.
+async function uncursor(bot, slot) {
+    try {
+        if (!bot.inventory.selectedItem) return true;
+        const { start, end } = range(bot);
+        let to = bot.inventory.slots[slot] ? null : slot;
+        for (let s = start; to == null && s < end; s++) if (!bot.inventory.slots[s]) to = s;
+        if (to == null) return false;
+        await bot.clickWindow(to, 0, 0);
+    } catch {
+        // checked below
+    }
+    return !bot.inventory.selectedItem;
+}
+
 // Junk in her hand (DECISIONS 2026-11-12): when a planned slot is the live
 // selected one, she selects the first empty hotbar slot, else the first that
 // holds no planned operation, else none (stillThere then skips that one
@@ -394,24 +502,65 @@ function handOff(bot, plan) {
 // checked after the walk, after the wait and between tosses. `climb` (a task
 // step that needs free slots, REQ-TRV-6): with no free direction and no drop
 // spot she climbs out once (climb.js, CLIMBS.task, within INVENTORY.climbMs),
-// plans again and faces or walks from up there. Non-throwing:
+// plans again and faces or walks from up there. The plan's merges run first,
+// where she stands (they need no facing, spot, walk or climb), each re-checked
+// (mergeStill) under the same guards as a toss; then the plan is made again
+// (`replan`) and only its removals go on, so a plan of merges only is done
+// there. A merge whose click throws puts any cursor item back first, else the
+// drop ends `failed`. `minFree` (the task's free slots): when the merges alone
+// reach it, she does not climb for the rest (build r1 G2: the junk waits).
+// Non-throwing:
 // {outcome: done | interrupted | unavailable | failed, removed: {name: count}, reason};
-// `climbed: true` once the climb ran.
-export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, walk = false, climb = false, replan = null, current = () => true, now = Date.now } = {}) {
+// `climbed: true` once the climb ran, `merged: n` once n merges took.
+export async function dropItems(bot, plan, { awayFrom = null, avoid = null, never = null, walk = false, climb = false, minFree = null, replan = null, current = () => true, now = Date.now } = {}) {
     const removed = {};
     let climbed = false;
+    let merged = 0;
     const halted = () => Boolean(bot.interrupt_code) || !current();
     const end = (outcome, reason = null) => {
         if (total(removed) && bot.modes) bot.modes.behavior_log += 'Dropped junk.\n';
-        return climbed ? { outcome, removed, reason, climbed } : { outcome, removed, reason };
+        const result = { outcome, removed, reason };
+        if (climbed) result.climbed = true;
+        if (merged) result.merged = merged;
+        return result;
     };
     if (!plan.length) return end('done');
+    // DECISIONS 2026-11-14 (before S3, the T5 finding): split stacks are
+    // merged before anything is dropped. The plan's merges where she stands,
+    // then its removals from the live bag (`replan`); an end instead when a
+    // guard stops them. Also after a climb or a walk, whose re-plan may hold
+    // merges again (a tower splits a stack).
+    const removals = async plan => {
+        if (!plan.some(op => op.merge)) return plan;
+        for (const op of plan) {
+            if (!op.merge) continue;
+            if (halted()) return end('interrupted');
+            if (!mergeStill(bot, op)) continue;   // the re-plan below sees the live bag
+            const why = gear.busy(bot);
+            if (why) return end('unavailable', why);
+            try {
+                await bot.moveSlotItem(op.slot, op.to);
+            } catch (err) {
+                // Build r1 S2: a click that throws may leave the stack on the
+                // cursor; it goes back before anything else is clicked.
+                if (!(await uncursor(bot, op.slot))) return end('failed', `${CURSOR_LEFT} (${String(err?.message ?? err)})`);
+                continue;
+            }
+            // Build r1 S5: counted only when the bag changed as planned.
+            if (mergeTook(bot, op)) merged++;
+        }
+        if (halted()) return end('interrupted');
+        return (replan ? replan() : plan).filter(op => !op.merge);
+    };
     // The armour controller clicks nothing while this runs, and catches up after (gear design r5 §4).
     const release = gear.holdSlots(bot);
     try {
+        plan = await removals(plan);
+        if (!Array.isArray(plan)) return plan;
+        if (!plan.length) return end('done');
         let facing = chooseFacing(bot, awayFrom, { avoid, never });
         let spot = !facing && walk ? findDropSpot(bot, { awayFrom, avoid, never }) : null;
-        if (!facing && !spot && walk === 'task' && climb) {
+        if (!facing && !spot && walk === 'task' && climb && !(minFree != null && bot.inventory.emptySlotCount() >= minFree)) {
             // DECISIONS 2026-11-13 (evening), a full bag underground: "with no
             // drop spot near, the cleanup climbs to the surface (or back up her
             // shaft), drops there"; one climb per call.
@@ -420,7 +569,8 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
             if (halted()) return end('interrupted');
             if (up.outcome !== 'up') return end('unavailable', `${NO_DIRECTION}; could not climb out`);
             // The tower used her blocks (as after the walk below).
-            if (replan) plan = replan();
+            if (replan) plan = await removals(replan());
+            if (!Array.isArray(plan)) return plan;
             if (!plan.length) return end('done');
             facing = chooseFacing(bot, awayFrom, { avoid, never });
             if (!facing) spot = findDropSpot(bot, { awayFrom, avoid, never });
@@ -434,7 +584,8 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
             if (!bot.entity.position.floored().equals(spot)) return end('unavailable', NO_DIRECTION);
             // The walk may have used her blocks (scaffold), so the plan is made
             // again from the live bag (review r1, Sol 1).
-            if (replan) plan = replan();
+            if (replan) plan = await removals(replan());
+            if (!Array.isArray(plan)) return plan;
             if (!plan.length) return end('done');
             facing = chooseFacing(bot, awayFrom, { avoid, never });
         }
@@ -467,6 +618,18 @@ export async function dropItems(bot, plan, { awayFrom = null, avoid = null, neve
     }
 }
 
+// Her 36 slots as "slot name count" (build r1 G1: the console line of a
+// "full of things I keep" block, so a split is visible in the log).
+export function slotLayout(bot) {
+    const { start, end } = range(bot);
+    const out = [];
+    for (let slot = start; slot < end; slot++) {
+        const item = bot.inventory.slots[slot];
+        if (item) out.push(`${slot} ${item.name} ${item.count}`);
+    }
+    return out.join(', ');
+}
+
 // The INVENTORY.keptShown largest items, totalled by name ("dirt 128, arrow
 // 32"): the kept-items note and a blocked step's inventory-full report.
 export function largestItems(bot) {
@@ -495,6 +658,7 @@ export class Upkeep {
         this.lastIdleAt = -Infinity; // the last normal action end (the resume gap)
         this.last = null;           // {removed, at}: the last pass that removed something (!itemList)
         this.emptyKey = null;        // the inventory and task state whose plan was empty
+        this.mergedFrom = null;      // {inv, at}: the bag before the last pass that only merged
         this.told = new Set();       // the owner lines said this session
         work.listen(this.bot, 'idle', () => { this.lastIdleAt = Date.now(); });
     }
@@ -604,6 +768,15 @@ export class Upkeep {
         if (this.latch || this.work.sleeper?.latch || this.work.sleeper?.running || this.work.tidy?.deferred) return null;
         if (!this.wanted() || this.held(now) || !this.workFree() || actions.stopPromise) return null;
         if (now - this.lastHostileAt < INVENTORY.hostileQuietMs) return null;
+        // Build r2 S5, D-A1: the bag is back as it was before a pass that only
+        // merged (the server set the split back after the client's own
+        // prediction): held like a pass that did nothing, silently.
+        if (this.mergedFrom && now - this.mergedFrom.at < INVENTORY.retryMs && this.mergedFrom.inv === this.signature()) {
+            this.mergedFrom = null;
+            this.log('the bag is as before the last merge; held');
+            this.hold(now, NOTHING_HERE);
+            return null;
+        }
         const turns = this.work.liveTurns;
         const target = this.work.followTarget();
         let follow = false;
@@ -640,8 +813,9 @@ export class Upkeep {
         // to walk to admits (the pass walks: DECISIONS 2026-11-12); following,
         // no walk and no cut (R1-8, R1-9: the follow moves her anyway). Else the
         // same hold as a pass that removed nothing, so it is not re-planned
-        // every second.
-        if (!chooseFacing(bot, awayFrom, { never: follow ? target.position : null }) && (follow || !findDropSpot(bot, { awayFrom }))) {
+        // every second. A plan of merges only needs neither (DECISIONS
+        // 2026-11-14: they run where she stands).
+        if (plan.some(op => !op.merge) && !chooseFacing(bot, awayFrom, { never: follow ? target.position : null }) && (follow || !findDropSpot(bot, { awayFrom }))) {
             this.hold(now, NO_DIRECTION);
             return null;
         }
@@ -729,11 +903,13 @@ export class Upkeep {
         if (!plan.length) return;
         let awayFrom = admitted.awayFrom;
         if (admitted.follow) awayFrom = this.work.followTarget()?.position ?? awayFrom;  // always away from the follow target (C-F3)
+        const before = this.signature();
         // While following no walk (the follow moves her anyway); idle she may walk to a drop spot, placing nothing.
         const result = await dropItems(bot, plan, { awayFrom, never: admitted.follow ? awayFrom : null, walk: admitted.follow ? false : 'idle', replan: duePlan, current });
         const now = Date.now();
         const n = total(result.removed);
-        this.log(`pass ${result.outcome}${result.reason ? ` (${result.reason})` : ''}: ${n ? `dropped ${summary(result.removed)}` : 'nothing dropped'}`);
+        const merged = result.merged ? `merged ${result.merged} split stack${result.merged === 1 ? '' : 's'}, ` : '';
+        this.log(`pass ${result.outcome}${result.reason ? ` (${result.reason})` : ''}: ${merged}${n ? `dropped ${summary(result.removed)}` : 'nothing dropped'}`);
         if (n) {
             this.last = { removed: result.removed, at: now };
             this.passes = this.passes.filter(t => now - t < INVENTORY.capWindowMs);
@@ -744,8 +920,13 @@ export class Upkeep {
                 this.log(`held for ${INVENTORY.capHoldMs / 60000} min: ${INVENTORY.capPasses} passes in ${INVENTORY.capWindowMs / 60000} min`);
                 this.tellOnce('cap', { passes: INVENTORY.capPasses, window: INVENTORY.capWindowMs / 60000, hold: INVENTORY.capHoldMs / 60000 });
             }
+        } else if (result.merged) {
+            // A pass that merged changed the bag: the next admission plans
+            // again (and tells the kept note if nothing else may go), unless
+            // it finds the bag as it was before (admit; build r2 S5).
+            this.mergedFrom = { inv: before, at: now };
         } else if (result.outcome !== 'interrupted') {
-            this.hold(now, result.reason === NO_DIRECTION ? NO_DIRECTION : 'nothing to drop from here');
+            this.hold(now, result.reason === NO_DIRECTION ? NO_DIRECTION : NOTHING_HERE);
         }
     }
 

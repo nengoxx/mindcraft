@@ -2,7 +2,7 @@ import * as skills from '../library/skills.js';
 import * as world from '../library/world.js';
 import { STEPS } from './plan.js';
 import { clipResult } from './record.js';
-import { planRemoval, removalEnabled, dropItems, largestItems, ownerNear, INVENTORY } from './inventory.js';
+import { planRemoval, removalEnabled, dropItems, largestItems, slotLayout, ownerNear, INVENTORY } from './inventory.js';
 import { INVENTORY_FULL, INVENTORY_KEPT } from './report.js';
 
 // The runner (SPEC §7): one run is one Mindcraft action. It never throws out of
@@ -298,13 +298,16 @@ export class Runner {
     // REQ-OBT-11: below min_free_slots, drop the item list's surplus where the
     // bot stands, facing away from the work, before moving to the work: the
     // shared planner and dropper (work/inventory.js); with no free direction
-    // she walks to the nearest drop spot first. A refill re-runs the drop at
-    // most twice per step; a bad item list drops nothing, so the step blocks on
-    // slots as before.
+    // she walks to the nearest drop spot first. Split stacks are merged first
+    // (DECISIONS 2026-11-14), also with a bad item list, so the step blocks
+    // only when the slots still fall short after the merges and the removals.
+    // A refill re-runs the drop at most twice per step; a bad item list drops
+    // nothing, so the step blocks on slots as before.
     async ensureFreeSlots(step) {
         const { bot } = this;
         const config = this.config;
-        if (bot.inventory.emptySlotCount() >= config.min_free_slots) return {};
+        // Build r2 S2: an item on the cursor (a failed merge) is never free slots, also on a retry.
+        if (!bot.inventory.selectedItem && bot.inventory.emptySlotCount() >= config.min_free_slots) return {};
         const p = step.progress;
         p.junk_drops = p.junk_drops || 0;
         const plan = () => planRemoval(bot, config.inventory, { needed: this.work.neededItems(), minFree: config.min_free_slots });
@@ -317,8 +320,10 @@ export class Runner {
             const slots = `${bot.inventory.emptySlotCount()} free slots, ${config.min_free_slots} needed`;
             if (!removalEnabled(config.inventory))
                 return { blocked: `${INVENTORY_FULL}: ${slots}; my item list has an error (${config.inventory.error}); largest: ${largestItems(bot)}` };
-            return { blocked: plan().length ? `${INVENTORY_FULL}: ${slots}${why ? ` (${why})` : ''}; largest: ${largestItems(bot)}`
-                : `${INVENTORY_KEPT}: ${slots}; kept or needed by this task: ${largestItems(bot)}` };
+            if (bot.inventory.selectedItem || plan().length) return { blocked: `${INVENTORY_FULL}: ${slots}${why ? ` (${why})` : ''}; largest: ${largestItems(bot)}` };
+            // Build r1 G1: the slots themselves, so a split shows in the log (no model cost).
+            this.work.log(`bag slots: ${slotLayout(bot)}`);
+            return { blocked: `${INVENTORY_KEPT}: ${slots}; kept or needed by this task: ${largestItems(bot)}` };
         };
         if (p.junk_drops > INVENTORY.maxReruns) return full();
         const ops = plan();
@@ -328,12 +333,22 @@ export class Runner {
             // interruption mid-drop uses it up (the dropper records the guard).
             p.junk_drops++;
             this.work.write();
-            this.work.log(`junk drop ${p.junk_drops}: ${ops.map(op => `${op.count} ${op.name}`).join(', ')}`);
+            this.work.log(`junk drop ${p.junk_drops}: ${ops.map(op => `${op.merge ? 'merge ' : ''}${op.count} ${op.name}`).join(', ')}`);
             // Away from the work first, then not toward the owner within 16 (R1-10).
             // REQ-TRV-6: only a step that needs free slots climbs out to drop;
             // a drop-only (clear) step never blocks on a full bag, so it never digs out of his box.
             const result = await dropItems(bot, ops, { awayFrom: step.work_pos ?? this.work.record.anchor ?? null,
-                avoid: ownerNear(bot, this.work.owner()), walk: 'task', climb: STEPS[step.skill].needsFreeSlots === true, replan: plan });
+                avoid: ownerNear(bot, this.work.owner()), walk: 'task', climb: STEPS[step.skill].needsFreeSlots === true,
+                minFree: config.min_free_slots, replan: plan });
+            // Build r1 D-A2: an attempt that only merged (no climb, nothing
+            // dropped) gives its attempt back, so splits that recur within a
+            // step never use up the drops a real one needs; the slot check
+            // below still blocks a merge that did not help.
+            if (result.merged && !result.climbed && !Object.keys(result.removed).length) {
+                p.junk_drops--;
+                this.work.write();
+                this.work.log(`junk drop ${p.junk_drops + 1}: only merged; the attempt is given back`);
+            }
             if (result.outcome === 'interrupted') {
                 // Design travel r4 §0 (adversary O5): a climb a fight cut before
                 // anything was dropped gives its attempt back, or night fights
@@ -354,7 +369,8 @@ export class Runner {
                 this.work.log(`junk drop ${p.junk_drops} ${result.outcome}: ${result.reason}`);
             }
         }
-        if (bot.inventory.emptySlotCount() < config.min_free_slots) return full(why);
+        // Build r1 S2: an item left on the cursor is no free slot; the step blocks.
+        if (bot.inventory.selectedItem || bot.inventory.emptySlotCount() < config.min_free_slots) return full(why);
         return {};
     }
 }

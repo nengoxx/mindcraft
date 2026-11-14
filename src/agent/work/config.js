@@ -119,13 +119,22 @@ export const WORK_DEFAULTS = Object.freeze({
         leash: 16,
         travel_speed: 0,
     }),
-    // Travel (REQ-TRV-1, 2; DECISIONS 2026-11-13 (evening)). `resume_max`:
-    // how often the code restarts one walk command (!goToCoordinates,
-    // !goToPlayer, !searchForBlock) that a fight or unstuck cut, before it
-    // stops and tells the owner; 0 turns the restart off (the model gets the
-    // interruption, as upstream).
+    // Travel (REQ-TRV-1, 2; DECISIONS 2026-11-13 (evening), 2026-11-14).
+    // `resume_max`: how often the code restarts one walk command
+    // (!goToCoordinates, !goToPlayer, !searchForBlock, !goToRememberedPlace)
+    // that a fight, unstuck, self_preservation, sleep or the bed pickup cut,
+    // before it stops and tells the owner; 0 turns the restart off (the model
+    // gets the interruption, as upstream). After self_preservation the
+    // restart waits until it is safe (REQ-TRV-2): her health above
+    // `safe_health` (of 20) and no hostile within `safe_radius` blocks for
+    // `safe_quiet_s` seconds; not safe within `safe_wait_s` seconds, she
+    // stops and tells the owner.
     travel: Object.freeze({
         resume_max: 20,
+        safe_health: 10,
+        safe_radius: 16,
+        safe_quiet_s: 5,
+        safe_wait_s: 60,
     }),
 });
 
@@ -137,7 +146,7 @@ const positive = value => Number.isSafeInteger(value) && value > 0;
 const count = value => Number.isSafeInteger(value) && value >= 0;
 const SUB_CHECKS = Object.freeze({
     collect: Object.freeze({ placed_radius: positive, question_s: positive }),
-    travel: Object.freeze({ resume_max: count }),
+    travel: Object.freeze({ resume_max: count, safe_health: count, safe_radius: positive, safe_quiet_s: count, safe_wait_s: positive }),
 });
 
 // An item's keep value: 0 or another non-negative safe integer, "stack", "slot" or "all".

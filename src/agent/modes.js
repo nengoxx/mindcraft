@@ -78,6 +78,7 @@ const modes_list = [
             }
             else if (Date.now() - bot.lastDamageTime < 3000 && (bot.health < 5 || bot.lastDamageTaken >= bot.health)) {
                 say(agent, 'I\'m dying!');
+                agent.work?.travel?.onNearDeath(); // fork carry (REQ-TRV-2): a walk cut by this flee restarts only once safe
                 execute(this, agent, async () => {
                     await skills.moveAway(bot, 20);
                 });

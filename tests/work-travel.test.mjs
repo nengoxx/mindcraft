@@ -240,7 +240,8 @@ test('REQ-TRV-1 (build r1 M7): an upkeep action started while the walk waits is 
 });
 
 test('REQ-TRV-1: a chained cut (self_preservation cuts the fight): one restart, no AUTO MESSAGE', async () => {
-    const { agent, bot } = setup({ drive: true, modes: { self_defense: true, self_preservation: true } });
+    // The flee makes the restart wait until it is safe (DECISIONS 2026-11-14, Q2): here at once (no quiet time).
+    const { agent, bot } = setup({ drive: true, modes: { self_defense: true, self_preservation: true }, work: { travel: { safe_quiet_s: 0 } } });
     let z = null;
     const order = [];
     const w = walker(bot, { others: async goal => {
@@ -374,6 +375,196 @@ test('REQ-TRV-2: !endGoal while a goal\'s walk is held: no restart', async () =>
     assert.equal(w.starts, 1);
     assert.equal(agent.work.travel.walk, null);
     assert.equal(agent.modelCalls, 1);
+});
+
+// --- DECISIONS 2026-11-14: Q2 (after a near-death flee) and Q3 (!goToRememberedPlace) -----------
+
+const { TRAVEL } = await import('../src/agent/work/travel.js');
+// The safety wait looks every 20 ms (500 live).
+function fastSafety() {
+    const poll = TRAVEL.safePollMs;
+    TRAVEL.safePollMs = 20;
+    stops.push(() => { TRAVEL.safePollMs = poll; });
+}
+// The near-death flee as the modes.js carry starts it: onNearDeath, then the mode's action.
+function nearDeathCut(agent) {
+    agent.work.travel.onNearDeath?.();
+    return cutAndEnd(agent, 'mode:self_preservation');
+}
+
+test('Q2: a self_preservation cut with her hurt and a hostile near waits; once her health is above half and no hostile has been near for safe_quiet_s, the walk restarts, with no call', async () => {
+    fastSafety();
+    const { agent, bot } = setup({ modes: {}, work: { travel: { safe_quiet_s: 1 } } });
+    const w = walker(bot);
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    bot.health = 4;
+    const z = F.hostile(bot, 'zombie', [10, 0, 0]);
+    await nearDeathCut(agent);
+    await F.until(() => agent.actions.currentActionLabel === 'action:goToCoordinates');   // the wait runs as the restarted walk
+    await F.sleep(150);
+    assert.equal(w.starts, 1, 'hurt: she waits');
+    bot.health = 11;
+    await F.sleep(150);
+    assert.equal(w.starts, 1, 'a hostile within 16: she waits');
+    delete bot.entities[z.id];
+    const gone = Date.now();
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.ok(Date.now() - gone >= 900, `quiet for safe_quiet_s first: ${Date.now() - gone} ms`);
+    assert.equal(agent.modelCalls, 0);
+    assert.deepEqual(autoMessages(agent), []);
+    w.release();
+    await typed;
+    assert.match(reached(agent)[0], /Resumed after 1 interruption\.$/);
+});
+
+test('Q2: not safe within safe_wait_s: one alert line, into history, no restart, no model call, no reply', async () => {
+    fastSafety();
+    const { agent, bot } = setup({ modes: {}, work: { travel: { safe_wait_s: 1 } } });
+    const w = walker(bot);
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    bot.health = 4;
+    const started = Date.now();
+    await nearDeathCut(agent);
+    await typed;
+    assert.ok(Date.now() - started >= 900, 'she waited the minute (here 1 s)');
+    const line = 'I stopped walking at 0,64,0: it wasn\'t safe after I got away.';
+    await F.until(() => agent.chats.includes(line));
+    assert.equal(agent.chats.filter(c => c === line).length, 1);
+    assert.ok(agent.turns.some(t => t.source === 'system' && t.content === line));
+    assert.equal(w.starts, 1);
+    assert.equal(agent.modelCalls, 0);
+    assert.deepEqual(reached(agent), []);
+    assert.equal(agent.work.travel.walk, null);
+});
+
+test('Q2 (fix wave 1, D-B2): a fire cut (the real self_preservation) restarts at once, even hurt: only the near-death flee waits', async () => {
+    const world = flat();
+    const { agent, bot } = setup({ world, drive: true, modes: { self_preservation: true } });   // the default 5 s quiet
+    bot.health = 8;   // hurt (DECISIONS 2026-11-14: after the fire, lava and falling-sand moves "the walk restarts at once")
+    let fled = 0;
+    const w = walker(bot, { others: goal => {
+        if (!goal.goal) return undefined;   // moveAway(5): off the fire
+        fled++;
+        world.set(0, 64, 0, 'air');
+        return undefined;
+    } });
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    world.set(0, 64, 0, 'fire');
+    const lit = Date.now();
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.ok(Date.now() - lit < 2000, `restarted at once: ${Date.now() - lit} ms`);
+    assert.equal(fled, 1);
+    assert.equal(agent.modelCalls, 0);
+    assert.deepEqual(autoMessages(agent), []);
+    w.release();
+    await typed;
+    assert.match(reached(agent)[0], /Resumed after 1 interruption\.$/);
+});
+
+test('Q2: while she waits a newer command or !stop ends the wait at once, and another dimension drops it: no restart, no call', async () => {
+    fastSafety();
+    for (const how of ['newer', 'stop', 'dimension']) {
+        const { agent, bot } = setup({ modes: {} });
+        const w = walker(bot);
+        const typed = typedWalk(agent);
+        await F.until(() => w.starts === 1);
+        bot.health = 4;   // not safe
+        await nearDeathCut(agent);
+        await F.until(() => agent.actions.currentActionLabel === 'action:goToCoordinates');
+        const t = Date.now();
+        if (how === 'newer') void F.ownerSays(agent, '!moveAway(3)');
+        if (how === 'stop') await F.ownerSays(agent, '!stop');
+        if (how === 'dimension') bot.game.dimension = 'the_nether';
+        await typed;
+        assert.ok(Date.now() - t < 1000, `${how}: ${Date.now() - t} ms`);
+        await F.sleep(30);
+        assert.equal(w.starts, 1, how);
+        assert.equal(agent.modelCalls, 0, how);
+        assert.equal(agent.work.travel.walk, null, how);
+        F.cleanup([agent]);
+    }
+});
+
+test('Q2: a fight during the wait is fought; the wait goes on after it and the walk restarts once quiet', async () => {
+    fastSafety();
+    const { agent, bot } = setup({ modes: {}, work: { travel: { safe_quiet_s: 1 } } });
+    const w = walker(bot);
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    bot.health = 4;
+    await nearDeathCut(agent);
+    await F.until(() => agent.actions.currentActionLabel === 'action:goToCoordinates');
+    await cutAndEnd(agent, 'mode:self_defense');   // a fight cuts the wait
+    bot.health = 20;
+    const fought = Date.now();
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.ok(Date.now() - fought >= 900, 'a fight counts as a hostile near: quiet for safe_quiet_s after it');
+    assert.equal(agent.modelCalls, 0);
+    assert.deepEqual(autoMessages(agent), []);
+    w.release();
+    await typed;
+    assert.match(reached(agent)[0], /Resumed after 2 interruptions\.$/, 'the restart after the fight counts toward resume_max');
+});
+
+test('fix wave 1, S1 and D-B1: a hostile that chases her through a real near-death flee holds the restart for safe_quiet_s after it leaves', async () => {
+    fastSafety();
+    const { agent, bot } = setup({ drive: true, modes: { self_preservation: true }, work: { travel: { safe_quiet_s: 1 } } });
+    let gone = null;
+    const w = walker(bot, { others: async goal => {
+        if (!goal.goal) return undefined;   // moveAway(20), the near-death flee
+        bot.health = 20;
+        const z = F.hostile(bot, 'zombie', [6, 0, 0]);   // it chases her, then falls behind
+        await F.sleep(200);
+        delete bot.entities[z.id];
+        gone = Date.now();
+        return undefined;
+    } });
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    Object.assign(bot, { health: 3, lastDamageTime: Date.now(), lastDamageTaken: 1 });   // "I'm dying!"
+    await F.until(() => w.starts === 2, { timeout: 4000 });
+    assert.ok(Date.now() - gone >= 900, `quiet after the flee first: ${Date.now() - gone} ms`);
+    assert.equal(agent.modelCalls, 0);
+    w.release();
+    await typed;
+    assert.match(reached(agent)[0], /Resumed after 1 interruption\.$/);
+});
+
+test('fix wave 1, S3: with safe_quiet_s 0 a hostile near at the look still holds the restart', async () => {
+    fastSafety();
+    const { agent, bot } = setup({ modes: {}, work: { travel: { safe_quiet_s: 0 } } });
+    const w = walker(bot);
+    const typed = typedWalk(agent);
+    await F.until(() => w.starts === 1);
+    const z = F.hostile(bot, 'zombie', [10, 0, 0]);
+    await nearDeathCut(agent);   // her health is full
+    await F.sleep(200);
+    assert.equal(w.starts, 1, 'a hostile within 16 now');
+    delete bot.entities[z.id];
+    await F.until(() => w.starts === 2, { timeout: 2000 });
+    w.release();
+    await typed;
+    assert.equal(agent.modelCalls, 0);
+});
+
+test('Q3: !goToRememberedPlace is kept: a fight cut restarts it, no model call, no AUTO MESSAGE', async () => {
+    const { agent, bot } = setup({ drive: true });
+    agent.memory_bank = { recallPlace: name => (name === 'home' ? [20, 64, 0] : null) };
+    const w = walker(bot);
+    const typed = F.ownerSays(agent, '!goToRememberedPlace("home")');
+    await F.until(() => w.starts === 1);
+    assert.equal(agent.actions.currentActionLabel, 'action:goToRememberedPlace');
+    zombie(bot);
+    await F.until(() => w.starts === 2 || agent.modelCalls > 0, { timeout: 4000 });
+    assert.equal(agent.modelCalls, 0, 'the AUTO MESSAGE made a model call');
+    assert.equal(w.starts, 2);
+    w.release();
+    await typed;
+    assert.deepEqual(autoMessages(agent), []);
+    assert.match(reached(agent)[0], /Resumed after 1 interruption\.$/);
 });
 
 // --- REQ-TRV-3: the stuck fallback --------------------------------------------------------------
@@ -615,6 +806,14 @@ test('§7: work.travel.resume_max defaults to 20, merges, and a bad value keeps 
     assert.equal(loadWorkConfig({}).travel.resume_max, 20);
     assert.equal(loadWorkConfig({ travel: { resume_max: 0 } }).travel.resume_max, 0);
     for (const bad of [-1, 1.5, '20', null]) assert.equal(loadWorkConfig({ travel: { resume_max: bad } }).travel.resume_max, 20, String(bad));
+});
+
+test('§14 (DECISIONS 2026-11-14): the safety keys default to health above 10, no hostile within 16 for 5 s, within 60 s; they merge, a bad value keeps the default', () => {
+    const { loadWorkConfig } = F.modules.config;
+    assert.deepEqual(loadWorkConfig({}).travel, { resume_max: 20, safe_health: 10, safe_radius: 16, safe_quiet_s: 5, safe_wait_s: 60 });
+    assert.deepEqual(loadWorkConfig({ travel: { safe_quiet_s: 0 } }).travel, { resume_max: 20, safe_health: 10, safe_radius: 16, safe_quiet_s: 0, safe_wait_s: 60 });
+    for (const [key, bad] of [['safe_health', -1], ['safe_radius', 0], ['safe_quiet_s', 1.5], ['safe_wait_s', 0], ['safe_wait_s', '60']])
+        assert.equal(loadWorkConfig({ travel: { [key]: bad } }).travel[key], loadWorkConfig({}).travel[key], `${key} ${JSON.stringify(bad)}`);
 });
 
 // --- the fixes in the blast radius (design §3) ---------------------------------------------
