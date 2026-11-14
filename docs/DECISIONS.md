@@ -388,7 +388,12 @@ evening"): "yes [...] pretty much let's go with your suggestions."
 - **After sleeping through the night** (travel design §11 Q1): "if automatically sleeping is on, she should continue
   the task after sleeping regardless of what it is." Whatever sleeping cut (a walk, a task) carries on once she is
   up and her bed is back. Not built yet; sleeping itself stays off until his word.
-- **After a near-death flee** (Q2): "I'm guessing yes, but only when it's safe." Open: what counts as safe is to be
-  settled with him.
-- **`!goToRememberedPlace`** (Q3): open, he asked for it to be explained again.
-- **Before S3:** "before S3 I want to be sure that everything is consistently reliable."
+- **After a near-death flee** (Q2): "I'm guessing yes, but only when it's safe"; then he agreed to the main seat's
+  definition: the cut walk restarts once her health is back above half and no hostile has been within 16 blocks
+  for a few seconds; if that does not happen within about a minute she tells him she stopped. After the fire,
+  lava and falling-sand moves of `self_preservation` the walk restarts at once.
+- **`!goToRememberedPlace`** (Q3): "yes": kept and restarted like the other walks.
+- **Before S3:** "before S3 I want to be sure that everything is consistently reliable." He agreed to the main
+  seat's three steps, in order: (1) close the known open findings (the split-slot bag finding of T5, audited
+  first; the message dropped at start-up; a clean T5); (2) a reliability audit of the I1 code (an audit lane and
+  an adversary); (3) a repeated uncoached trial in words, Qwen alone, measuring success, calls and latency.
