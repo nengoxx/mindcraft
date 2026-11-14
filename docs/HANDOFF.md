@@ -13,7 +13,12 @@
   adversary, two fix waves, a ruled fix; record and residuals in `runtime/diagnostics/i1-build/reliability/`
   (`STATE.md`, `build-r1-rulings.md`). Live trials (ISSUES "Reliability 1 live trials"): T5 passes;
   `!goToRememberedPlace` passes; no merge seen live (no split in her bag); the flee and sleep parts are offline only.
-- **Next:** step 2 (`STATE.md` there has the lane split). Live state: the operator runs since 2026-11-13 17:53 (bot
+- **Step 2 is done** (ledger `docs/audits/i1_audit.md`, `80680cf`): 18 findings, 4 M and 14 L, no H; the
+  orchestration core holds (no lost work, loop, hang or stale read). The M findings: decisions wait for memory
+  summaries (I1-1), summaries mostly reasoning (I1-2), the prompt cache is barely reused (I1-3), a clear in a cave
+  stalls (I1-4). **Next: the owner rules on what gets fixed** (a commissioned audit; the main seat's
+  recommendation went to him on 2026-11-14), then a fix slice, then step 3.
+- Step 2 records: `runtime/diagnostics/i1-build/reliability/` (`STATE.md`). Live state: the operator runs since 2026-11-13 17:53 (bot
   log `runtime/logs/mindcraft-2026-11-13T16-53-06-631Z.log`); private profile unchanged (`work.combat.ranged` the
   four skeletons, `travel_speed` 2, `work.inventory` gear best / cap stack / surplus 2, `min_free_slots` default).
   The worktree `<scratch>/mindcraft-rel1` (branch `reliability`, merged) can be removed.
