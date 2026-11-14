@@ -46,7 +46,7 @@
   9. *A night, once sleeping is back on* (S2d; `modes.sleeping` is off until his word). Expect: she places her
      bed, sleeps, the night skips, she takes the bed back and goes on. Report: any "I lost my bed" / "I left my
      bed" line, or a bed left in the world.
-  10. *A clear box in a cave* (Reliability 2, offline only so far). Mark a small box underground and ask her to
+  10. *A clear box in a cave* (Reliability 2; step 3 passed two in a cave, one mostly air already). Mark a small box underground and ask her to
      clear it. Expect: it completes. Report: it stops part way, and what she said.
 - Open questions: U1 (keep "yes, chests too" in the clear's leftovers question); the death line naming its cause (a
   taste call); the operator as its own user service, with a retry after a server restart (ISSUES "Operator: the proxy
